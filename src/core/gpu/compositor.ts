@@ -289,6 +289,7 @@ export class Compositor {
     return out;
   }
 
+  /** Forgets cached layer content, e.g. when a mask raster finished loading. */
   dispose() {
     for (const c of this.contents.values()) this.gpu.dispose(c.texture);
     this.contents.clear();

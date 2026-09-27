@@ -11,10 +11,12 @@ import {
   compositeHistory,
   editDocument,
   flushDocument,
+  openDocument,
   openStoredDocument,
   refreshDocumentList,
   removeStoredDocument,
 } from "@/core/document/session";
+import { openProject, saveProject } from "@/core/document/project";
 import { type DocExport, exportDocument, newDocument } from "./actions";
 import { addLayerMenu, deleteSelected, duplicateSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
@@ -183,6 +185,42 @@ function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+async function saveProjectFile() {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  const includeOriginals = confirm("Include the original photo files in the project?\n\nOK: a self-contained file you can move to another computer.\nCancel: a small file that relinks to photos already in the library.");
+  try {
+    const blob = await saveProject(doc, { includeOriginals });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${doc.name}.focused`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (error) {
+    toast(`Could not save the project: ${error instanceof Error ? error.message : error}`, "error");
+  }
+}
+
+function openProjectFile() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".focused,application/zip";
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const { document: doc, missing } = await openProject(file);
+      openDocument(doc);
+      if (missing.length) toast(`Opened. ${missing.length} photo(s) were not in the library or the file: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`, "error");
+      else toast(`Opened “${doc.name}”.`);
+    } catch (error) {
+      toast(`Could not open the project: ${error instanceof Error ? error.message : error}`, "error");
+    }
+  };
+  input.click();
+}
+
 function DocumentsPanel({ onNew }: { onNew: () => void }) {
   const docs = useStore(composite, (s) => s.documents);
   const current = useStore(composite, (s) => s.doc?.id);
@@ -219,6 +257,14 @@ function DocumentsPanel({ onNew }: { onNew: () => void }) {
       }
     >
       {!docs.length && <p className="faint">No compositions yet.</p>}
+      <div className="row wrap" style={{ marginBottom: 6 }}>
+        <button type="button" className="btn small" onClick={openProjectFile}>
+          Open .focused…
+        </button>
+        <button type="button" className="btn small" disabled={!current} onClick={() => void saveProjectFile()}>
+          Save .focused…
+        </button>
+      </div>
       {docs.map((d) => (
         <div key={d.id} className="row">
           <button type="button" className="doc-card" aria-current={d.id === current} onClick={() => void openStoredDocument(d.id)}>

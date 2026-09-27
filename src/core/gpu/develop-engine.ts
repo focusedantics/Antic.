@@ -111,6 +111,8 @@ export class DevelopEngine {
   private createMaskRenderer() {
     const renderer = new MaskRenderer(this.gpu, getRaster);
     renderer.onRasterLoaded = () => {
+      // Rasters load asynchronously: cached renders made without them are stale.
+      this.compositor?.dispose();
       this.invalidate();
       this.requestRender();
     };
