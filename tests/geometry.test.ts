@@ -58,3 +58,20 @@ describe("develop geometry", () => {
     }
   });
 });
+
+import { strokeDabs } from "@/core/gpu/masks";
+
+describe("brush dabs", () => {
+  it("spaces dabs a quarter diameter apart in target pixels", () => {
+    const dabs = strokeDabs(
+      { mode: "paint", size: 0.1, feather: 0.5, flow: 0.5, density: 1, points: [[0, 0.5, 1], [1, 0.5, 1]] },
+      1000,
+      500,
+    );
+    // Radius 50 px, spacing 25 px along a 1000 px line: 41 dabs.
+    expect(dabs.length / 4).toBe(41);
+    expect(dabs[2]).toBe(50);
+    expect(dabs[3]).toBe(0.5);
+    expect(dabs[4]).toBeCloseTo(25, 5);
+  });
+});

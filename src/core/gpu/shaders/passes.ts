@@ -406,6 +406,9 @@ uniform int uClipping;
 uniform int uSplit;
 uniform float uSplitX;
 uniform vec2 uCanvasSize;
+uniform sampler2D uOverlay;
+uniform int uOverlayMode;
+uniform int uOverlayInvert;
 void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uCanvasToImage * vec3(px, 1.0);
@@ -422,6 +425,12 @@ void main() {
     vec3 lin = REC2020_TO_SRGB * c.rgb;
     if (max(lin.r, max(lin.g, lin.b)) >= 0.999) rgb = vec3(1.0, 0.15, 0.1);
     else if (max(lin.r, max(lin.g, lin.b)) <= 0.0015) rgb = vec3(0.1, 0.35, 1.0);
+  }
+  if (uOverlayMode > 0 && !before) {
+    float m = texture(uOverlay, uv).r;
+    if (uOverlayInvert == 1) m = 1.0 - m;
+    if (uOverlayMode == 1) rgb = mix(rgb, vec3(1.0, 0.18, 0.12), m * 0.55);
+    else rgb = vec3(m);
   }
   if (uSplit == 1 && abs(px.x - uSplitX) < 1.0) rgb = vec3(0.9);
   outColor = vec4(rgb, 1.0);

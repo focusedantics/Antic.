@@ -313,3 +313,7 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 .history-item[aria-current="true"] { background: var(--panel-3); color: var(--text); }
 .history-item[data-future="true"] { color: var(--text-faint); }
 .tool-strip { display: flex; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.mask-layer { position: absolute; inset: 0; touch-action: none; }
+.mask-svg { position: absolute; inset: 0; overflow: visible; }
+.mask-handle { fill: #fff; stroke: #000; stroke-width: 1; cursor: grab; }
+.mask-pin { fill: var(--accent); stroke: #000; stroke-width: 1.5; cursor: move; }

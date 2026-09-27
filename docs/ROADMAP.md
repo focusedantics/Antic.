@@ -7,7 +7,7 @@ the result survives a reload.
 | --- | --- | --- |
 | 1 | Shell, Library, catalog, import, thumbnails, RAW previews | Done |
 | 2 | Develop renderer, adjustments, histogram, crop, before/after, recipes, presets | Done (see below) |
-| 3 | Mask engine: brush, linear, radial, range masks, per-mask adjustments | Planned |
+| 3 | Mask engine: brush, linear, radial, range masks, per-mask adjustments | Done (see below) |
 | 4 | Local AI: Select Subject/Sky/Object, Remove Background | Planned |
 | 5 | Composite document: layers, groups, transforms, opacity, blend modes, masks | Planned |
 | 6 | Gradients, text, shapes | Planned |
@@ -72,3 +72,19 @@ Known limitations:
 - Recipes pasted or synced onto photos that are not open keep their old thumbnails until
   the photo is opened in Develop.
 - Exports are 8-bit sRGB; 16-bit TIFF export is planned (Stage 10).
+
+## Stage 3 — Masks
+
+Done:
+- Masks are recipe data: ordered components with Add / Subtract / Intersect, per-component
+  invert and opacity, mask-level invert, amount and visibility. Coordinates live in the
+  oriented source, so masks survive crops, rotation and any preview size.
+- Components: brush (strokes with size, feather, flow, density, pressure; paint/erase),
+  linear gradient, radial gradient (feather, handles), luminance range, color range
+  (up to 5 samples, refine), and AI rasters (Stage 4).
+- Brush coverage is rasterized on the GPU with instanced dabs in source space and cached;
+  while painting only the newest stroke is redrawn.
+- Local adjustments per mask: temperature, tint, exposure, contrast, highlights, shadows,
+  whites, blacks, texture, clarity, dehaze, hue, saturation.
+- Red overlay (O) or black & white coverage view of the edited mask; handles on canvas;
+  Masks tool (M), Brush (B), brush size with [ and ].

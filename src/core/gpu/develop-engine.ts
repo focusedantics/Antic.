@@ -8,6 +8,8 @@ import { currentHistory, develop, type Histogram } from "@/core/develop/session"
 import type { LoadedSource } from "@/core/develop/source-loader";
 import { type Mat3, toGlMat3 } from "@/lib/math";
 import { Gpu, type Target } from "./gl";
+import { getRaster } from "@/core/catalog/db";
+import { MaskRenderer } from "./masks";
 import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
 import * as S from "./shaders/passes";
 
@@ -30,7 +32,10 @@ export class DevelopEngine {
   private thumbTimer: ReturnType<typeof setTimeout> | null = null;
   private observer: ResizeObserver | null = null;
   private lost = false;
-  masks: MaskStage | undefined;
+  masks: MaskStage;
+  maskRenderer: MaskRenderer;
+  /** Only the on-screen render keeps the edited mask's coverage for the overlay. */
+  private viewRender = false;
   /** Draws tool overlays (crop frame, mask pins) after each frame. */
   onFrame: (() => void) | null = null;
 
@@ -39,13 +44,19 @@ export class DevelopEngine {
     this.canvas.className = "develop-canvas";
     this.gpu = new Gpu(this.canvas);
     this.pipeline = new DevelopPipeline(this.gpu);
+    this.maskRenderer = this.createMaskRenderer();
+    this.masks = (input, ctx) => {
+      const s = develop.getState();
+      const overlay = s.tool === "mask" && (s.maskOverlay || s.maskBw);
+      return this.maskRenderer.stage(input, ctx, s.activeMaskId, this.viewRender ? (overlay ? "view-overlay" : "view") : "offscreen");
+    };
     this.canvas.addEventListener("webglcontextlost", (e) => {
       e.preventDefault();
       this.lost = true;
     });
     this.canvas.addEventListener("webglcontextrestored", () => this.restore());
     develop.subscribe((s, prev) => {
-      if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay)
+      if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
         this.requestRender();
       if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.scheduleThumbnails();
     });
@@ -55,9 +66,19 @@ export class DevelopEngine {
     return this.pipeline;
   }
 
+  private createMaskRenderer() {
+    const renderer = new MaskRenderer(this.gpu, getRaster);
+    renderer.onRasterLoaded = () => {
+      this.invalidate();
+      this.requestRender();
+    };
+    return renderer;
+  }
+
   private restore() {
     this.gpu = new Gpu(this.canvas);
     this.pipeline = new DevelopPipeline(this.gpu);
+    this.maskRenderer = this.createMaskRenderer();
     this.result = this.before = null;
     const sources = [...this.sources.entries()];
     this.sources.clear();
@@ -262,10 +283,13 @@ export class DevelopEngine {
     width = Math.round(width / over);
     height = Math.round(height / over);
 
-    const key = [src.gpu, recipe, width, height, draft, this.masks, state.activeMaskId, state.maskOverlay];
+    const overlayMode = state.tool === "mask" && state.activeMaskId ? (state.maskBw ? 2 : state.maskOverlay ? 1 : 0) : 0;
+    const key = [src.gpu, recipe, width, height, draft, state.activeMaskId, overlayMode > 0];
     if (!this.result || !sameKey(this.result.key, key)) {
       this.pipeline.release(this.result?.target);
+      this.viewRender = true;
       const target = this.pipeline.render(src.gpu, recipe, { width, height, draft, masks: this.masks });
+      this.viewRender = false;
       this.result = { target, key };
       if (!draft) this.scheduleHistogram();
     }
@@ -290,7 +314,7 @@ export class DevelopEngine {
       this.gpu.pass("display", S.display, {
         target: null,
         viewport: [0, 0, this.canvas.width, this.canvas.height],
-        textures: { uImage: image, uBefore: beforeTarget ?? image },
+        textures: { uImage: image, uBefore: beforeTarget ?? image, uOverlay: overlay },
         uniforms: {
           uCanvasToImage: toGlMat3(m),
           uBackground: background,
@@ -298,9 +322,12 @@ export class DevelopEngine {
           uSplit: split ? 1 : 0,
           uSplitX: region.x + region.width * state.splitPosition,
           uCanvasSize: [this.canvas.width, this.canvas.height],
+          uOverlayMode: overlay ? overlayMode : 0,
+          uOverlayInvert: recipe.masks.find((m) => m.id === state.activeMaskId)?.invert ? 1 : 0,
         },
       });
     };
+    const overlay = this.maskRenderer.overlay?.target ?? null;
     const { gl: g } = this.gpu;
     if (state.compare === "side-by-side" && beforeTarget) {
       g.enable(g.SCISSOR_TEST);

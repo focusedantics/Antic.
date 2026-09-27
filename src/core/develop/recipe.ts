@@ -212,6 +212,8 @@ export type Mask = {
   readonly visible: boolean;
   /** Scales every local adjustment, 0..1 (Lightroom's mask "Amount"). */
   readonly amount: number;
+  /** Applies the adjustments outside the combined coverage instead of inside. */
+  readonly invert: boolean;
   readonly components: readonly MaskComponent[];
   readonly adjustments: LocalAdjustments;
 };

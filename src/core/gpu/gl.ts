@@ -45,6 +45,39 @@ void main() {
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
+const DAB_VERTEX = `#version 300 es
+precision highp float;
+// One quad per dab: (x, y) center and radius in target pixels, flow in w.
+in vec4 aDab;
+uniform vec2 uTargetSize;
+out vec2 vLocal;
+out float vFlow;
+void main() {
+  int corner = gl_VertexID % 6;
+  vec2 offsets[6] = vec2[6](vec2(-1,-1), vec2(1,-1), vec2(1,1), vec2(-1,-1), vec2(1,1), vec2(-1,1));
+  vec2 o = offsets[corner];
+  vLocal = o;
+  vFlow = aDab.w;
+  vec2 p = aDab.xy + o * (aDab.z + 1.0);
+  gl_Position = vec4(p / uTargetSize * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const DAB_FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 vLocal;
+in float vFlow;
+uniform float uFeather;
+out vec4 outColor;
+void main() {
+  float d = length(vLocal);
+  if (d > 1.0) discard;
+  // Soft edge: full inside (1 - feather), smooth falloff to the rim.
+  float inner = 1.0 - uFeather;
+  float a = uFeather <= 0.0 ? 1.0 : 1.0 - smoothstep(inner, 1.0, d);
+  a *= vFlow;
+  outColor = vec4(a, a, a, a);
+}`;
+
 export class GpuError extends Error {}
 
 export class Gpu {
@@ -293,6 +326,71 @@ export class Gpu {
     }
   }
 
+  private dabProgram: { program: WebGLProgram; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; size: WebGLUniformLocation; feather: WebGLUniformLocation } | null = null;
+
+  /**
+   * Draws brush dabs (x, y, radius in target pixels, flow) into a target,
+   * accumulating with "over" so overlapping dabs build up like a real brush.
+   */
+  drawDabs(target: Target, dabs: Float32Array, feather: number) {
+    const { gl } = this;
+    if (!this.dabProgram) {
+      const compile = (type: number, src: string) => {
+        const sh = gl.createShader(type)!;
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new GpuError(`Dab shader: ${gl.getShaderInfoLog(sh)}`);
+        return sh;
+      };
+      const program = gl.createProgram()!;
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, DAB_VERTEX));
+      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, DAB_FRAGMENT));
+      gl.bindAttribLocation(program, 0, "aDab");
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new GpuError(`Dab program: ${gl.getProgramInfoLog(program)}`);
+      const vao = gl.createVertexArray()!;
+      const buffer = gl.createBuffer()!;
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
+      gl.vertexAttribDivisor(0, 1);
+      gl.bindVertexArray(null);
+      this.dabProgram = {
+        program,
+        vao,
+        buffer,
+        size: gl.getUniformLocation(program, "uTargetSize")!,
+        feather: gl.getUniformLocation(program, "uFeather")!,
+      };
+    }
+    const p = this.dabProgram;
+    const count = dabs.length / 4;
+    if (!count) return;
+    gl.useProgram(p.program);
+    gl.bindVertexArray(p.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, p.buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, dabs, gl.DYNAMIC_DRAW);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    gl.viewport(0, 0, target.width, target.height);
+    gl.uniform2f(p.size, target.width, target.height);
+    gl.uniform1f(p.feather, feather);
+    gl.enable(gl.BLEND);
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+    gl.disable(gl.BLEND);
+    gl.bindVertexArray(null);
+  }
+
+  clear(target: Target, value = 0) {
+    const { gl } = this;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    gl.viewport(0, 0, target.width, target.height);
+    gl.clearColor(value, value, value, value);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
   /** Reads RGBA8 pixels from a target (bottom-up rows, as GL stores them). */
   readRgba8(target: Target): Uint8Array {
     const { gl } = this;
@@ -301,6 +399,16 @@ export class Gpu {
     gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return out;
+  }
+
+  /** Reads one float pixel at texel (x, y). */
+  readPixelFloat(target: Target, x: number, y: number): [number, number, number, number] {
+    const { gl } = this;
+    const out = new Float32Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    gl.readPixels(Math.max(0, Math.min(target.width - 1, Math.floor(x))), Math.max(0, Math.min(target.height - 1, Math.floor(y))), 1, 1, gl.RGBA, gl.FLOAT, out);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return [out[0], out[1], out[2], out[3]];
   }
 
   /** Reads float pixels (RGBA32F) from a float target. */

@@ -186,6 +186,7 @@ function sanitizeMask(input: unknown): Mask | null {
     name: typeof m.name === "string" ? m.name.slice(0, 80) : "Mask",
     visible: bool(m.visible, true),
     amount: num(m.amount, 1, { min: 0, max: 1 }),
+    invert: bool(m.invert, false),
     components,
     adjustments: numbers(m.adjustments, defaultLocalAdjustments, localRanges),
   };

@@ -13,6 +13,7 @@ import { DetailPanel, EffectsPanel, LensPanel } from "./panels/Detail";
 import { HistogramView } from "./panels/Histogram";
 import { copySettings, DevelopLeftPanel, pasteSettings } from "./panels/Left";
 import { ToneCurvePanel } from "./panels/ToneCurve";
+import { createMask, MasksPanel } from "./masks/MasksPanel";
 import { CropPanel } from "./tools/Crop";
 import { startEyedropper } from "./tools/eyedropper";
 import { DevelopView, zoomTo } from "./View";
@@ -81,6 +82,7 @@ function ToolStrip() {
   const tools: { id: DevelopTool; label: string; key: string }[] = [
     { id: "adjust", label: "Edit", key: "" },
     { id: "crop", label: "Crop", key: "R" },
+    { id: "mask", label: "Masks", key: "M" },
   ];
   return (
     <div className="tool-strip" role="toolbar" aria-label="Develop tools">
@@ -102,6 +104,7 @@ function RightPanel() {
       <HistogramView />
       <ToolStrip />
       {tool === "crop" && <CropPanel />}
+      {tool === "mask" && <MasksPanel />}
       <BasicPanel />
       <ToneCurvePanel />
       <ColorMixerPanel />
@@ -163,6 +166,18 @@ function developShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
     case "r":
       setTool("crop");
       return true;
+    case "m":
+      setTool("mask");
+      return true;
+    case "b": {
+      // Brush: continue painting the active brush component, or start a new brush mask.
+      const { recipe, activeMaskId, activeComponentId } = develop.getState();
+      const mask = recipe?.masks.find((m) => m.id === activeMaskId);
+      const brushPart = mask?.components.find((c) => c.id === activeComponentId && c.shape.kind === "brush") ?? mask?.components.find((c) => c.shape.kind === "brush");
+      if (mask && brushPart) develop.setState({ tool: "mask", activeComponentId: brushPart.id });
+      else createMask("brush");
+      return true;
+    }
     case "w":
       startEyedropper();
       return true;

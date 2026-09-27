@@ -40,9 +40,12 @@ export type DevelopState = {
   readonly splitPosition: number;
   readonly clipping: boolean;
   readonly histogram: Histogram | null;
-  /** Mask selected for editing, if any (Stage 3). */
+  /** Mask selected for editing, and the component the canvas tools act on. */
   readonly activeMaskId: string | null;
+  readonly activeComponentId: string | null;
   readonly maskOverlay: boolean;
+  /** Show the edited mask as black & white coverage instead of a red overlay. */
+  readonly maskBw: boolean;
 };
 
 export const develop = createStore<DevelopState>(() => ({
@@ -59,7 +62,9 @@ export const develop = createStore<DevelopState>(() => ({
   clipping: false,
   histogram: null,
   activeMaskId: null,
+  activeComponentId: null,
   maskOverlay: true,
+  maskBw: false,
 }));
 
 const histories = new Map<AssetId, History<DevelopRecipe>>();
@@ -102,6 +107,7 @@ export function openInDevelop(assetId: AssetId) {
     error: null,
     histogram: null,
     activeMaskId: null,
+    activeComponentId: null,
   });
 }
 

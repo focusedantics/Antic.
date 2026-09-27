@@ -107,9 +107,8 @@ export function Slider({
     if (next === null) return;
     e.preventDefault();
     e.stopPropagation();
-    onGestureStart?.();
+    // Not a gesture: consecutive nudges of the same control merge into one history step.
     onChange(quantize(next));
-    onGestureEnd?.();
   };
 
   const commitText = () => {

@@ -3,6 +3,7 @@ import { useStore } from "@/app/hooks";
 import { develop } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { clamp } from "@/lib/math";
+import { MaskOverlay } from "./masks/MaskOverlay";
 import { CropOverlay } from "./tools/Crop";
 
 /** Zoom so that the point under the cursor stays put. */
@@ -60,6 +61,8 @@ export function DevelopView() {
         el.setPointerCapture(e.pointerId);
         el.style.cursor = "grabbing";
         e.preventDefault();
+        // Panning wins over tools (brush strokes, crop handles) underneath.
+        e.stopPropagation();
       }
     };
     const onMove = (e: PointerEvent) => {
@@ -115,6 +118,7 @@ export function DevelopView() {
   return (
     <div className="develop-view" ref={ref}>
       {tool === "crop" && <CropOverlay />}
+      {tool === "mask" && <MaskOverlay />}
       {compare === "split" && tool === "adjust" && <SplitHandle position={split} />}
       {status === "preview" && <div className="develop-status">Showing the camera preview while the original decodes…</div>}
       {status === "loading" && <div className="develop-status">Decoding original…</div>}
