@@ -116,9 +116,10 @@ export function openInDevelop(assetId: AssetId) {
  * as-shot white balance is recorded on the asset, and a recipe still "as shot"
  * follows it.
  */
-export function sourceDecoded(assetId: AssetId, info: SourceColorInfo, quality: "raw" | "rendered") {
+export function sourceDecoded(assetId: AssetId, info: SourceColorInfo, quality: "raw" | "rendered", size?: { width: number; height: number }) {
   const asset = getAsset(assetId);
   if (!asset) return;
+  if (size && (!asset.width || !asset.height)) updateAsset(assetId, { width: size.width, height: size.height });
   if (info.asShot && !deepEqual(info.asShot, asset.asShot)) updateAsset(assetId, { asShot: info.asShot });
   const history = histories.get(assetId);
   if (history && info.raw) {

@@ -12,10 +12,12 @@ import { handleKey } from "./shortcuts";
 import { setWorkspace, toast, ui, type Workspace } from "./state";
 
 const DevelopWorkspace = lazy(() => import("@/features/develop/Develop"));
+const CompositeWorkspace = lazy(() => import("@/features/composite/Composite"));
 
 const modules: { id: Workspace; label: string; key: string }[] = [
   { id: "library", label: "Library", key: "G" },
   { id: "develop", label: "Develop", key: "D" },
+  { id: "composite", label: "Composite", key: "C" },
 ];
 
 function ImportStatus() {
@@ -121,6 +123,11 @@ export function App() {
       {workspace === "develop" && (
         <Suspense fallback={<div className="empty-state">Loading Develop…</div>}>
           <DevelopWorkspace Shell={Shell} />
+        </Suspense>
+      )}
+      {workspace === "composite" && (
+        <Suspense fallback={<div className="empty-state">Loading Composite…</div>}>
+          <CompositeWorkspace Shell={Shell} />
         </Suspense>
       )}
       {showFilmstrip ? <Filmstrip /> : <div />}

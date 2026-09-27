@@ -23,7 +23,7 @@ export async function showInDevelop(assetId: AssetId) {
   if (!asset) return;
   if (engine.hasSource(assetId) && !engine.hasSource(assetId, "preview")) {
     const src = engine.sourceFor(assetId)!;
-    sourceDecoded(assetId, src.info, asset.kind === "raw" ? "raw" : "rendered");
+    sourceDecoded(assetId, src.info, asset.kind === "raw" ? "raw" : "rendered", src.size);
     engine.requestRender();
     return;
   }
@@ -39,7 +39,7 @@ export async function showInDevelop(assetId: AssetId) {
     const loaded = await loadSource(asset, abort.signal);
     if (abort.signal.aborted) return;
     engine.setSource(assetId, loaded, loaded.quality);
-    sourceDecoded(assetId, loaded.info, loaded.quality);
+    sourceDecoded(assetId, loaded.info, loaded.quality, { width: loaded.data.width, height: loaded.data.height });
   } catch (error) {
     if (abort.signal.aborted) return;
     const message = error instanceof Error ? error.message : String(error);

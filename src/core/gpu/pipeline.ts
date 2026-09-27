@@ -400,6 +400,49 @@ export class DevelopPipeline {
     return pixels;
   }
 
+  /**
+   * Applies a look (tone, curves, color) to a linear Rec.2020 image: used by
+   * composite adjustment layers. Local-contrast controls are not part of looks.
+   */
+  applyLook(input: Target, look: Pick<DevelopRecipe, "basic" | "toneCurve" | "colorMixer" | "colorGrading" | "profile">): Target {
+    const { gpu } = this;
+    const prepared = this.acquire(input.width, input.height);
+    gpu.pass("prepare", S.prepare, {
+      target: prepared,
+      textures: { uInput: input },
+      uniforms: { uWhiteBalance: toGlMat3([1, 0, 0, 0, 1, 0, 0, 0, 1]), uExposure: look.basic.exposure },
+    });
+    const out = this.acquire(input.width, input.height);
+    const b = look.basic;
+    const curvesActive = isToneCurveActive(look.toneCurve);
+    gpu.pass("tone", S.toneAndColor, {
+      target: out,
+      textures: { uInput: prepared, uBlurSmall: prepared, uBlurLarge: prepared, uCurves: curvesActive ? this.curves(look as DevelopRecipe) : null },
+      uniforms: {
+        uHighlights: b.highlights,
+        uShadows: b.shadows,
+        uWhites: b.whites,
+        uBlacks: b.blacks,
+        uContrast: b.contrast,
+        uTexture: 0,
+        uClarity: 0,
+        uDehaze: 0,
+        uAtmosphere: [1, 1, 1],
+        uVibrance: b.vibrance,
+        uSaturation: b.saturation,
+        uProfileCurve: 0,
+        uMonochrome: look.profile === "monochrome" ? 1 : 0,
+        uCurvesActive: curvesActive ? 1 : 0,
+        uMixerActive: isMixerActive(look.colorMixer) ? 1 : 0,
+        uMixer: mixerUniform(look.colorMixer),
+        uGradingActive: isGradingActive(look.colorGrading) ? 1 : 0,
+        ...gradingUniforms(look.colorGrading),
+      },
+    });
+    this.release(prepared);
+    return out;
+  }
+
   /** The recipe as it would be for an unedited photo, keeping the geometry (for Before views). */
   static beforeRecipe(recipe: DevelopRecipe, info: SourceColorInfo): DevelopRecipe {
     return { ...createDefaultRecipe(info), geometry: recipe.geometry };

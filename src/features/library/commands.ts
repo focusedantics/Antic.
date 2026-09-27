@@ -108,6 +108,7 @@ export function assetMenu(x: number, y: number) {
   const inStack = ids.some((id) => catalog.getState().assets.get(id)?.stackId);
   openMenu(x, y, [
     { label: "Open in Develop", shortcut: "D", onSelect: () => setWorkspace("develop") },
+    { label: "Add to Composite", onSelect: () => void addToComposite(ids) },
     "separator",
     { label: "Pick", shortcut: "P", onSelect: () => flag("pick") },
     { label: "Reject", shortcut: "X", onSelect: () => flag("reject") },
@@ -140,4 +141,9 @@ export function assetMenu(x: number, y: number) {
 export function compare(ids: string[]) {
   if (ids.length < 2) return;
   ui.setState({ activeId: ids[0], compareId: ids[1], libraryView: "compare", workspace: "library" });
+}
+
+async function addToComposite(ids: string[]) {
+  const { addAssetsToComposite } = await import("@/features/composite/actions");
+  await addAssetsToComposite(ids);
 }

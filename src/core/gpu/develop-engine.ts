@@ -1,14 +1,18 @@
-import { putThumb } from "@/core/catalog/db";
+import { getRaster, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { fullCrop } from "@/core/develop/defaults";
 import { outputSize, type Size } from "@/core/develop/geometry";
 import type { DevelopRecipe } from "@/core/develop/recipe";
 import { currentHistory, develop, type Histogram } from "@/core/develop/session";
-import type { LoadedSource } from "@/core/develop/source-loader";
+import { type LoadedSource, loadSource } from "@/core/develop/source-loader";
+import type { CompositeDocument } from "@/core/document/model";
+import { flatten } from "@/core/document/operations";
+import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
+import { Compositor } from "./compositor";
 import { Gpu, type Target } from "./gl";
-import { getRaster } from "@/core/catalog/db";
+import * as CS from "./shaders/composite";
 import { MaskRenderer } from "./masks";
 import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
 import * as S from "./shaders/passes";
@@ -38,6 +42,11 @@ export class DevelopEngine {
   private viewRender = false;
   /** Draws tool overlays (crop frame, mask pins) after each frame. */
   onFrame: (() => void) | null = null;
+  /** Which workspace the canvas currently shows. */
+  mode: "develop" | "composite" = "develop";
+  compositor: Compositor;
+  private compositeResult: { target: Target; key: unknown[] } | null = null;
+  private loadingSources = new Set<AssetId>();
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -45,6 +54,7 @@ export class DevelopEngine {
     this.gpu = new Gpu(this.canvas);
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
+    this.compositor = this.createCompositor();
     this.masks = (input, ctx) => {
       const s = develop.getState();
       const overlay = s.tool === "mask" && (s.maskOverlay || s.maskBw);
@@ -60,10 +70,42 @@ export class DevelopEngine {
         this.requestRender();
       if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.scheduleThumbnails();
     });
+    composite.subscribe((s, prev) => {
+      if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view)) this.requestRender();
+    });
+    // Recipe edits in Develop change image layers that follow them.
+    catalog.subscribe(() => {
+      if (this.mode === "composite") this.requestRender();
+    });
   }
 
   get pipelineRef() {
     return this.pipeline;
+  }
+
+  private createCompositor() {
+    return new Compositor(this.gpu, this.pipeline, this.maskRenderer, (id) => this.compositeSource(id));
+  }
+
+  /** Decoded photo for a composite image layer; starts decoding (full quality) when missing. */
+  ensureSource(assetId: AssetId): GpuSource | null {
+    return this.compositeSource(assetId);
+  }
+
+  private compositeSource(assetId: AssetId): GpuSource | null {
+    const loaded = this.sources.get(assetId);
+    if (loaded && loaded.quality !== "preview") return loaded.gpu;
+    if (!this.loadingSources.has(assetId)) {
+      const asset = getAsset(assetId);
+      if (asset) {
+        this.loadingSources.add(assetId);
+        void loadSource(asset)
+          .then((data) => this.setSource(assetId, data, data.quality))
+          .catch((error) => console.warn(`Could not load ${asset.fileName} for the composition:`, error))
+          .finally(() => this.loadingSources.delete(assetId));
+      }
+    }
+    return loaded?.gpu ?? null;
   }
 
   private createMaskRenderer() {
@@ -79,7 +121,9 @@ export class DevelopEngine {
     this.gpu = new Gpu(this.canvas);
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
+    this.compositor = this.createCompositor();
     this.result = this.before = null;
+    this.compositeResult = null;
     const sources = [...this.sources.entries()];
     this.sources.clear();
     for (const [id, loaded] of sources) this.setSource(id, loaded.data, loaded.quality);
@@ -88,7 +132,8 @@ export class DevelopEngine {
   }
 
   attach(container: HTMLElement) {
-    container.appendChild(this.canvas);
+    // First child: tool overlays rendered by React stack above the canvas.
+    container.prepend(this.canvas);
     this.observer?.disconnect();
     this.observer = new ResizeObserver(() => this.resize(container));
     this.observer.observe(container);
@@ -131,10 +176,12 @@ export class DevelopEngine {
     }
     this.sources.set(assetId, { gpu, quality, data });
     if (old) this.pipeline.disposeSource(old.gpu);
-    // Keep at most two decoded photos on the GPU.
+    // Keep few decoded photos on the GPU: the one in Develop and those in the open composition.
+    const doc = composite.getState().doc;
+    const inDoc = new Set(doc ? flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])) : []);
     for (const id of [...this.sources.keys()]) {
-      if (this.sources.size <= 2) break;
-      if (id !== assetId && id !== develop.getState().assetId) {
+      if (this.sources.size <= Math.max(2, inDoc.size + 1)) break;
+      if (id !== assetId && id !== develop.getState().assetId && !inDoc.has(id)) {
         this.pipeline.disposeSource(this.sources.get(id)!.gpu);
         this.sources.delete(id);
       }
@@ -146,7 +193,8 @@ export class DevelopEngine {
   invalidate() {
     this.pipeline.release(this.result?.target);
     this.pipeline.release(this.before?.target);
-    this.result = this.before = null;
+    this.pipeline.release(this.compositeResult?.target);
+    this.result = this.before = this.compositeResult = null;
   }
 
   requestRender() {
@@ -260,6 +308,11 @@ export class DevelopEngine {
 
   private frame() {
     if (this.lost) return;
+    if (this.mode === "composite") {
+      this.compositeFrame();
+      this.onFrame?.();
+      return;
+    }
     const state = develop.getState();
     const { gl } = this.gpu;
     const src = state.assetId ? this.sources.get(state.assetId) : null;
@@ -340,6 +393,93 @@ export class DevelopEngine {
       drawRegion(regions[0], this.result.target, state.compare === "split" && !!beforeTarget);
     }
     this.onFrame?.();
+  }
+
+  // ─── Composite ───────────────────────────────────────────────────────────
+
+  /** Device pixels per document pixel in the composite view. */
+  compositeScale(): number {
+    const { doc, view } = composite.getState();
+    if (!doc) return 1;
+    const pad = 40 * (window.devicePixelRatio || 1);
+    const fit = Math.min((this.canvas.width - pad * 2) / doc.width, (this.canvas.height - pad * 2) / doc.height);
+    return view.fit ? fit : view.zoom;
+  }
+
+  compositeFitScale(): number {
+    const { doc } = composite.getState();
+    if (!doc) return 1;
+    const pad = 40 * (window.devicePixelRatio || 1);
+    return Math.min((this.canvas.width - pad * 2) / doc.width, (this.canvas.height - pad * 2) / doc.height);
+  }
+
+  /** Screen device px → document px. */
+  screenToDoc(): Mat3 {
+    const { doc, view } = composite.getState();
+    const s = this.compositeScale();
+    if (!doc) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const cx = view.fit ? doc.width / 2 : view.centerX * doc.width;
+    const cy = view.fit ? doc.height / 2 : view.centerY * doc.height;
+    return [1 / s, 0, cx - this.canvas.width / 2 / s, 0, 1 / s, cy - this.canvas.height / 2 / s, 0, 0, 1];
+  }
+
+  clientToDoc(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const dpr = this.canvas.width / Math.max(1, rect.width);
+    const m = this.screenToDoc();
+    const x = (clientX - rect.left) * dpr;
+    const y = (clientY - rect.top) * dpr;
+    return { x: m[0] * x + m[2], y: m[4] * y + m[5] };
+  }
+
+  docToClient(x: number, y: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    const dpr = this.canvas.width / Math.max(1, rect.width);
+    const m = this.screenToDoc();
+    return { x: rect.left + (x - m[2]) / m[0] / dpr, y: rect.top + (y - m[5]) / m[4] / dpr };
+  }
+
+  private compositeFrame() {
+    const { gl } = this.gpu;
+    const { doc } = composite.getState();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0.075, 0.075, 0.075, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (!doc) return;
+    const scale = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));
+    const assets = catalog.getState().assets;
+    const revisions = flatten(doc.layers).map((l) => (l.kind === "image" ? `${l.assetId}:${assets.get(l.assetId)?.developRevision}:${this.sources.get(l.assetId)?.quality}` : ""));
+    const key = [doc, scale, revisions.join("|"), this.sources.size];
+    if (!this.compositeResult || !sameKey(this.compositeResult.key, key)) {
+      this.pipeline.release(this.compositeResult?.target);
+      this.compositeResult = { target: this.compositor.render(doc, scale), key };
+    }
+    this.gpu.pass("composite-display", CS.compositeDisplay, {
+      target: null,
+      textures: { uImage: this.compositeResult.target },
+      uniforms: {
+        uScreenToDoc: toGlMat3(this.screenToDoc()),
+        uDocSize: [doc.width, doc.height],
+        uCanvasSize: [this.canvas.width, this.canvas.height],
+      },
+    });
+  }
+
+  /** Renders a document for export or thumbnails: display-encoded, straight alpha. */
+  renderDocument(doc: CompositeDocument, scale: number): ImageData {
+    const target = this.compositor.render(doc, scale);
+    const out = this.pipeline.acquire(target.width, target.height, "rgba8");
+    this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: target } });
+    const data = this.gpu.readRgba8(out);
+    this.pipeline.release(out);
+    this.pipeline.release(target);
+    return new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), target.width, target.height);
+  }
+
+  /** True while any photo of the composition is still decoding. */
+  get compositeLoading() {
+    return this.loadingSources.size > 0;
   }
 
   private scheduleHistogram() {
@@ -442,6 +582,16 @@ export async function encodePixels(pixels: ImageData, type: string, quality: num
   }
   return canvas.convertToBlob({ type, quality });
 }
+
+const unpremultiply = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uInput;
+void main() {
+  vec4 c = texture(uInput, vUv);
+  outColor = vec4(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), c.a);
+}`;
 
 function sameKey(a: unknown[], b: unknown[]) {
   return a.length === b.length && a.every((v, i) => v === b[i]);

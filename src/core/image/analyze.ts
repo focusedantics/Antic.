@@ -49,14 +49,10 @@ export async function analyzeFile(file: Blob, kind: FileKind): Promise<Analysis>
   }
   // TIFF decoding ignores orientation; apply it like the browser does for JPEG.
   const oriented = kind === "tiff" ? orient(bitmap, meta.orientation) : bitmap;
+  // Read the size before thumbnails() closes the bitmap (a closed bitmap reports 0 × 0).
+  const { width, height } = oriented;
   const result = await thumbnails(oriented, alphaKinds.has(kind));
-  return {
-    ...meta,
-    width: oriented.width,
-    height: oriented.height,
-    ...result,
-    previewSource: "decoded",
-  };
+  return { ...meta, width, height, ...result, previewSource: "decoded" };
 }
 
 const alphaKinds = new Set<FileKind>(["png", "webp", "avif", "gif", "tiff", "heic"]);
