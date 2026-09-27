@@ -43,9 +43,16 @@ export function createHistory<T>(
     status = computeStatus();
     for (const l of listeners) l();
   }
-  function push(label: string, state: T) {
+  function push(label: string, state: T, merge = false) {
     entries = entries.slice(0, index + 1);
-    entries.push({ label, state, time: Date.now() });
+    const last = entries[entries.length - 1];
+    const now = Date.now();
+    // Quick repeats of the same control (arrow keys on a slider) become one step.
+    if (merge && label !== "Edit" && index > 0 && last.label === label && now - last.time < 1000) {
+      entries[entries.length - 1] = { label, state, time: now };
+      return;
+    }
+    entries.push({ label, state, time: now });
     if (entries.length > limit) entries = entries.slice(entries.length - limit);
     index = entries.length - 1;
   }
@@ -61,7 +68,7 @@ export function createHistory<T>(
     set(next: T, label = "Edit") {
       if (equal(current, next)) return;
       current = next;
-      if (!group) push(label, next);
+      if (!group) push(label, next, true);
       else group.label = label;
       emit();
     },

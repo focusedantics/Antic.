@@ -49,3 +49,15 @@ describe("history", () => {
     expect(h.get()).toBe("c");
   });
 });
+
+describe("history merging", () => {
+  it("merges rapid repeats of the same control", () => {
+    const h = createHistory(0);
+    h.set(1, "Exposure");
+    h.set(2, "Exposure");
+    h.set(3, "Contrast");
+    expect(h.status().entries.map((e) => e.label)).toEqual(["Open", "Exposure", "Contrast"]);
+    h.undo();
+    expect(h.get()).toBe(2);
+  });
+});

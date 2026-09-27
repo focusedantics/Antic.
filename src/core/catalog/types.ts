@@ -78,6 +78,8 @@ export type Asset = {
   readonly stackId?: string;
   readonly stackIndex?: number;
 
+  /** Camera white balance of a RAW, found when Develop first decodes it. */
+  readonly asShot?: { readonly temperature: number; readonly tint: number };
   /** Absent means the photo has never been developed; defaults apply. */
   readonly develop?: DevelopRecipe;
   /** Bumped on every recipe change so derived previews can be invalidated. */

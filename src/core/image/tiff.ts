@@ -40,3 +40,39 @@ export function decodeTiff16(bytes: Uint8Array): { width: number; height: number
   for (let i = 0; i < count; i++) out[i] = view.getUint16(i * 2, true);
   return { width: ifd.width, height: ifd.height, data: out, channels: spp as 3 | 4 };
 }
+
+export type DecodedTiff =
+  | { kind: "rgb16-linear"; width: number; height: number; data: Uint16Array; white: number }
+  | { kind: "image"; image: ImageBitmap; width: number; height: number };
+
+const SRGB_TO_REC2020 = [0.6274, 0.3293, 0.0433, 0.0691, 0.9195, 0.0114, 0.0164, 0.088, 0.8956];
+
+/**
+ * 16-bit RGB TIFFs keep their precision: samples are decoded from the sRGB
+ * transfer curve and converted to linear Rec.2020 here, in the worker. Other
+ * TIFFs (8-bit, palette, CMYK…) go through the 8-bit path.
+ */
+export async function decodeTiffForDevelop(bytes: Uint8Array): Promise<DecodedTiff> {
+  const deep = decodeTiff16(bytes);
+  if (!deep) {
+    const image = await decodeTiffToBitmap(bytes);
+    return { kind: "image", image, width: image.width, height: image.height };
+  }
+  const lut = new Float32Array(65536);
+  for (let i = 0; i < 65536; i++) {
+    const v = i / 65535;
+    lut[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  }
+  const { width, height, data, channels } = deep;
+  const out = new Uint16Array(width * height * 3);
+  const m = SRGB_TO_REC2020;
+  for (let i = 0, j = 0; i < out.length; i += 3, j += channels) {
+    const r = lut[data[j]];
+    const g = lut[data[j + 1]];
+    const b = lut[data[j + 2]];
+    out[i] = Math.min(65535, Math.round((m[0] * r + m[1] * g + m[2] * b) * 65535));
+    out[i + 1] = Math.min(65535, Math.round((m[3] * r + m[4] * g + m[5] * b) * 65535));
+    out[i + 2] = Math.min(65535, Math.round((m[6] * r + m[7] * g + m[8] * b) * 65535));
+  }
+  return { kind: "rgb16-linear", width, height, data: out, white: 65535 };
+}

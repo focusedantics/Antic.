@@ -1,29 +1,33 @@
 import type { FileKind } from "@/core/catalog/types";
 import type { Analysis } from "./analyze";
-import type { AnalyzeRequest, AnalyzeResponse } from "./image.worker";
+import type { WorkerRequest, WorkerResponse } from "./image.worker";
+import type { DecodedTiff } from "./tiff";
 
 /**
  * A small pool of image workers. Imports of hundreds of files queue here, so
  * the UI thread only ever sees finished thumbnails and metadata.
  */
-type Job = { file: Blob; kind: FileKind; resolve: (a: Analysis) => void; reject: (e: Error) => void };
+type Request = WorkerRequest extends infer R ? (R extends { id: number } ? Omit<R, "id"> : never) : never;
+type Job = { request: Request; resolve: (value: unknown) => void; reject: (e: Error) => void };
+type Slot = { worker: Worker; busy: boolean };
 
 const size = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
-const workers: { worker: Worker; busy: boolean }[] = [];
+const workers: Slot[] = [];
 const queue: Job[] = [];
-const pending = new Map<number, Job & { slot: (typeof workers)[number] }>();
+const pending = new Map<number, Job & { slot: Slot }>();
 let nextId = 1;
 
 function spawn() {
   const worker = new Worker(new URL("./image.worker.ts", import.meta.url), { type: "module", name: "image" });
-  const slot = { worker, busy: false };
-  worker.onmessage = (event: MessageEvent<AnalyzeResponse>) => {
+  const slot: Slot = { worker, busy: false };
+  worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
     const job = pending.get(event.data.id);
     if (!job) return;
     pending.delete(event.data.id);
     slot.busy = false;
-    if (event.data.result) job.resolve(event.data.result);
-    else job.reject(new Error(event.data.error ?? "Image analysis failed"));
+    const data = event.data;
+    if ("error" in data) job.reject(new Error(data.error));
+    else job.resolve("result" in data ? data.result : data.decoded);
     pump();
   };
   worker.onerror = (event) => {
@@ -50,15 +54,22 @@ function pump() {
     const id = nextId++;
     slot.busy = true;
     pending.set(id, { ...job, slot });
-    slot.worker.postMessage({ id, file: job.file, kind: job.kind } satisfies AnalyzeRequest);
+    slot.worker.postMessage({ ...job.request, id } as WorkerRequest);
   }
 }
 
-export function analyzeInWorker(file: Blob, kind: FileKind): Promise<Analysis> {
+function run<T>(request: Request, urgent = false): Promise<T> {
   return new Promise((resolve, reject) => {
-    queue.push({ file, kind, resolve, reject });
+    const job = { request, resolve: resolve as (v: unknown) => void, reject };
+    if (urgent) queue.unshift(job);
+    else queue.push(job);
     pump();
   });
 }
+
+export const analyzeInWorker = (file: Blob, kind: FileKind) => run<Analysis>({ op: "analyze", file, kind });
+
+/** Full-precision TIFF decode for Develop; jumps the import queue. */
+export const decodeTiffInWorker = (file: Blob) => run<DecodedTiff>({ op: "decode-tiff", file }, true);
 
 export const pendingAnalyses = () => queue.length + pending.size;
