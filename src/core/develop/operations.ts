@@ -154,7 +154,14 @@ function sanitizeShape(input: unknown): MaskShape | null {
             .filter((p): p is Record<string, unknown> => !!p)
             .map((p) => ({ x: num(p.x, 0), y: num(p.y, 0), positive: p.positive !== false }))
         : undefined;
-      return { kind: "ai", target, rasterId: s.rasterId, points };
+      return {
+        kind: "ai",
+        target,
+        rasterId: s.rasterId,
+        points,
+        feather: num(s.feather, 0, { min: 0, max: 100 }),
+        shift: num(s.shift, 0, { min: -100, max: 100 }),
+      };
     }
     default:
       return null;
@@ -187,6 +194,7 @@ function sanitizeMask(input: unknown): Mask | null {
     visible: bool(m.visible, true),
     amount: num(m.amount, 1, { min: 0, max: 1 }),
     invert: bool(m.invert, false),
+    cutout: bool(m.cutout, false),
     components,
     adjustments: numbers(m.adjustments, defaultLocalAdjustments, localRanges),
   };
@@ -259,8 +267,18 @@ export function sanitizeRecipe(input: unknown, info: SourceColorInfo): DevelopRe
       horizontal: num(geo?.horizontal, 0, { min: -100, max: 100 }),
     },
     effects: numbers(s.effects, defaultEffects, effectsRanges),
-    masks: (Array.isArray(s.masks) ? s.masks : []).map(sanitizeMask).filter((m): m is Mask => !!m),
+    masks: oneCutout((Array.isArray(s.masks) ? s.masks : []).map(sanitizeMask).filter((m): m is Mask => !!m)),
   };
+}
+
+function oneCutout(masks: Mask[]): Mask[] {
+  let seen = false;
+  return masks.map((m) => {
+    if (!m.cutout) return m;
+    if (seen) return { ...m, cutout: false };
+    seen = true;
+    return m;
+  });
 }
 
 // ─── Comparison ───────────────────────────────────────────────────────────────

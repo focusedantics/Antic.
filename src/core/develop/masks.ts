@@ -52,6 +52,7 @@ export function addMask(recipe: DevelopRecipe, shape: MaskShape, name?: string):
     visible: true,
     amount: 1,
     invert: false,
+    cutout: false,
     components: [newComponent(shape)],
     adjustments: defaultLocalAdjustments,
   };
@@ -89,3 +90,9 @@ export const setLocal = (recipe: DevelopRecipe, maskId: string, field: keyof Loc
   updateMask(recipe, maskId, (m) => ({ ...m, adjustments: { ...m.adjustments, [field]: value } }));
 
 export const invertMask = (recipe: DevelopRecipe, maskId: string) => updateMask(recipe, maskId, (m) => ({ ...m, invert: !m.invert }));
+
+/** Makes `maskId` the recipe's cutout (transparency), or clears it with null. */
+export const setCutout = (recipe: DevelopRecipe, maskId: string | null): DevelopRecipe => ({
+  ...recipe,
+  masks: recipe.masks.map((m) => (m.cutout === (m.id === maskId) ? m : { ...m, cutout: m.id === maskId })),
+});

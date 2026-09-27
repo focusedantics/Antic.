@@ -8,7 +8,7 @@ the result survives a reload.
 | 1 | Shell, Library, catalog, import, thumbnails, RAW previews | Done |
 | 2 | Develop renderer, adjustments, histogram, crop, before/after, recipes, presets | Done (see below) |
 | 3 | Mask engine: brush, linear, radial, range masks, per-mask adjustments | Done (see below) |
-| 4 | Local AI: Select Subject/Sky/Object, Remove Background | Planned |
+| 4 | Local AI: Select Subject/Sky/Object, Remove Background | Done (see below) |
 | 5 | Composite document: layers, groups, transforms, opacity, blend modes, masks | Planned |
 | 6 | Gradients, text, shapes | Planned |
 | 7 | Retouching: healing, clone, dodge/burn | Planned |
@@ -88,3 +88,30 @@ Done:
   whites, blacks, texture, clarity, dehaze, hue, saturation.
 - Red overlay (O) or black & white coverage view of the edited mask; handles on canvas;
   Masks tool (M), Brush (B), brush size with [ and ].
+
+## Stage 4 — Local AI
+
+Done:
+- An AI worker (Transformers.js + ONNX Runtime Web), created on first use, WebGPU with
+  WASM fallback; ONNX Runtime's WASM is served from the app's own origin.
+- Select Subject / Background: BiRefNet Lite (best), MODNet (fast) or the bundled
+  U²-Netp (offline). If the Hub is unreachable, the bundled model is used automatically.
+- Select Sky and Select People: DETR panoptic segmentation classes.
+- Select Object: SlimSAM with positive clicks and Alt-click exclusions; the image
+  embedding is computed once per photo and reused for every click.
+- Every AI result is edge-refined with a guided filter against the photo, stored as a
+  coverage raster in IndexedDB, and used as a mask component with live Feather and
+  Shift edge (contract/expand) controls — combinable with brushes and gradients.
+- Remove Background: an AI subject mask marked as the photo's transparency ("cutout").
+  Add a brush to restore, subtract one to erase; PNG/WebP exports and Library
+  thumbnails keep the transparency, JPEG flattens onto a chosen color.
+
+Verified in this repository's test environment: the offline U²-Netp path end to end
+(detect → refine → mask → transparency → display). The BiRefNet, MODNet, DETR and
+SlimSAM paths use the documented Transformers.js APIs but could not be exercised here
+because the sandbox blocks huggingface.co; they need a check in a normal browser.
+
+Known limitations:
+- No color decontamination at cutout edges yet (a thin fringe of the old background can
+  remain on soft edges).
+- Depth Range masks need a depth model and are not implemented.

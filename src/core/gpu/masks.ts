@@ -45,6 +45,8 @@ type BrushCache = { strokes: readonly BrushStroke[]; base: Target; baseCount: nu
 export class MaskRenderer {
   private brushes = new Map<string, BrushCache>();
   private rasters = new Map<string, Texture>();
+  /** Feathered (blurred) AI rasters, keyed by raster id and feather amount. */
+  private feathered = new Map<string, { key: string; texture: Target }>();
   private pendingRasters = new Set<string>();
   /** Coverage of the mask being edited, kept for the overlay. */
   overlay: { maskId: string; target: Target } | null = null;
@@ -125,6 +127,21 @@ export class MaskRenderer {
     return null;
   }
 
+  private feather(componentId: string, rasterId: string, base: Texture, amount: number, pipeline: MaskContext["pipeline"]): Texture {
+    const key = `${rasterId}:${amount}`;
+    const hit = this.feathered.get(componentId);
+    if (hit?.key === key) return hit.texture;
+    if (hit) this.gpu.dispose(hit.texture);
+    const sigma = (amount / 100) * Math.max(base.width, base.height) * 0.015;
+    const blurred = pipeline.blur(base, sigma);
+    // Keep a private copy: pooled targets are reused by the next frame.
+    const texture = this.gpu.target(blurred.width, blurred.height, "r16f");
+    this.gpu.pass("mask-copy-filtered", M.resample, { target: texture, textures: { uInput: blurred } });
+    pipeline.release(blurred);
+    this.feathered.set(componentId, { key, texture });
+    return texture;
+  }
+
   /** Registers a raster that was just created, so it renders without a round trip to IndexedDB. */
   putRaster(record: RasterRecord) {
     this.gpu.dispose(this.rasters.get(record.id));
@@ -146,6 +163,7 @@ export class MaskRenderer {
         uFirst: index === 0 ? 1 : 0,
         uInvert: component.invert ? 1 : 0,
         uOpacity: component.opacity,
+        uShift: 0,
       };
       let raster: Texture | null = null;
       switch (shape.kind) {
@@ -159,10 +177,13 @@ export class MaskRenderer {
           raster = this.brush(component, shape.strokes, ctx.source.size);
           uniforms.uKind = 2;
           break;
-        case "ai":
-          raster = this.raster(shape.rasterId);
+        case "ai": {
+          const base = this.raster(shape.rasterId);
+          raster = base && shape.feather > 0 ? this.feather(component.id, shape.rasterId, base, shape.feather, pipeline) : base;
           uniforms.uKind = 2;
+          uniforms.uShift = shape.shift / 100;
           break;
+        }
         case "luminance":
           Object.assign(uniforms, { uKind: 3, uRange: [shape.low, shape.high, shape.smoothness] });
           break;
@@ -214,6 +235,8 @@ export class MaskRenderer {
       if (!mask.components.length) continue;
       const isActive = mask.id === activeMaskId;
       if (!mask.visible && !isActive) continue;
+      const needed = isActive || mask.cutout || hasAdjustments(mask.adjustments);
+      if (!needed) continue;
       const coverage = this.coverage(mask, input, ctx);
       if (mask.visible && hasAdjustments(mask.adjustments)) {
         const next = pipeline.acquire(ctx.width, ctx.height);
@@ -221,6 +244,16 @@ export class MaskRenderer {
           target: next,
           textures: { uInput: current, uCoverage: coverage, uBlurSmall: ctx.blurSmall, uBlurLarge: ctx.blurLarge },
           uniforms: localUniforms(mask),
+        });
+        if (current !== input) pipeline.release(current);
+        current = next;
+      }
+      if (mask.visible && mask.cutout) {
+        const next = pipeline.acquire(ctx.width, ctx.height);
+        this.gpu.pass("mask-cutout", M.cutout, {
+          target: next,
+          textures: { uInput: current, uCoverage: coverage },
+          uniforms: { uInvertMask: mask.invert ? 1 : 0 },
         });
         if (current !== input) pipeline.release(current);
         current = next;
@@ -246,6 +279,8 @@ export class MaskRenderer {
       this.gpu.dispose(c.texture);
     }
     for (const r of this.rasters.values()) this.gpu.dispose(r);
+    for (const f of this.feathered.values()) this.gpu.dispose(f.texture);
+    this.feathered.clear();
     this.brushes.clear();
     this.rasters.clear();
   }

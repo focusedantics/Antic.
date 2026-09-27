@@ -296,7 +296,7 @@ export class DevelopPipeline {
     current = toned;
 
     // 5. Masks with local adjustments.
-    if (options.masks && recipe.masks.some((m) => m.visible && m.components.length)) {
+    if (options.masks && recipe.masks.some((m) => m.components.length)) {
       const next = options.masks(current, {
         pipeline: this,
         source,

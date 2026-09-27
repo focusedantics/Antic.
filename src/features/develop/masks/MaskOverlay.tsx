@@ -6,6 +6,7 @@ import type { BrushStroke, MaskComponent, MaskShape, StrokePoint } from "@/core/
 import { beginGesture, develop, editRecipe, endGesture } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { clamp } from "@/lib/math";
+import { objectClick, objectSelection } from "./ai";
 import { brush } from "./brush";
 
 type Pt = { x: number; y: number };
@@ -63,6 +64,7 @@ export function MaskOverlay() {
   const activeComponentId = useStore(develop, (s) => s.activeComponentId);
   const b = useStore(brush, (s) => s);
   const layer = useRef<HTMLDivElement>(null);
+  const pendingObject = useStore(objectSelection, (s) => s.pending);
   const [cursor, setCursor] = useState<Pt | null>(null);
   const mask = recipe?.masks.find((m) => m.id === activeMaskId) ?? null;
   const component = mask?.components.find((c) => c.id === activeComponentId) ?? mask?.components[0] ?? null;
@@ -82,7 +84,22 @@ export function MaskOverlay() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  if (!mask || !component || !map) return null;
+  const objectMode = pendingObject !== null || (component?.shape.kind === "ai" && component.shape.target === "object");
+  if (!map || (!objectMode && (!mask || !component))) return null;
+  if (pendingObject || (objectMode && (!mask || !component))) {
+    return (
+      <div
+        className="mask-layer"
+        style={{ cursor: "crosshair" }}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          const p = map.clientToSource(e.clientX, e.clientY);
+          void objectClick(p.x, p.y, !e.altKey);
+        }}
+      />
+    );
+  }
+  if (!mask || !component) return null;
   const shape = component.shape;
   const rect = developEngine().canvas.getBoundingClientRect();
   const local = (p: Pt) => ({ x: p.x - rect.left, y: p.y - rect.top });
@@ -104,8 +121,12 @@ export function MaskOverlay() {
   };
 
   const onDown = (e: ReactPointerEvent) => {
-    if (e.button !== 0 || (e.nativeEvent as PointerEvent & { spaceHeld?: boolean }).spaceHeld) return;
+    if (e.button !== 0) return;
     const p = map.clientToSource(e.clientX, e.clientY);
+    if (shape.kind === "ai" && shape.target === "object") {
+      void objectClick(p.x, p.y, !e.altKey);
+      return;
+    }
     switch (shape.kind) {
       case "brush": {
         const pressure = e.pointerType === "pen" ? Math.max(0.05, e.pressure) : 1;
@@ -232,6 +253,17 @@ export function MaskOverlay() {
         />
         <circle cx={hx.x} cy={hx.y} r={6} className="mask-handle" onPointerDown={(e) => radius(e, "x")} />
         <circle cx={hy.x} cy={hy.y} r={6} className="mask-handle" onPointerDown={(e) => radius(e, "y")} />
+      </>
+    );
+  }
+
+  if (shape.kind === "ai" && shape.points?.length) {
+    handles = (
+      <>
+        {shape.points.map((pt, i) => {
+          const c = local(map.sourceToClient(pt));
+          return <circle key={i} cx={c.x} cy={c.y} r={5} fill={pt.positive ? "#3ecf6a" : "#e2574c"} stroke="#000" strokeWidth={1.5} />;
+        })}
       </>
     );
   }

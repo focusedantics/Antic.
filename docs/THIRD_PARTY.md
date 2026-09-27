@@ -13,7 +13,8 @@
 | ↳ LibRaw 0.22 (bundled WASM) | — | LGPL-2.1 **or** CDDL-1.0 (dual) | RAW decoding; distributed unmodified as a separate module |
 | utif2 | 4.1.0 | MIT | TIFF decoding |
 | fflate | 0.8.3 | MIT | ZIP containers for `.focused` project files |
-| @huggingface/transformers | 4.x (lazy) | Apache-2.0 | Local AI segmentation (loaded only when an AI tool is used) |
+| @huggingface/transformers | 4.3.0 (lazy) | Apache-2.0 | Local AI segmentation (loaded only when an AI tool is used) |
+| ↳ onnxruntime-web | 1.31 (lazy) | MIT | Inference runtime (WebGPU / WASM); WASM served from our own origin |
 
 LibRaw is used under its CDDL-1.0 option. It is loaded as an unmodified, separately
 distributed WebAssembly module, so application code is not affected by its terms. Its
@@ -26,6 +27,8 @@ license text ships in `node_modules/libraw-wasm` and must accompany redistributi
 | `onnx-community/BiRefNet_lite-ONNX` | MIT | Select Subject / Remove Background (quality) |
 | `Xenova/modnet` | Apache-2.0 | Portrait matting (fast fallback) |
 | `Xenova/slimsam-77-uniform` | Apache-2.0 | Click-to-select objects (SAM) |
+| `Xenova/detr-resnet-50-panoptic` | Apache-2.0 | Select Sky and Select People (COCO panoptic classes) |
+| U²-Netp (`public/models/u2netp/`, bundled) | Apache-2.0 | Offline Select Subject / Remove Background; fallback when the Hub is unreachable. Notice and license ship next to the file. |
 
 `briaai/RMBG-1.4` is **not** used by default: its BRIA license is non-commercial. Model
 choices are recorded in `src/core/ai/models.ts`; check a model's license before adding it.

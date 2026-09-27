@@ -26,6 +26,7 @@ uniform vec3 uRange;      // luminance: low, high, smoothness
 uniform vec3 uSamples[5];
 uniform int uSampleCount;
 uniform float uRefine;
+uniform float uShift;
 
 float component(vec2 src) {
   float longSide = max(uSrcSize.x, uSrcSize.y);
@@ -49,7 +50,13 @@ float component(vec2 src) {
   }
   if (uKind == 2) {
     if (src.x < 0.0 || src.y < 0.0 || src.x > 1.0 || src.y > 1.0) return 0.0;
-    return texture(uRaster, src).r;
+    float v = texture(uRaster, src).r;
+    // Expand (positive) or contract (negative) by moving the edge threshold.
+    if (uShift != 0.0) {
+      float t = clamp(0.5 - uShift * 0.45, 0.02, 0.98);
+      v = smoothstep(t - 0.12, t + 0.12, v);
+    }
+    return v;
   }
   vec3 c = max(texelFetch(uImage, ivec2(gl_FragCoord.xy), 0).rgb, 0.0);
   if (uKind == 3) {
@@ -158,3 +165,15 @@ void main() {
 export const resample = `${header}
 uniform sampler2D uInput;
 void main() { outColor = texture(uInput, vUv); }`;
+
+/** Multiplies alpha by a cutout mask's coverage: outside the mask becomes transparent. */
+export const cutout = `${header}
+uniform sampler2D uInput;
+uniform sampler2D uCoverage;
+uniform int uInvertMask;
+void main() {
+  vec4 c = texelFetch(uInput, ivec2(gl_FragCoord.xy), 0);
+  float m = texelFetch(uCoverage, ivec2(gl_FragCoord.xy), 0).r;
+  if (uInvertMask == 1) m = 1.0 - m;
+  outColor = vec4(c.rgb, c.a * clamp(m, 0.0, 1.0));
+}`;

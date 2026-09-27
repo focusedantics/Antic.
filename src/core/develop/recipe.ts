@@ -173,10 +173,14 @@ export type MaskShape =
   | {
       readonly kind: "ai";
       readonly target: "subject" | "sky" | "background" | "object" | "person";
-      /** Id of a stored coverage raster (see core/catalog/rasters). */
+      /** Id of a stored coverage raster (the model's result, edge-refined). */
       readonly rasterId: string;
       /** Prompt points for object selection, kept so the mask can be regenerated. */
       readonly points?: readonly { readonly x: number; readonly y: number; readonly positive: boolean }[];
+      /** Softens the edge, 0..100. */
+      readonly feather: number;
+      /** Contracts (negative) or expands (positive) the edge, -100..100. */
+      readonly shift: number;
     };
 
 export type MaskOperation = "add" | "subtract" | "intersect";
@@ -214,6 +218,11 @@ export type Mask = {
   readonly amount: number;
   /** Applies the adjustments outside the combined coverage instead of inside. */
   readonly invert: boolean;
+  /**
+   * Transparency: outside this mask the photo becomes transparent (Remove
+   * Background). At most one mask per recipe is a cutout.
+   */
+  readonly cutout: boolean;
   readonly components: readonly MaskComponent[];
   readonly adjustments: LocalAdjustments;
 };

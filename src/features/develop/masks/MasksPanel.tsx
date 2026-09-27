@@ -16,6 +16,7 @@ import {
   setLocal,
   type ShapeKind,
   shapeLabels,
+  setCutout,
   updateComponent,
   updateMask,
 } from "@/core/develop/masks";
@@ -25,7 +26,8 @@ import { beginGesture, develop, editRecipe, endGesture } from "@/core/develop/se
 import { developEngine } from "@/core/gpu/develop-engine";
 import { TEMPERATURE_TRACK, TINT_TRACK } from "../edit";
 import { brush } from "./brush";
-import { aiMenuItems } from "./ai";
+import { aiPreferences, aiStatus } from "@/core/ai/client";
+import { aiMenuItems, removeBackground } from "./ai";
 
 type ManualKind = Exclude<ShapeKind, "ai">;
 const manualKinds: ManualKind[] = ["brush", "linear", "radial", "luminance", "color"];
@@ -244,8 +246,12 @@ function ComponentSettings({ mask, component }: { mask: Mask; component: MaskCom
     case "ai":
       return (
         <>
+          <Slider label="Feather" value={shape.feather} min={0} max={100} defaultValue={0} format={(v) => `${v}`} onGestureStart={() => beginGesture("Selection feather")} onGestureEnd={endGesture} onChange={(v) => set("Selection feather", (c) => ({ ...c, shape: { ...shape, feather: v } }))} />
+          <Slider label="Shift edge" value={shape.shift} min={-100} max={100} defaultValue={0} onGestureStart={() => beginGesture("Shift edge")} onGestureEnd={endGesture} onChange={(v) => set("Shift edge", (c) => ({ ...c, shape: { ...shape, shift: v } }))} />
           <p className="faint" style={{ fontSize: 10 }}>
-            Detected locally. Add or subtract a brush to refine the edges.
+            {shape.target === "object"
+              ? "Click to add to the object, Alt-click to exclude."
+              : "Detected on this device. Negative shift contracts the edge, positive expands. Add or subtract a brush to fix details."}
           </p>
           {opacity}
         </>
@@ -304,6 +310,41 @@ function LocalSliders({ mask }: { mask: Mask }) {
   );
 }
 
+function AiModelPicker() {
+  const quality = useStore(aiPreferences, (s) => s.quality);
+  return (
+    <label className="row dim" style={{ fontSize: 11, marginBottom: 6 }}>
+      Subject AI
+      <select className="input" style={{ flex: 1 }} value={quality} onChange={(e) => aiPreferences.setState({ quality: e.target.value as typeof quality })}>
+        <option value="quality">Best — BiRefNet Lite (115 MB, downloads once)</option>
+        <option value="fast">Fast — MODNet (7 MB, best for portraits)</option>
+        <option value="offline">Offline — U²-Netp (bundled)</option>
+      </select>
+    </label>
+  );
+}
+
+function AiStatusLine() {
+  const status = useStore(aiStatus, (s) => s);
+  if (status.busy)
+    return (
+      <div className="progress-pill" role="status" aria-live="polite" style={{ margin: "4px 0 8px" }}>
+        {status.busy}
+        {status.model && status.progress > 0 && status.progress < 100 ? ` · downloading ${status.model} ${status.progress}%` : "…"}
+        <span className="progress-bar">
+          <div style={{ width: `${status.progress || 8}%` }} />
+        </span>
+      </div>
+    );
+  if (status.lastModel)
+    return (
+      <p className="faint" style={{ fontSize: 10, margin: "0 0 6px" }}>
+        Last AI selection: {status.lastModel}. Runs locally; photos are never uploaded.
+      </p>
+    );
+  return null;
+}
+
 export function MasksPanel() {
   const masks = useStore(develop, (s) => s.recipe?.masks ?? []);
   const activeMaskId = useStore(develop, (s) => s.activeMaskId);
@@ -323,11 +364,18 @@ export function MasksPanel() {
       id="dev-masks"
       title="Masks"
       actions={
-        <button type="button" className="btn small" onClick={createMenu}>
-          + Create
-        </button>
+        <>
+          <button type="button" className="btn small" title="Make everything but the subject transparent" onClick={() => void removeBackground()}>
+            Remove BG
+          </button>
+          <button type="button" className="btn small" onClick={createMenu}>
+            + Create
+          </button>
+        </>
       }
     >
+      <AiModelPicker />
+      <AiStatusLine />
       {!masks.length && <p className="faint">Masks limit adjustments to part of the photo: paint them, draw gradients, pick tones or colors, or let the local AI select the subject or sky.</p>}
       {masks.map((m) => (
         <div key={m.id} className="row">
@@ -342,7 +390,10 @@ export function MasksPanel() {
               if (name?.trim()) editRecipe("Rename mask", (r) => updateMask(r, m.id, (x) => ({ ...x, name: name.trim() })));
             }}
           >
-            <span className="name">{m.name}</span>
+            <span className="name">
+              {m.cutout ? "◩ " : ""}
+              {m.name}
+            </span>
             <span className="count">{m.components.length > 1 ? `${m.components.length} parts` : ""}</span>
           </button>
           <button type="button" className="btn ghost small" aria-pressed={!m.visible} title={m.visible ? "Hide mask" : "Show mask"} onClick={() => editRecipe(m.visible ? "Hide mask" : "Show mask", (r) => updateMask(r, m.id, (x) => ({ ...x, visible: !x.visible })))}>
@@ -356,6 +407,10 @@ export function MasksPanel() {
               openMenu(e.clientX, e.clientY, [
                 { label: m.invert ? "Uninvert mask" : "Invert mask", onSelect: () => editRecipe("Invert mask", (r) => invertMask(r, m.id)) },
                 { label: "Duplicate mask", onSelect: () => editRecipe("Duplicate mask", (r) => duplicateMask(r, m.id)) },
+                {
+                  label: m.cutout ? "Stop using as transparency" : "Use as transparency (cut out)",
+                  onSelect: () => editRecipe(m.cutout ? "Remove transparency" : "Use mask as transparency", (r) => setCutout(r, m.cutout ? null : m.id)),
+                },
                 {
                   label: "Rename…",
                   onSelect: () => {

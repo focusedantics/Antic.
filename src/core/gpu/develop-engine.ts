@@ -400,7 +400,9 @@ export class DevelopEngine {
     if (!recipe) return;
     const revision = catalog.getState().assets.get(assetId)?.developRevision ?? 0;
     if (asset.thumbRevision === revision) return;
-    const [thumb, preview] = await Promise.all([this.renderBlob(src.gpu, recipe, 480, "image/jpeg", 0.85), this.renderBlob(src.gpu, recipe, 2560, "image/jpeg", 0.88)]);
+    // Cutouts keep their transparency in the Library.
+    const type = recipe.masks.some((m) => m.cutout && m.visible) ? "image/webp" : "image/jpeg";
+    const [thumb, preview] = await Promise.all([this.renderBlob(src.gpu, recipe, 480, type, 0.85), this.renderBlob(src.gpu, recipe, 2560, type, 0.88)]);
     await putThumb(assetId, { thumb, preview, previewSource: "developed", revision });
     const { invalidateImage } = await import("@/app/thumbs");
     invalidateImage(assetId);
