@@ -10,8 +10,10 @@ import type { DevelopRecipe } from "@/core/develop/recipe";
 import { currentHistory, develop, type Histogram, recipeFor } from "@/core/develop/session";
 import { type LoadedSource, loadSource } from "@/core/develop/source-loader";
 import type { CompositeDocument } from "@/core/document/model";
+import { effectById } from "@/core/effects/registry";
 import { EffectRunner } from "@/core/effects/runtime";
 import type { EffectInstance } from "@/core/effects/types";
+import { docAnimation, isAnimated } from "@/core/document/animation";
 import { flatten } from "@/core/document/operations";
 import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
@@ -54,6 +56,11 @@ export class DevelopEngine {
   private loadingSources = new Set<AssetId>();
   private previewEffects: EffectRunner | null = null;
   private previewGeneration = 0;
+  /** Live animation of the composite view: clock origin and the pending tick. */
+  private animationStart = performance.now();
+  private pausedTime = 0;
+  private animationTick = 0;
+  private animationHolds = 0;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -80,7 +87,11 @@ export class DevelopEngine {
       if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.scheduleThumbnails();
     });
     composite.subscribe((s, prev) => {
-      if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view)) this.requestRender();
+      if (s.playing !== prev.playing) {
+        // Resume from the paused frame instead of jumping.
+        if (s.playing) this.animationStart = performance.now() - this.pausedTime * 1000;
+      }
+      if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view || s.playing !== prev.playing)) this.requestRender();
     });
     // Recipe edits in Develop change image layers that follow them.
     catalog.subscribe(() => {
@@ -467,10 +478,11 @@ export class DevelopEngine {
     const scale = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));
     const assets = catalog.getState().assets;
     const revisions = flatten(doc.layers).map((l) => (l.kind === "image" ? `${l.assetId}:${assets.get(l.assetId)?.developRevision}:${this.sources.get(l.assetId)?.quality}` : ""));
-    const key = [doc, scale, revisions.join("|"), this.sources.size];
+    const time = this.viewTime(doc);
+    const key = [doc, scale, revisions.join("|"), this.sources.size, time];
     if (!this.compositeResult || !sameKey(this.compositeResult.key, key)) {
       this.pipeline.release(this.compositeResult?.target);
-      this.compositeResult = { target: this.compositor.render(doc, scale), key };
+      this.compositeResult = { target: this.compositor.render(doc, scale, time), key };
     }
     this.gpu.pass("composite-display", CS.compositeDisplay, {
       target: null,
@@ -483,9 +495,50 @@ export class DevelopEngine {
     });
   }
 
+  /**
+   * Animation time for the composite view, quantised to the document's frame
+   * rate. While playing it schedules the next tick (outside `requestRender`, so
+   * the activity bar stays quiet); a tick stops once nothing animates.
+   */
+  private viewTime(doc: CompositeDocument): number {
+    if (!isAnimated(doc)) return 0;
+    const { duration, fps } = docAnimation(doc);
+    if (!composite.getState().playing || this.animationHolds > 0) return this.pausedTime;
+    const elapsed = (performance.now() - this.animationStart) / 1000;
+    const time = (Math.floor((elapsed % duration) * fps) / fps) % duration;
+    this.pausedTime = time;
+    if (!this.animationTick) {
+      this.animationTick = window.setTimeout(() => {
+        this.animationTick = 0;
+        requestAnimationFrame(() => {
+          if (this.mode !== "composite" || this.lost || this.frameRequested) return;
+          try {
+            this.frame();
+          } catch (error) {
+            console.error(error);
+          }
+        });
+      }, 1000 / fps);
+    }
+    return time;
+  }
+
+  /** Freezes the live view animation (e.g. while exporting frames); call the returned function to resume. */
+  holdAnimation(): () => void {
+    this.animationHolds++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.animationHolds--;
+      this.animationStart = performance.now() - this.pausedTime * 1000;
+      this.requestRender();
+    };
+  }
+
   /** Renders a document for export or thumbnails: display-encoded, straight alpha. */
-  renderDocument(doc: CompositeDocument, scale: number): ImageData {
-    const target = this.compositor.render(doc, scale);
+  renderDocument(doc: CompositeDocument, scale: number, time = 0): ImageData {
+    const target = this.compositor.render(doc, scale, time);
     const out = this.pipeline.acquire(target.width, target.height, "rgba8");
     this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: target } });
     const image = this.gpu.readImage(out);
@@ -545,7 +598,8 @@ export class DevelopEngine {
     try {
       for (let i = 0; i < effects.length; i++) {
         if (generation !== this.previewGeneration || this.lost) return;
-        const result = runner.apply(base, effects[i], unit);
+        // Animated effects are shown mid-loop: at time 0 some are indistinguishable from the photo.
+        const result = effectById(effects[i].id)?.animated ? runner.apply(base, effects[i], unit, 1.1, 3) : runner.apply(base, effects[i], unit);
         const out = this.pipeline.acquire(base.width, base.height, "rgba8");
         this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: result } });
         const image = this.gpu.readImage(out);
@@ -609,13 +663,13 @@ export class DevelopEngine {
     throw new Error("The graphics card couldn't render this export correctly (it may be out of memory). Try a smaller size, or close other tabs and try again.");
   }
 
-  /** Export of a composition, verified (see `verifiedRender`). */
-  exportDocument(doc: CompositeDocument, scale: number): ImageData {
+  /** Export of a composition at `time` seconds into its animation, verified (see `verifiedRender`). */
+  exportDocument(doc: CompositeDocument, scale: number, time = 0): ImageData {
     const long = Math.max(doc.width, doc.height) * scale;
-    if (long <= 640) return this.renderDocument(doc, scale);
+    if (long <= 640) return this.renderDocument(doc, scale, time);
     return this.verifiedRender(
-      () => this.renderDocument(doc, scale),
-      () => this.renderDocument(doc, (512 / long) * scale),
+      () => this.renderDocument(doc, scale, time),
+      () => this.renderDocument(doc, (512 / long) * scale, time),
     );
   }
 
@@ -646,7 +700,7 @@ export class DevelopEngine {
     const scale = Math.min(1, 320 / Math.max(target.width, target.height));
     const w = Math.max(1, Math.round(target.width * scale));
     const h = Math.max(1, Math.round(target.height * scale));
-    const px = this.pipeline.encodeRaw(target, w, h);
+    const px = this.pipeline.encode(target, w, h);
     const r = new Uint32Array(256);
     const g = new Uint32Array(256);
     const b = new Uint32Array(256);

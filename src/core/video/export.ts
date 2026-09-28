@@ -10,7 +10,7 @@ export type ExportProgress = { readonly done: number; readonly total: number; re
 const MICRO = 1e6;
 
 /** The first encoder this browser supports, best compatibility first (H.264 plays everywhere). */
-async function chooseEncoder(width: number, height: number, bitrate: number, framerate: number) {
+export async function chooseEncoder(width: number, height: number, bitrate: number, framerate: number) {
   const area = width * height;
   const avcLevel = area <= 921_600 ? "1f" : area <= 2_228_224 ? "2a" : area <= 8_912_896 ? "33" : "34";
   const candidates: { codec: string; mux: "avc" | "hevc" | "vp9" | "av1"; extra?: Partial<VideoEncoderConfig> }[] = [
@@ -116,7 +116,7 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
       return;
     }
     if (minStep) nextSlot = Math.max(nextSlot + minStep, t + minStep * 0.5);
-    renderer.draw(frame, frame.displayWidth, frame.displayHeight, v.rotation, size.width, size.height, edit);
+    renderer.draw(frame, frame.displayWidth, frame.displayHeight, v.rotation, size.width, size.height, edit, undefined, Math.max(0, t - start) / MICRO);
     frame.close();
     const stamp = Math.max(0, Math.round(t - start));
     const out = new VideoFrame(canvas, { timestamp: stamp, duration: Math.round(minStep || MICRO / v.fps) });

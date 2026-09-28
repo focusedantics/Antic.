@@ -531,12 +531,4 @@ export class DevelopPipeline {
     return pixels;
   }
 
-  /** Like `encode`, but with gl.readPixels: fast and with no canvas involved, for small analysis reads (histogram). */
-  encodeRaw(input: Texture, width = input.width, height = input.height): Uint8Array {
-    const target = this.acquire(width, height, "rgba8");
-    this.gpu.pass("encode", S.encode, { target, textures: { uImage: input } });
-    const pixels = this.gpu.readRgba8(target);
-    this.release(target);
-    return pixels;
-  }
 }

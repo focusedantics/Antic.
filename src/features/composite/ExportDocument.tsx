@@ -3,15 +3,16 @@ import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
 import { Dialog } from "@/components/Menu";
 import { getDocument } from "@/core/catalog/db";
+import { docAnimation, isAnimated, loopFrames } from "@/core/document/animation";
 import { sanitizeDocument } from "@/core/document/operations";
 import { composite } from "@/core/document/session";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
-import { type DocExport, exportDocument } from "./actions";
+import { ANIMATED_FORMATS, type DocExport, type DocFormat, exportDocument, exportSize } from "./actions";
 
-let remembered: DocExport = { format: "png", scale: 1, quality: 0.92, background: "#ffffff" };
-const extension = (f: DocExport["format"]) => (f === "jpeg" ? "jpg" : f);
+let remembered: DocExport = { format: "png", scale: 1, quality: 0.92, background: "#ffffff", time: 0, dither: true, repeats: 3 };
+const extension = (f: DocFormat) => (f === "jpeg" ? "jpg" : f);
 
 /** Exports the open composition, or several saved ones, with destination and watermark. */
 export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
@@ -23,7 +24,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const cancelled = useRef(false);
+  const cancelled = useRef<AbortController | null>(null);
 
   // Saved thumbnails for the checklist and the watermark preview.
   useEffect(() => {
@@ -50,35 +51,43 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   names.set(doc.id, doc.name);
   const chosen = ids.filter((id) => selected.has(id));
   const busy = !!progress;
+  const animated = isAnimated(doc);
+  const animation = docAnimation(doc);
+  const moving = ANIMATED_FORMATS.has(o.format);
+  const size = exportSize(doc, o);
 
   const run = async () => {
     remembered = o;
     rememberWatermark(watermark);
-    cancelled.current = false;
+    const controller = new AbortController();
+    cancelled.current = controller;
     const sink = new ExportSink(destination, `Focused compositions (${chosen.length}).zip`);
     let done = 0;
     try {
       for (const [i, id] of chosen.entries()) {
-        if (cancelled.current) break;
+        if (controller.signal.aborted) break;
         const name = names.get(id) ?? "Composition";
-        setProgress({ done: i, total: chosen.length, label: `Rendering ${i + 1} of ${chosen.length} · ${name}` });
+        const prefix = chosen.length > 1 ? `${i + 1} of ${chosen.length} · ${name} · ` : "";
+        setProgress({ done: i, total: chosen.length, label: `${prefix}Rendering…` });
         try {
           const target = id === doc.id ? doc : sanitizeDocument((await getDocument(id))?.data);
-          const blob = await exportDocument(target, o, watermark);
+          const blob = await exportDocument(target, o, watermark, (fraction, stage) => setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${stage}` }), controller.signal);
           await sink.add(`${name}.${extension(o.format)}`, blob);
           done++;
         } catch (error) {
+          if (controller.signal.aborted) break;
           toast(`${name}: ${error instanceof Error ? error.message : error}`, "error");
         }
       }
       setProgress({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
       await sink.finish();
       if (done) toast(`Exported ${done} composition${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
-      onClose();
+      if (!controller.signal.aborted) onClose();
     } catch (error) {
       toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
     } finally {
       setProgress(null);
+      cancelled.current = null;
     }
   };
 
@@ -98,13 +107,14 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <span className="dim num" style={{ marginRight: "auto" }}>
-            {chosen.length === 1 && chosen[0] === doc.id ? `${Math.round(doc.width * o.scale)} × ${Math.round(doc.height * o.scale)} px` : `${Math.round(o.scale * 100)}% of each canvas`}
+            {chosen.length === 1 && chosen[0] === doc.id ? `${size.width} × ${size.height} px` : `${Math.round(o.scale * 100)}% of each canvas`}
+            {moving && animated && chosen.length === 1 ? ` · ${loopFrames(animation).length * (o.format === "mp4" ? o.repeats : 1)} frames` : ""}
           </span>
           <button
             type="button"
             className="btn"
             onClick={() => {
-              if (busy) cancelled.current = true;
+              if (busy) cancelled.current?.abort();
               else onClose();
             }}
           >
@@ -137,10 +147,16 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       <div className="row">
         <label className="field" style={{ flex: 1 }}>
           <span>Format</span>
-          <select className="input" value={o.format} onChange={(e) => setO({ ...o, format: e.target.value as DocExport["format"] })}>
-            <option value="png">PNG (keeps transparency)</option>
-            <option value="webp">WebP (keeps transparency)</option>
-            <option value="jpeg">JPEG</option>
+          <select className="input" value={o.format} onChange={(e) => setO({ ...o, format: e.target.value as DocFormat })}>
+            <optgroup label="Still image">
+              <option value="png">PNG (keeps transparency)</option>
+              <option value="webp">WebP (keeps transparency)</option>
+              <option value="jpeg">JPEG</option>
+            </optgroup>
+            <optgroup label={animated ? "Animated" : "Animated (add a moving effect first)"}>
+              <option value="gif">GIF (animated loop)</option>
+              <option value="mp4">MP4 video (animated loop)</option>
+            </optgroup>
           </select>
         </label>
         <label className="field" style={{ width: 190 }}>
@@ -148,19 +164,53 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
           <select className="input" value={o.scale} onChange={(e) => setO({ ...o, scale: Number(e.target.value) })}>
             {[0.25, 0.5, 1, 1.5, 2, 3, 4].map((s) => (
               <option key={s} value={s} disabled={Math.max(doc.width, doc.height) * s > 8192}>
-                {s * 100}% · {Math.round(doc.width * s)} × {Math.round(doc.height * s)}
+                {s * 100}% · {exportSize(doc, { format: o.format, scale: s }).width} × {exportSize(doc, { format: o.format, scale: s }).height}
               </option>
             ))}
           </select>
         </label>
       </div>
-      {o.format !== "png" && (
+      {moving && !animated && (
+        <p className="faint">
+          Nothing in this composition moves yet, so the {o.format === "gif" ? "GIF will be a single frame" : "video will be a still"}. Add an effect from the Motion or Animated
+          category to animate it.
+        </p>
+      )}
+      {moving && animated && (
+        <p className="dim">
+          One seamless {animation.duration} s loop at {animation.fps} fps (change it in an animated effect's Loop settings).
+          {o.format === "gif" && size.scale < o.scale ? " GIFs are limited to 1600 px on the long side." : ""}
+        </p>
+      )}
+      {!moving && animated && (
+        <label className="field">
+          <span>
+            Frame at {o.time.toFixed(1)} s of {animation.duration} s
+          </span>
+          <input type="range" min={0} max={Math.max(0, animation.duration - 1 / animation.fps)} step={1 / animation.fps} value={Math.min(o.time, animation.duration)} onChange={(e) => setO({ ...o, time: Number(e.target.value) })} />
+        </label>
+      )}
+      {o.format === "gif" && (
+        <label className="row">
+          <input type="checkbox" checked={o.dither} onChange={(e) => setO({ ...o, dither: e.target.checked })} />
+          Dither (smoother gradients, larger file)
+        </label>
+      )}
+      {o.format === "mp4" && (
+        <label className="field">
+          <span>
+            Play the loop {o.repeats} time{o.repeats === 1 ? "" : "s"} ({(animation.duration * o.repeats).toFixed(1)} s)
+          </span>
+          <input type="range" min={1} max={10} value={o.repeats} onChange={(e) => setO({ ...o, repeats: Number(e.target.value) })} />
+        </label>
+      )}
+      {o.format !== "png" && o.format !== "gif" && (
         <label className="field">
           <span>Quality {Math.round(o.quality * 100)}</span>
           <input type="range" min={40} max={100} value={Math.round(o.quality * 100)} onChange={(e) => setO({ ...o, quality: Number(e.target.value) / 100 })} />
         </label>
       )}
-      {o.format === "jpeg" && (
+      {(o.format === "jpeg" || moving) && (
         <label className="row">
           Background for transparent areas <input type="color" value={o.background} onChange={(e) => setO({ ...o, background: e.target.value })} />
         </label>

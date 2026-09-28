@@ -5,6 +5,7 @@ import { experimentalEffects } from "./library/experimental";
 import { halftoneEffects } from "./library/halftone";
 import { interfaceEffects } from "./library/interface";
 import { lightEffects } from "./library/light";
+import { motionEffects } from "./library/motion";
 import { pixelEffects } from "./library/pixel";
 import { typeEffects } from "./library/type";
 import { defaultParams, EFFECT_CATEGORIES, type EffectDef, type EffectInstance, sanitizeParams } from "./types";
@@ -20,13 +21,14 @@ export const EFFECTS: readonly EffectDef[] = [
   ...analogEffects,
   ...experimentalEffects,
   ...interfaceEffects,
+  ...motionEffects,
 ].sort((a, b) => EFFECT_CATEGORIES.indexOf(a.category) - EFFECT_CATEGORIES.indexOf(b.category));
 
 const byId = new Map(EFFECTS.map((e) => [e.id, e]));
 
 export const effectById = (id: string): EffectDef | undefined => byId.get(id);
 
-export const PICKS: readonly string[] = ["ascii", "bricks", "halftone-cmyk", "fluted-glass", "contours", "tracking", "cross-stitch", "vhs", "dither", "neon", "risograph", "stained-glass"];
+export const PICKS: readonly string[] = ["snow", "sparkles", "film", "ascii", "bricks", "halftone-cmyk", "fluted-glass", "contours", "tracking", "cross-stitch", "vhs", "dither", "neon", "risograph", "stained-glass"];
 
 export function newEffect(id: string): EffectInstance | null {
   const def = byId.get(id);

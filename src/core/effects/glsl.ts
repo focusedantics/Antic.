@@ -16,6 +16,10 @@ uniform vec2 uSize;
 uniform float uUnit;
 uniform float uSeed;
 uniform float uMaxLod;
+/** Animation: seconds since the start, loop length, and 0..1 position in the loop. */
+uniform float uTime;
+uniform float uLoop;
+uniform float uPhase;
 const float PI = 3.14159265;
 const float TAU = 6.2831853;
 ${common}
@@ -79,6 +83,12 @@ float bayer(vec2 cell, int levels) {
   }
   return (float(v) + 0.5) / float(n * n);
 }
+/** A point going round a unit circle \`cycles\` times per loop (seamless loops). */
+vec2 loopCircle(float cycles) { float a = TAU * uPhase * cycles; return vec2(cos(a), sin(a)); }
+/** Value noise that returns to its start at the end of the loop. */
+float loopNoise(vec2 p, float radius, float cycles) { return vnoise(p + loopCircle(cycles) * radius); }
+/** A different random value per animation frame (\`fps\` steps per second), repeating each loop. */
+float frameHash(vec2 p, float fps) { return hash(p + floor(uPhase * uLoop * fps + 0.5) * 17.13); }
 /** Distance from p to the segment ab. */
 float segment(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p - a;

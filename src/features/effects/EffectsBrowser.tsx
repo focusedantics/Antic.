@@ -23,7 +23,8 @@ export const openEffectsBrowser = (target: Target = { mode: "add" }) => effectsB
 const close = () => effectsBrowser.setState({ target: null });
 
 const ALL = "All effects";
-type Section = typeof OUR_PICKS | typeof ALL | (typeof EFFECT_CATEGORIES)[number];
+const ANIMATED = "Animated";
+type Section = typeof OUR_PICKS | typeof ALL | typeof ANIMATED | (typeof EFFECT_CATEGORIES)[number];
 
 let lastSection: Section = OUR_PICKS;
 let lastView: "grid" | "list" = "grid";
@@ -119,16 +120,17 @@ function EffectsBrowser({ target }: { target: Target }) {
   }, [target]);
 
   const counts = useMemo(() => {
-    const c = new Map<string, number>([[OUR_PICKS, PICKS.length], [ALL, EFFECTS.length]]);
+    const c = new Map<string, number>([[OUR_PICKS, PICKS.length], [ALL, EFFECTS.length], [ANIMATED, EFFECTS.filter((e) => e.animated).length]]);
     for (const e of EFFECTS) c.set(e.category, (c.get(e.category) ?? 0) + 1);
     return c;
   }, []);
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (q) return EFFECTS.filter((e) => `${e.name} ${e.category} ${e.description}`.toLowerCase().includes(q));
+    if (q) return EFFECTS.filter((e) => `${e.name} ${e.category} ${e.description}${e.animated ? " animated" : ""}`.toLowerCase().includes(q));
     if (section === OUR_PICKS) return PICKS.map((id) => effectById(id)!);
     if (section === ALL) return [...EFFECTS];
+    if (section === ANIMATED) return EFFECTS.filter((e) => e.animated);
     return EFFECTS.filter((e) => e.category === section);
   }, [query, section]);
 
@@ -137,7 +139,7 @@ function EffectsBrowser({ target }: { target: Target }) {
     applyEffect(def.id, target);
     close();
   };
-  const sections: Section[] = [OUR_PICKS, ALL, ...EFFECT_CATEGORIES];
+  const sections: Section[] = [OUR_PICKS, ALL, ANIMATED, ...EFFECT_CATEGORIES];
 
   return createPortal(
     <div className="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -202,7 +204,10 @@ function EffectsBrowser({ target }: { target: Target }) {
                 onFocus={() => setFocusId(def.id)}
                 onClick={() => pick(def)}
               >
-                <span className="fx-thumb">{previews[def.id] ? <img src={previews[def.id]} alt="" draggable={false} /> : <span className="fx-thumb-wait" />}</span>
+                <span className="fx-thumb">
+                  {previews[def.id] ? <img src={previews[def.id]} alt="" draggable={false} /> : <span className="fx-thumb-wait" />}
+                  {def.animated && <span className="fx-badge">Animated</span>}
+                </span>
                 <span className="fx-card-text">
                   <span className="fx-name">{def.name}</span>
                   {view === "list" && <span className="faint">{def.category}</span>}

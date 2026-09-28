@@ -2,12 +2,14 @@ import { defaultBasic, defaultColorGrading, defaultColorMixer, defaultToneCurve 
 import { homography } from "@/core/develop/geometry";
 import { sanitizeRecipe } from "@/core/develop/operations";
 import { effectById, newEffect, sanitizeEffect } from "@/core/effects/registry";
+import { ANIMATION_LIMITS, DEFAULT_ANIMATION } from "./animation";
 import { createId } from "@/lib/id";
 import { clamp, invert3, type Mat3, type Point } from "@/lib/math";
 import {
   BLEND_MODES,
   type BlendMode,
   type CompositeDocument,
+  type DocAnimation,
   type Gradient,
   type GroupLayer,
   type Layer,
@@ -525,6 +527,14 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
   }
 }
 
+export function sanitizeAnimation(v: unknown): DocAnimation {
+  const a = obj(v);
+  return {
+    duration: Math.round(num(a?.duration, DEFAULT_ANIMATION.duration, ANIMATION_LIMITS.duration[0], ANIMATION_LIMITS.duration[1]) * 10) / 10,
+    fps: Math.round(num(a?.fps, DEFAULT_ANIMATION.fps, ANIMATION_LIMITS.fps[0], ANIMATION_LIMITS.fps[1])),
+  };
+}
+
 export function sanitizeDocument(v: unknown): CompositeDocument {
   const d = obj(v);
   const width = Math.round(num(d?.width, 1920, 1, 30000));
@@ -542,6 +552,7 @@ export function sanitizeDocument(v: unknown): CompositeDocument {
       .map((g) => obj(g))
       .filter((g): g is Record<string, unknown> => !!g)
       .map((g) => ({ id: str(g.id, createId("guide"), 64), axis: g.axis === "y" ? ("y" as const) : ("x" as const), position: num(g.position, 0) })),
+    ...(obj(d?.animation) ? { animation: sanitizeAnimation(d?.animation) } : {}),
     createdAt: num(d?.createdAt, Date.now()),
   };
 }

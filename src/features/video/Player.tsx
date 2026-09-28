@@ -87,7 +87,7 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
       let frame = frameCanvas.current;
       if (!frame || frame.width !== ww || frame.height !== wh) frame = frameCanvas.current = new OffscreenCanvas(ww, wh);
       frame.getContext("2d")!.drawImage(v, 0, 0, ww, wh);
-      renderer.draw(frame, ww, wh, 0, ww, wh, e, [Math.floor((canvas.width - fw) / 2), Math.floor((canvas.height - fh) / 2), fw, fh]);
+      renderer.draw(frame, ww, wh, 0, ww, wh, e, [Math.floor((canvas.width - fw) / 2), Math.floor((canvas.height - fh) / 2), fw, fh], Math.max(0, v.currentTime - e.trimStart));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }

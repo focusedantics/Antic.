@@ -195,6 +195,26 @@ document's long side, so results do not depend on render scale. The Effects brow
 the engine for previews (`DevelopEngine.effectPreviews`). The engine renders the layers
 below the insertion point once, then runs each effect on that image at 360 px.
 
+**Animated effects.** A definition with `animated: true` moves over time. The runner
+passes `uTime`, `uLoop` (loop length in seconds) and `uPhase` (0–1 through the loop) to
+every pass. Animated shaders only move in whole cycles per loop (`loopCircle`,
+`loopNoise`, `frameHash` in the prelude, and integer "Speed" parameters), so the last
+frame leads back into the first without a jump. A composition's loop settings are data:
+`CompositeDocument.animation` (`{ duration, fps }`, optional, sanitized;
+`core/document/animation.ts` has the defaults and `isAnimated`). `Compositor.render(doc,
+scale, time)` renders any moment of the loop. The engine plays it in the canvas while
+`composite.playing` is set, on its own timer outside `requestRender` so the activity bar
+stays quiet, and `holdAnimation()` freezes it during exports. Video clips pass the clip
+time with a fixed 4 s loop (`VIDEO_EFFECT_LOOP`).
+
+**Animated export** (`core/export/animated.ts`). Still formats take a "frame at" time.
+GIF renders a few frames spread over the loop to build one shared palette, then renders
+every frame on the GPU and streams it to `gif.worker.ts`, which maps it to the palette
+(optional Floyd–Steinberg dithering) and compresses it with gifenc, with at most three
+frames in flight. MP4 plays the loop N times through WebCodecs and mp4-muxer, reusing the
+video workspace's encoder choice. Both flatten onto an opaque background and stamp the
+watermark. Only the first frame goes through `verifiedRender`; the rest reuse its caches.
+
 ### Transparency (Remove Background)
 
 A develop mask can be the photo's *cutout* (`mask.cutout`): its coverage multiplies the
@@ -243,11 +263,7 @@ selections again for AI mask components, and builds compositions through
 ## Export destinations and watermark (`core/export`)
 
 `ExportSink` delivers one export run to a `Destination`: separate downloads, a ZIP built
-with fflate (store only), a directory handle, or Google Drive. Google sign-in uses the
-OAuth token flow in a popup. The popup returns to `public/oauth-callback.html`, which
-posts the token over a `BroadcastChannel`: the page is cross-origin isolated, so the popup
-can't reach its opener. Uploads are resumable and go to `https://www.googleapis.com`.
-Watermarks are drawn with Canvas 2D after readback (photos and compositions) or uploaded
+with fflate (store only), or a directory handle. Watermarks are drawn with Canvas 2D after readback (photos and compositions) or uploaded
 once as an overlay texture (video frames).
 
 ## Reading pixels back

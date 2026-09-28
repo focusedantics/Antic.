@@ -55,6 +55,7 @@ uniform float p_tail;
 uniform float p_image;
 uniform vec3 p_ink;
 uniform vec3 p_background;
+uniform float p_speed;
 void main() {
   float ch = max(4.0, p_cell * uUnit);
   vec2 cs = vec2(ch * 0.7, ch);
@@ -69,7 +70,8 @@ void main() {
   for (int k = 0; k < 3; k++) {
     vec2 key = vec2(cell.x, float(k) * 13.7);
     if (hash(key + 3.1) > p_density) continue;
-    float h = floor(hash(key) * (rows + p_tail));
+    // Streams fall a whole screen (plus trail) per cycle, so the animation loops.
+    float h = floor(fract(hash(key) + uPhase * p_speed * (1.0 + floor(hash(key + 5.0) * 2.0))) * (rows + p_tail));
     float d = h - cell.y;
     if (d >= 0.0 && d < p_tail) {
       trail = max(trail, 1.0 - d / p_tail);
@@ -77,7 +79,8 @@ void main() {
     }
   }
   // Glyphs change per cell; some are mirrored like a film-set terminal.
-  float idx = floor(hash(cell * 1.37 + 0.5) * uGlyphCount);
+  // Some glyphs keep changing while the rain falls.
+  float idx = floor(frameHash(cell * 1.37 + 0.5, hash(cell + 2.0) > 0.8 ? 10.0 : 0.0) * uGlyphCount);
   vec2 local = (p - cell * cs) / cs;
   local = (local - 0.5) * 1.15 + 0.5;
   if (hash(cell + 9.0) > 0.5) local.x = 1.0 - local.x;
@@ -172,6 +175,7 @@ export const typeEffects: EffectDef[] = [
     id: "code-rain",
     name: "Code Rain",
     category: "Type & code",
+    animated: true,
     description: "Falling columns of glyphs lit by the image.",
     params: [
       { key: "cell", label: "Size", type: "number", min: 5, max: 60, step: 0.5, default: 14 },
@@ -180,6 +184,7 @@ export const typeEffects: EffectDef[] = [
       { key: "image", label: "Image strength", type: "number", min: 0, max: 1, step: 0.01, default: 0.85 },
       { key: "ink", label: "Ink", type: "color", default: "#3dff72" },
       { key: "background", label: "Background", type: "color", default: "#020603" },
+      { key: "speed", label: "Speed", type: "number", min: 0, max: 6, step: 1, default: 1 },
       { key: "seed", label: "Seed", type: "number", min: 0, max: 99, step: 1, default: 7 },
     ],
     render(ctx, u) {

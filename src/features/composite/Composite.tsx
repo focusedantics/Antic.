@@ -17,6 +17,7 @@ import {
   removeStoredDocument,
 } from "@/core/document/session";
 import { openProject, saveProject } from "@/core/document/project";
+import { isAnimated } from "@/core/document/animation";
 import { newDocument } from "./actions";
 import { addLayerMenu, deleteSelected, duplicateSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
@@ -257,6 +258,7 @@ function Toolbar({ onExport }: { onExport: () => void }) {
   const selection = useStore(composite, (s) => s.selection);
   const snap = useStore(composite, (s) => s.snap);
   const showGuides = useStore(composite, (s) => s.showGuides);
+  const playing = useStore(composite, (s) => s.playing);
   const view = useStore(composite, (s) => s.view);
   const tool = useStore(composite, (s) => s.tool);
   const history = compositeHistory();
@@ -292,6 +294,11 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       <button type="button" className="btn small" aria-pressed={showGuides} title="Show guides (Ctrl+;)" onClick={() => composite.setState({ showGuides: !showGuides })}>
         Guides
       </button>
+      {doc && isAnimated(doc) && (
+        <button type="button" className="btn small" aria-pressed={playing} title="Play animated effects in the canvas (exports are unaffected)" onClick={() => composite.setState({ playing: !playing })}>
+          {playing ? "❚❚ Animating" : "▶ Animate"}
+        </button>
+      )}
       <span className="spacer" />
       <div className="segmented" role="group" aria-label="Zoom">
         <button type="button" aria-pressed={view.fit} title="Fit (1)" onClick={() => composite.setState({ view: { ...view, fit: true } })}>

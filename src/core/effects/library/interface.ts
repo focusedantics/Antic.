@@ -26,6 +26,7 @@ uniform int p_color;
 uniform float p_scan;
 uniform int p_labels;
 uniform int p_grid;
+uniform float p_motion;
 vec3 tint(int mode) { return mode == 0 ? vec3(0.35, 1.0, 0.5) : mode == 1 ? vec3(1.0, 0.72, 0.2) : mode == 2 ? vec3(0.4, 0.85, 1.0) : vec3(1.0); }
 float box(vec2 p, vec2 lo, vec2 hi, float w) {
   // Corner brackets only, like a detector overlay.
@@ -53,7 +54,8 @@ void main() {
   for (int y = -1; y <= 1; y++)
     for (int x = -1; x <= 1; x++) {
       vec2 k = id + vec2(float(x), float(y));
-      vec2 center = (k + 0.5) * cell + (hash2(k) - 0.5) * cell * 0.3;
+      // Boxes hunt around their target a little, re-locking a few times a second.
+      vec2 center = (k + 0.5) * cell + (hash2(k) - 0.5) * cell * 0.3 + (vec2(frameHash(k, 4.0), frameHash(k + 1.0, 4.0)) - 0.5) * cell * 0.04 * p_motion;
       float detail = length(srcAvg(center, cell * 0.2).rgb - srcAvg(center, cell * 1.5).rgb) * 3.0;
       detail += abs(luma(srcAvg(center, cell * 0.5).rgb) - luma(srcAvg(center + cell * 0.3, cell * 0.5).rgb)) * 2.0;
       if (detail < 1.0 - p_sensitivity || hash(k + 17.0) > 0.55) continue;
@@ -91,11 +93,16 @@ void main() {
   // REC indicator and running counter in the top-left corner.
   float h = max(7.0, uUnit * 14.0);
   vec2 o = vec2(h * 1.2, h * 1.0);
-  float dot = cover(length(p - (o + vec2(h * 0.4, h * 0.5))) - h * 0.32);
+  // The REC light blinks once a second.
+  float blink = p_motion > 0.0 ? step(0.5, fract(uPhase * uLoop)) : 1.0;
+  float dot = cover(length(p - (o + vec2(h * 0.4, h * 0.5))) - h * 0.32) * blink;
   col = mix(col, vec3(1.0, 0.15, 0.1), dot);
-  float frame = floor(uSeed * 137.0 + 1042.0);
+  float frame = floor(uSeed * 137.0 + 1042.0 + uPhase * uLoop * 30.0 * p_motion);
   float rec[12] = float[12](${index("R")}.0, ${index("E")}.0, ${index("C")}.0, ${index(" ")}.0, ${index("0")}.0, digit(frame, 1000.0), ${index(":")}.0, digit(frame, 100.0), digit(frame, 10.0), ${index(":")}.0, digit(frame, 1.0), ${index("0")}.0);
   overlay = max(overlay, text(p, o + vec2(h * 1.1, 0.0), h, rec));
+  // A scan line sweeps down the frame.
+  float sweep = fract(uPhase * max(p_motion, 0.0)) * uSize.y;
+  overlay = max(overlay, p_motion > 0.0 ? exp(-abs(p.y - sweep) / max(1.0, uUnit * 1.5)) * 0.5 : 0.0);
   col = mix(col, ink, overlay);
   emit(col, max(s.a, overlay));
 }`;
@@ -162,7 +169,7 @@ void main() {
   vec4 s = src(p);
   float l = luma(s.rgb) * p_gain;
   l += luma(srcLod(p, 4.0).rgb) * p_bloom * 0.6;
-  l += (hash(p) - 0.5) * p_noise * 0.35 + (vnoise(p / (uUnit * 3.0)) - 0.5) * p_noise * 0.15;
+  l += (frameHash(p, 24.0) - 0.5) * p_noise * 0.35 + (vnoise(p / (uUnit * 3.0) + frameHash(vec2(1.0), 12.0) * 50.0) - 0.5) * p_noise * 0.15;
   l *= 0.9 + 0.1 * cos(p.y / max(1.5, uUnit * 2.0) * TAU);
   vec3 col = vec3(0.1, 1.0, 0.25) * pow(max(l, 0.0), 0.9);
   col += vec3(0.6, 1.0, 0.6) * max(0.0, l - 0.85);
@@ -191,6 +198,7 @@ export const interfaceEffects: EffectDef[] = [
     id: "tracking",
     name: "Tracking HUD",
     category: "Tracking & interface",
+    animated: true,
     description: "Detector brackets lock onto detailed areas, with labels and a REC counter.",
     params: [
       { key: "cell", label: "Box size", type: "number", min: 30, max: 400, step: 1, default: 130 },
@@ -199,6 +207,7 @@ export const interfaceEffects: EffectDef[] = [
       { key: "scan", label: "Scanlines", type: "number", min: 0, max: 1, step: 0.01, default: 0.4 },
       { key: "labels", label: "Labels", type: "toggle", default: true },
       { key: "grid", label: "Grid", type: "toggle", default: true },
+      { key: "motion", label: "Scan sweeps per loop", type: "number", min: 0, max: 4, step: 1, default: 1 },
       { key: "seed", label: "Seed", type: "number", min: 0, max: 99, step: 1, default: 3 },
     ],
     render(ctx, u) {
@@ -237,6 +246,7 @@ export const interfaceEffects: EffectDef[] = [
     id: "night-vision",
     name: "Night Vision",
     category: "Tracking & interface",
+    animated: true,
     description: "Green phosphor intensifier with grain and a scope mask.",
     params: [
       { key: "gain", label: "Gain", type: "number", min: 0.5, max: 4, step: 0.05, default: 1.6 },

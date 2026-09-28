@@ -35,7 +35,7 @@ export class EffectRunner {
    * number of working pixels per effect unit (1/1000 of the document's long side).
    * Returns a new pooled target the caller releases.
    */
-  apply(input: Texture, effect: EffectInstance, unit: number): Target {
+  apply(input: Texture, effect: EffectInstance, unit: number, time = 0, loop = 3): Target {
     const { width, height } = input;
     const def = effectById(effect.id);
     if (!this.mip || this.mip.width !== width || this.mip.height !== height) {
@@ -56,6 +56,9 @@ export class EffectRunner {
       uUnit: Math.max(unit, 0.05),
       uSeed: typeof params.seed === "number" ? params.seed : 0,
       uMaxLod: Math.floor(Math.log2(Math.max(width, height))),
+      uTime: time,
+      uLoop: loop,
+      uPhase: (((time / loop) % 1) + 1) % 1,
     };
     const ctx: EffectContext = {
       input: mip,

@@ -7,7 +7,9 @@ import { getAsset } from "@/core/catalog/store";
 import { basicRanges } from "@/core/develop/params";
 import { defaultShape as defaultMaskShape, newComponent, setCutout, shapeLabels } from "@/core/develop/masks";
 import type { Basic, MaskComponent } from "@/core/develop/recipe";
-import type { Gradient, GradientStop, Layer, ShapeStyle, TextStyle, Transform } from "@/core/document/model";
+import { ANIMATION_LIMITS, DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
+import type { DocAnimation, Gradient, GradientStop, Layer, ShapeStyle, TextStyle, Transform } from "@/core/document/model";
+import { effectById } from "@/core/effects/registry";
 import { emptyMask, fitTransform, locate, updateLayer } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
@@ -379,19 +381,65 @@ function AdjustmentSection({ layer }: { layer: Extract<Layer, { kind: "adjustmen
   );
 }
 
+/** Document-wide loop settings, shown on animated effect layers. */
+function LoopSection() {
+  const doc = useStore(composite, (s) => s.doc);
+  const playing = useStore(composite, (s) => s.playing);
+  if (!doc) return null;
+  const animation = docAnimation(doc);
+  const setAnimation = (label: string, change: Partial<DocAnimation>) => editDocument(label, (d) => ({ ...d, animation: { ...docAnimation(d), ...change } }));
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+        <strong>Loop</strong>
+        <button type="button" className="btn small" aria-pressed={playing} onClick={() => composite.setState({ playing: !playing })}>
+          {playing ? "Pause" : "Play"}
+        </button>
+      </div>
+      <Slider
+        label="Loop length"
+        value={animation.duration}
+        min={ANIMATION_LIMITS.duration[0]}
+        max={ANIMATION_LIMITS.duration[1]}
+        step={0.5}
+        defaultValue={DEFAULT_ANIMATION.duration}
+        format={(v) => `${v} s`}
+        onGestureStart={() => beginDocGesture("Loop length")}
+        onGestureEnd={endDocGesture}
+        onChange={(v) => setAnimation("Loop length", { duration: v })}
+      />
+      <Slider
+        label="Frame rate"
+        value={animation.fps}
+        min={ANIMATION_LIMITS.fps[0]}
+        max={ANIMATION_LIMITS.fps[1]}
+        defaultValue={DEFAULT_ANIMATION.fps}
+        format={(v) => `${v} fps`}
+        onGestureStart={() => beginDocGesture("Frame rate")}
+        onGestureEnd={endDocGesture}
+        onChange={(v) => setAnimation("Frame rate", { fps: v })}
+      />
+      <p className="faint" style={{ fontSize: 11 }}>Shared by every animated effect in this composition; GIF and MP4 exports use one loop.</p>
+    </div>
+  );
+}
+
 function EffectSection({ layer }: { layer: Extract<Layer, { kind: "effect" }> }) {
   return (
-    <EffectParams
-      effect={layer.effect}
-      onParam={(key, label, value) =>
-        set(layer.id, label, (l) => (l.kind === "effect" ? { ...l, effect: { ...l.effect, params: { ...l.effect.params, [key]: value } } } : l))
-      }
-      onGestureStart={beginDocGesture}
-      onGestureEnd={endDocGesture}
-      onReset={(fresh) => set(layer.id, "Reset effect", (l) => (l.kind === "effect" ? { ...l, effect: fresh } : l))}
-      onChangeEffect={() => openEffectsBrowser({ mode: "replace", layerId: layer.id })}
-      note="Applies to everything below it. Clip it (Ctrl+Alt+G) to affect only the layer beneath, add a mask to limit where, or change its blend mode and opacity above."
-    />
+    <>
+      <EffectParams
+        effect={layer.effect}
+        onParam={(key, label, value) =>
+          set(layer.id, label, (l) => (l.kind === "effect" ? { ...l, effect: { ...l.effect, params: { ...l.effect.params, [key]: value } } } : l))
+        }
+        onGestureStart={beginDocGesture}
+        onGestureEnd={endDocGesture}
+        onReset={(fresh) => set(layer.id, "Reset effect", (l) => (l.kind === "effect" ? { ...l, effect: fresh } : l))}
+        onChangeEffect={() => openEffectsBrowser({ mode: "replace", layerId: layer.id })}
+        note="Applies to everything below it. Clip it (Ctrl+Alt+G) to affect only the layer beneath, add a mask to limit where, or change its blend mode and opacity above."
+      />
+      {effectById(layer.effect.id)?.animated && <LoopSection />}
+    </>
   );
 }
 

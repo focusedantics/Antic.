@@ -17,7 +17,8 @@ the result survives a reload.
 | 8 | Presets, sync, snapshots, `.focused` project files | Done |
 | 9 | Performance: WebGPU backend, tiled export, region-of-interest rendering | Planned |
 | 10 | PSD interoperability, advanced export | Planned |
-| — | Effects (38 GPU stylizations, effect layers, browser) | Done (see below) |
+| — | Effects (48 GPU stylizations, 19 animated, effect layers, browser) | Done (see below) |
+| — | Animated export: GIF, MP4 loop, still frame at a chosen time | Done (see below) |
 | — | Video: MP4 trim, quality, frame rate, effects, export | Done (see below) |
 
 ## Stage 1 — Library
@@ -149,9 +150,19 @@ Known limitations:
 ## Effects
 
 Done:
-- 38 original GLSL effects in nine categories: Light & glass, Type & code, Halftone & dither,
-  Textile & craft, Pixel & 3D, Edges & outlines, Analog & glitch, Experimental, and
-  Tracking & interface. Every parameter is real: the GPU reads each one.
+- 48 original GLSL effects in ten categories: Light & glass, Type & code, Halftone & dither,
+  Textile & craft, Pixel & 3D, Edges & outlines, Analog & glitch, Experimental,
+  Tracking & interface, and Motion. Every parameter is real: the GPU reads each one.
+- 19 animated effects. Motion adds Snowfall, Rain, Sparkles, Film Grain & Flicker, Light
+  Leaks, Bokeh Float, Heat & Water, Color Cycle, Camera Motion and Confetti. Code Rain,
+  CRT, VHS, Datamosh Glitch, Kaleidoscope, Liquid Warp, Aura Gradient, Tracking HUD and
+  Night Vision now move too. They all loop seamlessly over the composition's loop (1–10 s,
+  6–30 fps, set in the effect's Loop section). They play live in the canvas (toolbar
+  toggle) and in the video player. The browser has an **Animated** section and badges.
+- Composition export: **GIF** (one shared palette, optional dithering, up to 1600 px),
+  **MP4** (the loop played 1–10 times, up to 3840 px), or PNG/JPEG/WebP of the frame at a
+  chosen time. The progress bar counts frames, and the watermark and destinations work
+  as for stills.
 - Effect layers in Composite. Each is non-destructive and applies to everything below it,
   or only to its clipping base. It has opacity, fill, a blend mode and a layer mask, and
   it is saved in documents and `.focused` files with sanitized parameters.
@@ -164,7 +175,9 @@ Done:
   **Effects…** button, and Library's **Apply an Effect…** context-menu item.
 
 Known limitations:
-- Effects are still images; animated or video output is not implemented.
+- GIF is limited to 256 colours per file (shared across frames) and has no partial
+  transparency; transparent areas are flattened onto the chosen background.
+- Animation runs on one clock per composition. Effects cannot be keyframed individually.
 - Text effects use the platform's monospace font. Katakana in Code Rain needs a font that
   has those glyphs; otherwise the browser falls back.
 
@@ -222,9 +235,8 @@ they are photo-specific.
 - Photo, composition and video exports share one set of controls
   (`features/export/ExportParts.tsx`):
   - a checklist to choose several items;
-  - a destination: Downloads, one ZIP, a folder via the File System Access API
-    (Chrome/Edge), or Google Drive (`core/export/drive.ts`, which uploads with the
-    `drive.file` scope to a "Focused exports" folder);
+  - a destination: Downloads, one ZIP, or a folder via the File System Access API
+    (Chrome/Edge);
   - a watermark (`core/export/watermark.ts`): text, seven font families, bold/italic,
     color, size and margin relative to the short side, opacity, shadow, nine positions
     or tiled. For video it is burned into every frame.

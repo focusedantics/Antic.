@@ -9,6 +9,7 @@ uniform float p_mask;
 uniform float p_bloom;
 uniform float p_vignette;
 uniform float p_pitch;
+uniform float p_roll;
 void main() {
   vec2 uv = gl_FragCoord.xy / uSize;
   vec2 c = uv - 0.5;
@@ -32,6 +33,9 @@ void main() {
   col *= mix(vec3(1.0), mask * 1.35, p_mask);
   col += unpremul(texture(uBloom, cuv)).rgb * p_bloom * 0.6;
   col *= 1.0 - p_vignette * dot(ca, ca) * 1.6;
+  // A soft bright band rolls down the tube, and the picture flickers slightly.
+  float band = fract(cuv.y - uPhase * max(p_roll, 0.0));
+  col *= 1.0 + 0.12 * step(0.5, p_roll) * exp(-pow((band - 0.5) * 7.0, 2.0)) + (frameHash(vec2(1.0), 30.0) - 0.5) * 0.05 * step(0.5, p_roll);
   emit(col * inside, 1.0);
 }`;
 
@@ -41,15 +45,16 @@ uniform float p_tracking;
 uniform float p_jitter;
 uniform float p_noise;
 uniform float p_fade;
+uniform float p_speed;
 const mat3 RGB2YIQ = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312);
 const mat3 YIQ2RGB = mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703);
 void main() {
   vec2 p = gl_FragCoord.xy;
   float line = floor(p.y / max(1.0, uUnit));
-  float t = uSeed * 7.13;
+  float t = uSeed * 7.13 + floor(uPhase * uLoop * 30.0 + 0.5);
   // Horizontal wobble per scanline, a tracking band, and the head-switch tear at the bottom.
   float wobble = (vnoise(vec2(line * 0.05, t)) - 0.5) * p_jitter * uUnit * 6.0;
-  float bandY = fract(0.63 + uSeed * 0.217) * uSize.y;
+  float bandY = fract(0.63 + uSeed * 0.217 + uPhase * p_speed) * uSize.y;
   float bandH = uSize.y * 0.06;
   float inBand = smoothstep(bandH, 0.0, abs(p.y - bandY)) * p_tracking;
   wobble += inBand * (hash(vec2(line, t)) - 0.5) * uUnit * 40.0;
@@ -83,15 +88,18 @@ uniform float p_intensity;
 uniform float p_slice;
 uniform float p_split;
 uniform float p_blocks;
+uniform float p_rate;
 void main() {
   vec2 p = gl_FragCoord.xy;
+  // New corruption \`rate\` times a second (0 = frozen).
+  float f = floor(uPhase * uLoop * p_rate + 0.5) * 7.77;
   float slice = max(2.0, p_slice * uUnit);
   float row = floor(p.y / slice);
-  float r1 = hash(vec2(row, 1.0));
-  float r2 = hash(vec2(floor(p.y / (slice * 4.0)), 2.0));
+  float r1 = hash(vec2(row, 1.0 + f));
+  float r2 = hash(vec2(floor(p.y / (slice * 4.0)), 2.0 + f));
   float shift = 0.0;
-  if (r1 < p_intensity * 0.6) shift = (hash(vec2(row, 3.0)) - 0.5) * uSize.x * 0.25 * p_intensity;
-  if (r2 < p_intensity * 0.25) shift += (hash(vec2(row, 4.0)) - 0.5) * uSize.x * 0.08;
+  if (r1 < p_intensity * 0.6) shift = (hash(vec2(row, 3.0 + f)) - 0.5) * uSize.x * 0.25 * p_intensity;
+  if (r2 < p_intensity * 0.25) shift += (hash(vec2(row, 4.0 + f)) - 0.5) * uSize.x * 0.08;
   vec2 q = p + vec2(shift, 0.0);
   float split = p_split * uUnit * (shift != 0.0 ? 2.0 : 1.0);
   vec3 col = vec3(src(q + vec2(split, 0.0)).r, src(q).g, src(q - vec2(split, 0.0)).b);
@@ -99,14 +107,14 @@ void main() {
   // Corrupted macroblocks, in runs along a few damaged rows: copied from the wrong place, sometimes channel-swapped.
   float bs = slice * 1.6;
   vec2 block = floor(p / bs);
-  float band = hash(vec2(floor(block.y / 2.0), 21.0));
-  if (band < p_blocks * 0.35 && hash(vec2(floor(block.x / 3.0), block.y) + 5.0) < 0.6) {
-    vec2 jump = floor((hash2(vec2(block.y, floor(block.x / 3.0))) - 0.5) * 8.0) * bs;
-    vec3 c = srcLod(p + jump, hash(block + 2.0) < 0.5 ? 0.0 : log2(bs * 0.5)).rgb;
-    col = hash(block + 9.0) < 0.4 ? c.brg : c;
-    if (hash(block + 13.0) < 0.12) col = 1.0 - col;
+  float band = hash(vec2(floor(block.y / 2.0), 21.0 + f));
+  if (band < p_blocks * 0.35 && hash(vec2(floor(block.x / 3.0), block.y) + 5.0 + f) < 0.6) {
+    vec2 jump = floor((hash2(vec2(block.y, floor(block.x / 3.0)) + f) - 0.5) * 8.0) * bs;
+    vec3 c = srcLod(p + jump, hash(block + 2.0 + f) < 0.5 ? 0.0 : log2(bs * 0.5)).rgb;
+    col = hash(block + 9.0 + f) < 0.4 ? c.brg : c;
+    if (hash(block + 13.0 + f) < 0.12) col = 1.0 - col;
   }
-  float scan = step(0.97, hash(vec2(row, 7.0))) * p_intensity;
+  float scan = step(0.97, hash(vec2(row, 7.0 + f))) * p_intensity;
   col = mix(col, vec3(col.g, col.b, col.r), scan);
   emit(col, src(p).a);
 }`;
@@ -140,6 +148,7 @@ export const analogEffects: EffectDef[] = [
     id: "crt",
     name: "CRT Monitor",
     category: "Analog & glitch",
+    animated: true,
     description: "Curved tube glass, scanlines, phosphor stripes and bloom.",
     params: [
       { key: "curve", label: "Curvature", type: "number", min: 0, max: 0.5, step: 0.01, default: 0.14 },
@@ -148,6 +157,7 @@ export const analogEffects: EffectDef[] = [
       { key: "mask", label: "Phosphor mask", type: "number", min: 0, max: 1, step: 0.01, default: 0.45 },
       { key: "bloom", label: "Bloom", type: "number", min: 0, max: 2, step: 0.01, default: 0.7 },
       { key: "vignette", label: "Vignette", type: "number", min: 0, max: 1, step: 0.01, default: 0.5 },
+      { key: "roll", label: "Rolling band (cycles per loop)", type: "number", min: 0, max: 4, step: 1, default: 1 },
     ],
     render(ctx, u) {
       const bloom = ctx.blur(ctx.input, Math.max(1, 6 * ctx.unit));
@@ -160,6 +170,7 @@ export const analogEffects: EffectDef[] = [
     id: "vhs",
     name: "VHS Tape",
     category: "Analog & glitch",
+    animated: true,
     description: "Smeared chroma, tracking noise and a torn head-switch line.",
     params: [
       { key: "bleed", label: "Color bleed", type: "number", min: 0, max: 40, step: 0.5, default: 14 },
@@ -167,6 +178,7 @@ export const analogEffects: EffectDef[] = [
       { key: "jitter", label: "Jitter", type: "number", min: 0, max: 1, step: 0.01, default: 0.35 },
       { key: "noise", label: "Noise", type: "number", min: 0, max: 1, step: 0.01, default: 0.5 },
       { key: "fade", label: "Tape fade", type: "number", min: 0, max: 1, step: 0.01, default: 0.6 },
+      { key: "speed", label: "Tracking roll (cycles per loop)", type: "number", min: 0, max: 6, step: 1, default: 1 },
       { key: "seed", label: "Seed", type: "number", min: 0, max: 99, step: 1, default: 4 },
     ],
     render: (ctx, u) => ctx.pass("fx-vhs", vhs, u),
@@ -175,12 +187,14 @@ export const analogEffects: EffectDef[] = [
     id: "glitch",
     name: "Datamosh Glitch",
     category: "Analog & glitch",
+    animated: true,
     description: "Displaced slices, split channels and corrupted blocks.",
     params: [
       { key: "intensity", label: "Intensity", type: "number", min: 0, max: 1, step: 0.01, default: 0.5 },
       { key: "slice", label: "Slice height", type: "number", min: 1, max: 60, step: 0.5, default: 10 },
       { key: "split", label: "RGB split", type: "number", min: 0, max: 40, step: 0.5, default: 6 },
       { key: "blocks", label: "Block corruption", type: "number", min: 0, max: 1, step: 0.01, default: 0.35 },
+      { key: "rate", label: "Changes per second", type: "number", min: 0, max: 24, step: 1, default: 6 },
       { key: "seed", label: "Seed", type: "number", min: 0, max: 99, step: 1, default: 12 },
     ],
     render: (ctx, u) => ctx.pass("fx-glitch", glitch, u),

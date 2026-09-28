@@ -1,9 +1,6 @@
 import { zip } from "fflate";
 
-/**
- * Where exported files go. Everything is written from this device; nothing is
- * uploaded unless Google Drive is chosen, and then only the exported files.
- */
+/** Where exported files go. Everything is written from this device; nothing is uploaded. */
 export type DirectoryHandle = FileSystemDirectoryHandle & {
   getFileHandle(name: string, options: { create: boolean }): Promise<FileSystemFileHandle & { createWritable(): Promise<FileSystemWritableFileStream> }>;
 };
@@ -11,8 +8,7 @@ export type DirectoryHandle = FileSystemDirectoryHandle & {
 export type Destination =
   | { readonly kind: "download" }
   | { readonly kind: "zip" }
-  | { readonly kind: "folder"; readonly handle: DirectoryHandle; readonly name: string }
-  | { readonly kind: "drive"; readonly token: string; readonly folderId: string; readonly folderName: string };
+  | { readonly kind: "folder"; readonly handle: DirectoryHandle; readonly name: string };
 
 export const canChooseFolder = () => typeof (window as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
 
@@ -60,14 +56,11 @@ export class ExportSink {
     const d = this.destination;
     if (d.kind === "download") download(file, blob);
     else if (d.kind === "zip") this.zipped[file] = new Uint8Array(await blob.arrayBuffer());
-    else if (d.kind === "folder") {
+    else {
       const handle = await d.handle.getFileHandle(file, { create: true });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-    } else {
-      const { uploadToDrive } = await import("./drive");
-      await uploadToDrive(d.token, d.folderId, file, blob);
     }
     this.saved.push(file);
   }
@@ -91,7 +84,5 @@ export function describeDestination(d: Destination) {
       return "a ZIP in your Downloads";
     case "folder":
       return `the folder “${d.name}”`;
-    case "drive":
-      return `Google Drive › ${d.folderName}`;
   }
 }

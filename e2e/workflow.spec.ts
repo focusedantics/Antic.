@@ -202,3 +202,91 @@ test("looks: save a composition's effects as a look, apply it to other photos, b
   const [zipFile] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export 2" }).click()]);
   expect(zipFile.suggestedFilename()).toBe("Focused export (2 photos).zip");
 });
+
+/** Counts the image blocks in a GIF by walking its block structure. */
+function gifFrames(bytes: Buffer): number {
+  let p = 13;
+  if (bytes[10] & 0x80) p += 3 * (1 << ((bytes[10] & 7) + 1));
+  const skipSubBlocks = () => {
+    while (bytes[p] !== 0) p += bytes[p] + 1;
+    p++;
+  };
+  let frames = 0;
+  while (p < bytes.length && bytes[p] !== 0x3b) {
+    if (bytes[p] === 0x21) {
+      p += 2;
+      skipSubBlocks();
+    } else if (bytes[p] === 0x2c) {
+      const flags = bytes[p + 9];
+      p += 10;
+      if (flags & 0x80) p += 3 * (1 << ((flags & 7) + 1));
+      p++; // LZW minimum code size
+      skipSubBlocks();
+      frames++;
+    } else throw new Error(`Bad GIF block 0x${bytes[p].toString(16)} at ${p}`);
+  }
+  return frames;
+}
+
+test("histogram draws for the developed photo", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
+  await page.locator(".cell").first().click();
+  await page.keyboard.press("d");
+  const histogram = page.getByRole("img", { name: "Histogram" });
+  await expect(histogram).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        histogram.evaluate((c: HTMLCanvasElement) => {
+          const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+          let lit = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) lit++;
+          return lit / (c.width * c.height);
+        }),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0.05);
+});
+
+test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still frame", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
+  await page.locator(".cell").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Apply an Effect…" }).click();
+  const browser = page.getByRole("dialog", { name: "Effects" });
+  await browser.getByRole("button", { name: /^Animated/ }).click();
+  await expect(browser.locator(".fx-badge").first()).toHaveText("Animated");
+  await browser.getByLabel("Search effects").fill("snow");
+  await browser.locator(".fx-card", { hasText: "Snow" }).first().click();
+  await expect(page.locator(".layer-row").first()).toContainText("Snow");
+  await expect(page.getByRole("button", { name: /Animating/ })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Loop length" })).toBeVisible();
+
+  // Pausing and resuming the live animation.
+  await page.getByRole("button", { name: /Animating/ }).click();
+  await expect(page.getByRole("button", { name: /Animate$/ })).toBeVisible();
+  await page.getByRole("button", { name: /Animate$/ }).click();
+
+  const exportAs = async (format: string, extension: string) => {
+    await page.getByRole("button", { name: "Export…" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Format").selectOption(format);
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+    expect(download.suggestedFilename()).toMatch(new RegExp(`\\.${extension}$`));
+    const path = await download.path();
+    const { readFileSync } = await import("node:fs");
+    return readFileSync(path!);
+  };
+
+  const gif = await exportAs("gif", "gif");
+  expect(gif.subarray(0, 6).toString("latin1")).toBe("GIF89a");
+  // 3 s at 15 fps = 45 frames.
+  expect(gifFrames(gif)).toBe(45);
+
+  const mp4 = await exportAs("mp4", "mp4");
+  expect(mp4.subarray(4, 8).toString("latin1")).toBe("ftyp");
+
+  const png = await exportAs("png", "png");
+  expect(png.subarray(1, 4).toString("latin1")).toBe("PNG");
+});

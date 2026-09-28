@@ -2,6 +2,7 @@ import { recipeFor } from "@/core/develop/session";
 import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
 import { canvasToContent } from "@/core/document/operations";
+import { DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
 import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, ShapeLayer, TextLayer } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
 import { BLEND_MODES } from "@/core/document/model";
@@ -30,6 +31,9 @@ export type SourceProvider = (assetId: string) => GpuSource | null;
 export class Compositor {
   private contents = new Map<string, Cached>();
   private frame = 0;
+  /** Seconds into the document's animation loop for the render in progress. */
+  private time = 0;
+  private loop = DEFAULT_ANIMATION.duration;
   private readonly effects: EffectRunner;
 
   constructor(
@@ -41,9 +45,14 @@ export class Compositor {
     this.effects = new EffectRunner(gpu, pipeline);
   }
 
-  /** Renders `doc` at `scale` working pixels per document pixel. The caller releases the result. */
-  render(doc: CompositeDocument, scale: number): Target {
+  /**
+   * Renders `doc` at `scale` working pixels per document pixel, with animated
+   * effects at `time` seconds into the loop. The caller releases the result.
+   */
+  render(doc: CompositeDocument, scale: number, time = 0): Target {
     this.frame++;
+    this.loop = docAnimation(doc).duration;
+    this.time = time;
     const width = Math.max(1, Math.round(doc.width * scale));
     const height = Math.max(1, Math.round(doc.height * scale));
     const backdrop = this.pipeline.acquire(width, height);
@@ -308,7 +317,7 @@ export class Compositor {
    */
   private effect(input: Target, layer: EffectLayer, scale: number, doc: CompositeDocument, atop: boolean): Target {
     const unit = (Math.max(doc.width, doc.height) * scale) / 1000;
-    let result = this.effects.apply(input, layer.effect, unit);
+    let result = this.effects.apply(input, layer.effect, unit, this.time, this.loop);
     const mask = layer.mask?.enabled && layer.mask.components.length ? this.layerMask(layer, null, scale) : null;
     const fill = SPECIAL.has(layer.blend) ? 1 : layer.fillOpacity;
     if (mask || fill < 1) {

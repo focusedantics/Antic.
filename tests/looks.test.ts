@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createDefaultRecipe } from "@/core/develop/defaults";
 import { createDocument, effectLayer, imageLayer, insertLayer, textLayer } from "@/core/document/operations";
 import { uniqueName } from "@/core/export/destination";
-import { authUrl } from "@/core/export/drive";
 import { drawWatermark, sanitizeWatermark } from "@/core/export/watermark";
 import { describeLook, fitLayers, lookFromRecipe, lookLayers, newLook, readLookFile, lookToFile, sanitizeLook } from "@/core/looks/look";
 
@@ -62,14 +61,6 @@ describe("export helpers", () => {
     expect(uniqueName("a.jpg", used)).toBe("a.jpg");
     expect(uniqueName("A.jpg", used)).toBe("A (2).jpg");
     expect(uniqueName("a.jpg", used)).toBe("a (3).jpg");
-  });
-
-  it("builds a Drive sign-in URL with the narrow file scope", () => {
-    const url = new URL(authUrl("client-1", "https://example.app/oauth-callback.html", "s1"));
-    expect(url.hostname).toBe("accounts.google.com");
-    expect(url.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/drive.file");
-    expect(url.searchParams.get("response_type")).toBe("token");
-    expect(url.searchParams.get("state")).toBe("s1");
   });
 
   it("sanitizes watermark settings and places text by position", () => {

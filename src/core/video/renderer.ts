@@ -50,6 +50,9 @@ void main() {
  * editor uses it to draw the playing <video> into a canvas; export uses one on
  * an OffscreenCanvas sized to the output and turns the canvas into VideoFrames.
  */
+/** Loop length (seconds) of animated effects on video clips. */
+export const VIDEO_EFFECT_LOOP = 4;
+
 export class VideoRenderer {
   readonly gpu: Gpu;
   private pipeline: DevelopPipeline;
@@ -81,7 +84,8 @@ export class VideoRenderer {
   /**
    * Draws one frame: `image` (sourceWidth × sourceHeight, unrotated) becomes a
    * width × height frame with the edit's effect, presented into `viewport` of
-   * the canvas (defaults to the whole canvas).
+   * the canvas (defaults to the whole canvas). `time` (seconds into the clip)
+   * drives animated effects, which loop every `VIDEO_EFFECT_LOOP` seconds.
    */
   draw(
     image: TexImageSource,
@@ -92,12 +96,13 @@ export class VideoRenderer {
     height: number,
     edit: Pick<VideoEdit, "effect" | "effectMix">,
     viewport?: readonly [number, number, number, number],
+    time = 0,
   ) {
     const src = this.upload(image, sourceWidth, sourceHeight);
     let frame: Target = this.pipeline.acquire(width, height);
     this.gpu.pass("video-in", frameIn, { target: frame, textures: { uSource: src }, uniforms: { uRotation: rotation } });
     if (edit.effect && edit.effectMix > 0) {
-      const fx = this.effects.apply(frame, edit.effect, Math.max(width, height) / 1000);
+      const fx = this.effects.apply(frame, edit.effect, Math.max(width, height) / 1000, time, VIDEO_EFFECT_LOOP);
       if (edit.effectMix >= 1) {
         this.pipeline.release(frame);
         frame = fx;

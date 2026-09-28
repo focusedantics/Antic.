@@ -91,6 +91,25 @@ void main() {
   outColor = vec4(c.rgb * c.a, c.a);
 }`;
 
+/** Packs one float channel per output pixel (4 output pixels per input texel) into 24-bit RGB. */
+const PACK_FLOAT_FRAGMENT = `#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uInput;
+uniform vec2 uOrigin;
+uniform vec2 uInputSize;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  int channel = p.x % 4;
+  ivec2 texel = ivec2(uOrigin) + ivec2(p.x / 4, p.y);
+  vec4 c = texelFetch(uInput, clamp(texel, ivec2(0), ivec2(uInputSize) - 1), 0);
+  float v = channel == 0 ? c.r : channel == 1 ? c.g : channel == 2 ? c.b : c.a;
+  uint q = uint(clamp((v + 64.0) / 128.0, 0.0, 1.0) * 16777215.0 + 0.5);
+  outColor = vec4(float((q >> 16) & 255u), float((q >> 8) & 255u), float(q & 255u), 255.0) / 255.0;
+}`;
+
 export class GpuError extends Error {}
 
 export class Gpu {
@@ -492,33 +511,42 @@ export class Gpu {
     return ctx.getImageData(0, 0, W, H);
   }
 
-  /** Reads RGBA8 pixels from a target (bottom-up rows, as GL stores them). */
-  readRgba8(target: Target): Uint8Array {
-    const { gl } = this;
-    const out = new Uint8Array(target.width * target.height * 4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
-    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return out;
+  /**
+   * Reads float RGBA values of a region through the same canvas path as
+   * `readImage`: each channel is packed into 24 bits of an RGBA8 pixel on the
+   * GPU (range −64…64, ~8e-6 precision) and unpacked here.
+   */
+  readFloatRegion(input: Texture, x: number, y: number, width: number, height: number): Float32Array {
+    const packed = this.target(width * 4, height, "rgba8");
+    try {
+      this.pass("pack-float", PACK_FLOAT_FRAGMENT, {
+        target: packed,
+        textures: { uInput: input },
+        uniforms: { uOrigin: [x, y], uInputSize: [input.width, input.height] },
+      });
+      const bytes = this.readImage(packed).data;
+      const out = new Float32Array(width * height * 4);
+      for (let i = 0; i < out.length; i++) {
+        const q = bytes[i * 4] * 65536 + bytes[i * 4 + 1] * 256 + bytes[i * 4 + 2];
+        out[i] = (q / 16777215) * 128 - 64;
+      }
+      return out;
+    } finally {
+      this.dispose(packed);
+    }
   }
 
   /** Reads one float pixel at texel (x, y). */
-  readPixelFloat(target: Target, x: number, y: number): [number, number, number, number] {
-    const { gl } = this;
-    const out = new Float32Array(4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
-    gl.readPixels(Math.max(0, Math.min(target.width - 1, Math.floor(x))), Math.max(0, Math.min(target.height - 1, Math.floor(y))), 1, 1, gl.RGBA, gl.FLOAT, out);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return [out[0], out[1], out[2], out[3]];
+  readPixelFloat(target: Texture, x: number, y: number): [number, number, number, number] {
+    const px = Math.max(0, Math.min(target.width - 1, Math.floor(x)));
+    const py = Math.max(0, Math.min(target.height - 1, Math.floor(y)));
+    const v = this.readFloatRegion(target, px, py, 1, 1);
+    return [v[0], v[1], v[2], v[3]];
   }
 
-  /** Reads float pixels (RGBA32F) from a float target. */
-  readFloat(target: Target): Float32Array {
-    const { gl } = this;
-    const out = new Float32Array(target.width * target.height * 4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
-    gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.FLOAT, out);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return out;
+  /** Reads every float pixel of a (small) target, top row first. */
+  readFloat(target: Texture): Float32Array {
+    return this.readFloatRegion(target, 0, 0, target.width, target.height);
   }
 }
+

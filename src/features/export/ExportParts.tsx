@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "@/app/state";
 import { Slider } from "@/components/Slider";
 import { canChooseFolder, chooseFolder, type Destination, describeDestination } from "@/core/export/destination";
-import { driveConfigured } from "@/core/export/drive";
 import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition } from "@/core/export/watermark";
 
 export function ProgressBar({ done, total, label }: { done: number; total: number; label: string }) {
@@ -22,7 +21,7 @@ export function ProgressBar({ done, total, label }: { done: number; total: numbe
 
 let lastDestination: Destination = { kind: "download" };
 
-/** Downloads, one ZIP, a folder on this computer, or Google Drive. */
+/** Downloads, one ZIP, or a folder on this computer. */
 export function DestinationPicker({ count, value, onChange }: { count: number; value: Destination; onChange: (d: Destination) => void }) {
   const [busy, setBusy] = useState(false);
   const pick = async (kind: Destination["kind"]) => {
@@ -30,7 +29,6 @@ export function DestinationPicker({ count, value, onChange }: { count: number; v
       setBusy(true);
       let next: Destination;
       if (kind === "folder") next = await chooseFolder();
-      else if (kind === "drive") next = await (await import("@/core/export/drive")).connectDrive();
       else next = { kind };
       lastDestination = next;
       onChange(next);
@@ -50,10 +48,6 @@ export function DestinationPicker({ count, value, onChange }: { count: number; v
           {value.kind === "folder" ? `Folder: ${value.name}` : "A folder on this computer…"}
           {!canChooseFolder() ? " (Chrome or Edge)" : ""}
         </option>
-        <option value="drive" disabled={!driveConfigured()}>
-          {value.kind === "drive" ? `Google Drive › ${value.folderName}` : "Google Drive…"}
-          {!driveConfigured() ? " (not set up on this site)" : ""}
-        </option>
       </select>
       {busy && <span className="faint">Waiting for you to choose…</span>}
       {!busy && value.kind !== "download" && <span className="faint">Saving to {describeDestination(value)}.</span>}
@@ -61,7 +55,7 @@ export function DestinationPicker({ count, value, onChange }: { count: number; v
   );
 }
 
-export const initialDestination = (): Destination => (lastDestination.kind === "drive" || lastDestination.kind === "folder" ? lastDestination : { kind: "download" });
+export const initialDestination = (): Destination => (lastDestination.kind === "folder" ? lastDestination : { kind: "download" });
 
 const positionLabels: Record<WatermarkPosition, string> = {
   "top-left": "↖",

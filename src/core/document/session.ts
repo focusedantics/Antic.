@@ -14,6 +14,8 @@ export type CompositeState = {
   readonly view: { readonly fit: boolean; readonly zoom: number; readonly centerX: number; readonly centerY: number };
   readonly snap: boolean;
   readonly showGuides: boolean;
+  /** Whether animated effects move in the canvas view (they always export animated). */
+  readonly playing: boolean;
   /** Layer whose mask the canvas tools edit. */
   readonly maskLayerId: string | null;
   readonly maskComponentId: string | null;
@@ -27,6 +29,7 @@ export const composite = createStore<CompositeState>(() => ({
   view: { fit: true, zoom: 1, centerX: 0.5, centerY: 0.5 },
   snap: true,
   showGuides: true,
+  playing: true,
   maskLayerId: null,
   maskComponentId: null,
   documents: [],

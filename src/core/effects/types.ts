@@ -15,7 +15,8 @@ export type EffectCategory =
   | "Edges & outlines"
   | "Analog & glitch"
   | "Experimental"
-  | "Tracking & interface";
+  | "Tracking & interface"
+  | "Motion";
 
 export const EFFECT_CATEGORIES: EffectCategory[] = [
   "Light & glass",
@@ -27,6 +28,7 @@ export const EFFECT_CATEGORIES: EffectCategory[] = [
   "Analog & glitch",
   "Experimental",
   "Tracking & interface",
+  "Motion",
 ];
 
 export type ParamDef =
@@ -65,6 +67,8 @@ export type EffectDef = {
   readonly category: EffectCategory;
   readonly description: string;
   readonly params: readonly ParamDef[];
+  /** Moves over time: seamless loops of the document's (or clip's) loop length. */
+  readonly animated?: boolean;
   /** Returns a new premultiplied target of the working size. */
   render(ctx: EffectContext, uniforms: Record<string, number | number[]>, params: EffectParams): Target;
 };

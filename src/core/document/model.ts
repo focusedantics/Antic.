@@ -171,6 +171,9 @@ export type LayerKind = Layer["kind"];
 
 export type Guide = { readonly id: string; readonly axis: "x" | "y"; readonly position: number };
 
+/** Loop settings for documents with animated effects (GIF / MP4 export and the live preview). */
+export type DocAnimation = { readonly duration: number; readonly fps: number };
+
 export type CompositeDocument = {
   readonly version: 1;
   readonly id: string;
@@ -182,5 +185,7 @@ export type CompositeDocument = {
   /** Bottom first: the array is paint order. */
   readonly layers: readonly Layer[];
   readonly guides: readonly Guide[];
+  /** Absent = defaults (3 s at 15 fps); only matters when an animated effect is present. */
+  readonly animation?: DocAnimation;
   readonly createdAt: number;
 };
