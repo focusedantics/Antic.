@@ -5,6 +5,7 @@ import { developEngine } from "@/core/gpu/develop-engine";
 import { clamp } from "@/lib/math";
 import { MaskOverlay } from "./masks/MaskOverlay";
 import { CropOverlay } from "./tools/Crop";
+import { HealOverlay } from "./tools/Heal";
 
 /** Zoom so that the point under the cursor stays put. */
 export function zoomTo(zoom: number, clientX?: number, clientY?: number) {
@@ -119,6 +120,7 @@ export function DevelopView() {
     <div className="develop-view" ref={ref}>
       {tool === "crop" && <CropOverlay />}
       {tool === "mask" && <MaskOverlay />}
+      {tool === "heal" && <HealOverlay />}
       {compare === "split" && tool === "adjust" && <SplitHandle position={split} />}
       {status === "preview" && <div className="develop-status">Showing the camera preview while the original decodes…</div>}
       {status === "loading" && <div className="develop-status">Decoding original…</div>}

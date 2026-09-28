@@ -268,6 +268,21 @@ export function sanitizeRecipe(input: unknown, info: SourceColorInfo): DevelopRe
     },
     effects: numbers(s.effects, defaultEffects, effectsRanges),
     masks: oneCutout((Array.isArray(s.masks) ? s.masks : []).map(sanitizeMask).filter((m): m is Mask => !!m)),
+    retouch: (Array.isArray(s.retouch) ? s.retouch : [])
+      .map((v) => obj(v))
+      .filter((v): v is Record<string, unknown> => !!v)
+      .slice(0, 500)
+      .map((v) => ({
+        id: typeof v.id === "string" ? v.id : createId("spot"),
+        mode: v.mode === "clone" ? ("clone" as const) : ("heal" as const),
+        x: num(v.x, 0.5, { min: 0, max: 1 }),
+        y: num(v.y, 0.5, { min: 0, max: 1 }),
+        sourceX: num(v.sourceX, 0.5, { min: 0, max: 1 }),
+        sourceY: num(v.sourceY, 0.5, { min: 0, max: 1 }),
+        radius: num(v.radius, 0.01, { min: 0.0005, max: 0.25 }),
+        feather: num(v.feather, 50, { min: 0, max: 100 }),
+        opacity: num(v.opacity, 1, { min: 0, max: 1 }),
+      })),
   };
 }
 
@@ -324,12 +339,13 @@ export const recipeGroups: { id: RecipeGroup; label: string }[] = [
   { id: "geometry", label: "Crop & Transform" },
   { id: "effects", label: "Effects" },
   { id: "masks", label: "Masks" },
+  { id: "retouch", label: "Spot Removal" },
 ];
 
 /** Groups copied by default: everything except the crop and masks, which are usually photo-specific. */
 export const defaultCopyGroups: RecipeGroup[] = recipeGroups
   .map((g) => g.id)
-  .filter((g) => g !== "geometry" && g !== "masks");
+  .filter((g) => g !== "geometry" && g !== "masks" && g !== "retouch");
 
 export type RecipeClip = { readonly groups: readonly RecipeGroup[]; readonly values: Partial<DevelopRecipe>; readonly raw: boolean };
 

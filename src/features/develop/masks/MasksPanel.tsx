@@ -49,11 +49,11 @@ function shapeFor(kind: ManualKind): MaskShape {
   return defaultShape(kind, center, 0.25, aspect);
 }
 
-export function createMask(kind: ManualKind) {
-  editRecipe(`New ${shapeLabels[kind]} mask`, (r) => {
-    const { recipe, mask } = addMask(r, shapeFor(kind));
+export function createMask(kind: ManualKind, preset?: { name: string; adjustments: Partial<LocalAdjustments> }) {
+  editRecipe(preset ? preset.name : `New ${shapeLabels[kind]} mask`, (r) => {
+    const { recipe, mask } = addMask(r, shapeFor(kind), preset?.name);
     queueMicrotask(() => develop.setState({ activeMaskId: mask.id, activeComponentId: mask.components[0].id, tool: "mask" }));
-    return recipe;
+    return preset ? updateMask(recipe, mask.id, (m) => ({ ...m, adjustments: { ...m.adjustments, ...preset.adjustments } })) : recipe;
   });
 }
 
@@ -356,6 +356,9 @@ export function MasksPanel() {
   const createMenu = (e: React.MouseEvent) =>
     openMenu(e.clientX, e.clientY, [
       ...manualKinds.map((k) => ({ label: shapeLabels[k], onSelect: () => createMask(k) })),
+      "separator" as const,
+      { label: "Dodge (brush, +⅓ stop)", onSelect: () => createMask("brush", { name: "Dodge", adjustments: { exposure: 0.35 } }) },
+      { label: "Burn (brush, −⅓ stop)", onSelect: () => createMask("brush", { name: "Burn", adjustments: { exposure: -0.35 } }) },
       "separator" as const,
       ...aiMenuItems(null, "add"),
     ]);

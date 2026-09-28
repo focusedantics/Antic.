@@ -138,5 +138,6 @@ export function createDefaultRecipe(info: SourceColorInfo): DevelopRecipe {
     geometry: defaultGeometry,
     effects: defaultEffects,
     masks: [],
+    retouch: [],
   };
 }

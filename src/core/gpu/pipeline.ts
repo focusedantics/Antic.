@@ -7,6 +7,7 @@ import { bakeCurves, isToneCurveActive, LUT_SIZE, toHalfArray } from "./curves";
 import type { Gpu, Target, Texture, TextureFormat } from "./gl";
 import { gradingUniforms, isGradingActive, isMixerActive, mixerUniform } from "./mixer";
 import * as S from "./shaders/passes";
+import { retouch as retouchShader } from "./shaders/retouch";
 
 /** Decoded pixels ready for upload. */
 export type SourceData =
@@ -55,6 +56,8 @@ export class DevelopPipeline {
   private leased = new Set<Target>();
   private curveCache: { key: DevelopRecipe["toneCurve"]; texture: Texture } | null = null;
   private atmosphereCache = new Map<string, [number, number, number]>();
+  /** Retouched sources, one per photo (compositions can hold several). */
+  private retouchCache = new Map<string, { source: GpuSource; spots: DevelopRecipe["retouch"]; target: Target }>();
 
   constructor(readonly gpu: Gpu) {}
 
@@ -125,10 +128,61 @@ export class DevelopPipeline {
   }
 
   disposeSource(source: GpuSource | null | undefined) {
-    if (source) this.gpu.dispose(source.base);
+    if (!source) return;
+    this.gpu.dispose(source.base);
+    const retouched = this.retouchCache.get(source.id);
+    if (retouched?.source === source) {
+      this.gpu.dispose(retouched.target);
+      this.retouchCache.delete(source.id);
+    }
   }
 
   // ─── Rendering ───────────────────────────────────────────────────────────
+
+  /** The source with spot repairs applied (full resolution, mipmapped), cached per spot list. */
+  private retouched(source: GpuSource, spots: DevelopRecipe["retouch"]): Texture {
+    const hit = this.retouchCache.get(source.id);
+    if (!spots.length) {
+      if (hit) {
+        this.gpu.dispose(hit.target);
+        this.retouchCache.delete(source.id);
+      }
+      return source.base;
+    }
+    if (hit && hit.source === source && hit.spots === spots) return hit.target;
+    const { width, height } = source.base;
+    const long = Math.max(width, height);
+    let input: Texture = source.base;
+    let output: Target | null = null;
+    for (let start = 0; start < spots.length; start += 32) {
+      const chunk = spots.slice(start, start + 32);
+      const target = this.gpu.target(width, height, "rgba16f", { mipmaps: true });
+      const pos = new Float32Array(128);
+      const params = new Float32Array(128);
+      chunk.forEach((s, i) => {
+        pos.set([s.x * width, s.y * height, s.sourceX * width, s.sourceY * height], i * 4);
+        params.set([s.radius * long, s.feather / 100, s.opacity, s.mode === "clone" ? 1 : 0], i * 4);
+      });
+      this.gpu.pass("retouch", retouchShader, {
+        target,
+        textures: { uBase: input },
+        uniforms: { uSize: [width, height], uCount: chunk.length, uSpots: pos, uParams: params },
+      });
+      this.gpu.generateMipmaps(target);
+      if (output) this.gpu.dispose(output);
+      output = target;
+      input = target;
+    }
+    if (hit) this.gpu.dispose(hit.target);
+    this.retouchCache.set(source.id, { source, spots, target: output! });
+    // Bound GPU memory: keep the most recent few.
+    while (this.retouchCache.size > 4) {
+      const [id, oldest] = this.retouchCache.entries().next().value!;
+      this.gpu.dispose(oldest.target);
+      this.retouchCache.delete(id);
+    }
+    return output!;
+  }
 
   private curves(recipe: DevelopRecipe): Texture {
     if (this.curveCache?.key === recipe.toneCurve) return this.curveCache.texture;
@@ -209,12 +263,13 @@ export class DevelopPipeline {
     const fullScale = full.width / width;
     const outToSrc = toGlMat3(outputToSource(source.size, recipe.geometry));
 
-    // 1. Geometry + lens corrections.
+    // 1. Spot repairs (cached), then geometry + lens corrections.
+    const base = this.retouched(source, recipe.retouch);
     let current = this.acquire(width, height);
     const optics = recipe.optics;
     gpu.pass("geometry", S.geometry, {
       target: current,
-      textures: { uBase: source.base },
+      textures: { uBase: base },
       uniforms: {
         uOutToSrc: outToSrc,
         uSrcSize: [source.size.width, source.size.height],

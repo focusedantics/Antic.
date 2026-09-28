@@ -15,6 +15,7 @@ import { copySettings, DevelopLeftPanel, pasteSettings } from "./panels/Left";
 import { ToneCurvePanel } from "./panels/ToneCurve";
 import { createMask, MasksPanel } from "./masks/MasksPanel";
 import { CropPanel } from "./tools/Crop";
+import { deleteSelectedSpot, HealPanel } from "./tools/Heal";
 import { startEyedropper } from "./tools/eyedropper";
 import { DevelopView, zoomTo } from "./View";
 
@@ -83,6 +84,7 @@ function ToolStrip() {
     { id: "adjust", label: "Edit", key: "" },
     { id: "crop", label: "Crop", key: "R" },
     { id: "mask", label: "Masks", key: "M" },
+    { id: "heal", label: "Heal", key: "Q" },
   ];
   return (
     <div className="tool-strip" role="toolbar" aria-label="Develop tools">
@@ -105,6 +107,7 @@ function RightPanel() {
       <ToolStrip />
       {tool === "crop" && <CropPanel />}
       {tool === "mask" && <MasksPanel />}
+      {tool === "heal" && <HealPanel />}
       <BasicPanel />
       <ToneCurvePanel />
       <ColorMixerPanel />
@@ -169,6 +172,12 @@ function developShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
     case "m":
       setTool("mask");
       return true;
+    case "q":
+      setTool("heal");
+      return true;
+    case "delete":
+    case "backspace":
+      return tool === "heal" && deleteSelectedSpot();
     case "b": {
       // Brush: continue painting the active brush component, or start a new brush mask.
       const { recipe, activeMaskId, activeComponentId } = develop.getState();

@@ -227,6 +227,26 @@ export type Mask = {
   readonly adjustments: LocalAdjustments;
 };
 
+/**
+ * One spot repair. `x, y` is the blemish, `sourceX, sourceY` where pixels are
+ * taken from, both in source uv. Heal matches the surrounding tone and color;
+ * clone copies the source as-is.
+ */
+export type Spot = {
+  readonly id: string;
+  readonly mode: "heal" | "clone";
+  readonly x: number;
+  readonly y: number;
+  readonly sourceX: number;
+  readonly sourceY: number;
+  /** Radius as a fraction of the photo's long side. */
+  readonly radius: number;
+  /** 0..100 */
+  readonly feather: number;
+  /** 0..1 */
+  readonly opacity: number;
+};
+
 export type DevelopRecipe = {
   readonly version: 1;
   readonly profile: Profile;
@@ -240,6 +260,7 @@ export type DevelopRecipe = {
   readonly geometry: Geometry;
   readonly effects: Effects;
   readonly masks: readonly Mask[];
+  readonly retouch: readonly Spot[];
 };
 
 /** Groups that can be copied, pasted, synced and saved in presets independently. */
