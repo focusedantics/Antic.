@@ -1,24 +1,49 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
+import { useImageUrl } from "@/app/thumbs";
 import { Dialog } from "@/components/Menu";
-import { getAsset } from "@/core/catalog/store";
+import { catalog, getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
-import { canChooseFolder, chooseFolder, defaultExportSettings, exportAsset, type ExportSettings, exportSize, save } from "@/core/export/export";
+import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
+import { defaultExportSettings, exportAsset, type ExportSettings, exportSize } from "@/core/export/export";
+import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { formatBytes } from "@/features/library/format";
+import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "./ExportParts";
+
+function ExportItem({ id, checked, onToggle }: { id: string; checked: boolean; onToggle: () => void }) {
+  const asset = useStore(catalog, (s) => s.assets.get(id));
+  const url = useImageUrl(asset, "thumb");
+  return (
+    <label>
+      <input type="checkbox" checked={checked} onChange={onToggle} />
+      {url ? <img src={url} alt="" /> : <span className="ph" />}
+      <span className="name">{asset?.fileName ?? id}</span>
+    </label>
+  );
+}
 
 let remembered: ExportSettings = defaultExportSettings;
 
 export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose: () => void; onDone: (count: number) => void }) {
   const [s, setS] = useState<ExportSettings>(remembered);
   const [busy, setBusy] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(ids));
+  const [destination, setDestination] = useState<Destination>(initialDestination);
+  const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+  const cancelled = useRef(false);
+  const chosen = ids.filter((id) => selected.has(id));
+  const previewUrl = useImageUrl(getAsset(chosen[0] ?? ids[0]), "preview");
   const [estimate, setEstimate] = useState<{ width: number; height: number; bytes?: number } | null>(null);
   const set = (patch: Partial<ExportSettings>) => setS((prev) => ({ ...prev, ...patch }));
 
   // Dimensions of the first photo, and its encoded size when it is already decoded.
   useEffect(() => {
-    const id = ids[0];
+    const id = chosen[0];
+    if (!id) return;
     const asset = getAsset(id);
     const recipe = recipeFor(id);
     const src = developEngine().sourceFor(id);
@@ -40,34 +65,44 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
       live = false;
       clearTimeout(t);
     };
-  }, [ids, s]);
+  }, [chosen[0], s]);
 
   const run = async () => {
     remembered = s;
-    let folder;
-    try {
-      if (canChooseFolder() && ids.length > 1) folder = await chooseFolder();
-    } catch {
-      return;
-    }
+    rememberWatermark(watermark);
+    cancelled.current = false;
+    const sink = new ExportSink(destination, `Focused export (${chosen.length} photos).zip`);
     let done = 0;
-    for (const [i, id] of ids.entries()) {
-      setBusy(`Exporting ${i + 1} of ${ids.length}…`);
-      try {
-        await save(await exportAsset(id, s), folder);
-        done++;
-      } catch (error) {
-        toast(`${getAsset(id)?.fileName}: ${error instanceof Error ? error.message : error}`, "error");
+    setBusy("Exporting…");
+    try {
+      for (const [i, id] of chosen.entries()) {
+        if (cancelled.current) break;
+        setProgress({ done: i, total: chosen.length, label: `Exporting ${i + 1} of ${chosen.length} · ${getAsset(id)?.fileName ?? ""}` });
+        try {
+          const result = await exportAsset(id, s, watermark);
+          await sink.add(result.name, result.blob);
+          done++;
+        } catch (error) {
+          toast(`${getAsset(id)?.fileName}: ${error instanceof Error ? error.message : error}`, "error");
+        }
       }
+      setProgress({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
+      await sink.finish();
+      if (done) toast(`Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+    } catch (error) {
+      toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
+    } finally {
+      setBusy(null);
+      setProgress(null);
     }
-    setBusy(null);
     onDone(done);
     onClose();
   };
 
   return (
     <Dialog
-      title={`Export ${ids.length === 1 ? (getAsset(ids[0])?.fileName ?? "photo") : `${ids.length} photos`}`}
+      wide
+      title={`Export ${chosen.length === 1 ? (getAsset(chosen[0])?.fileName ?? "photo") : `${chosen.length} photos`}`}
       onClose={() => !busy && onClose()}
       footer={
         <>
@@ -77,15 +112,50 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
                 ? `${estimate.width} × ${estimate.height} px${estimate.bytes ? ` · ${formatBytes(estimate.bytes)}` : ""}${ids.length > 1 ? " (first photo)" : ""}`
                 : "")}
           </span>
-          <button type="button" className="btn" disabled={!!busy} onClick={onClose}>
-            Cancel
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              if (busy) cancelled.current = true;
+              else onClose();
+            }}
+          >
+            {busy ? "Stop" : "Cancel"}
           </button>
-          <button type="button" className="btn primary" disabled={!!busy} onClick={run}>
-            Export
+          <button type="button" className="btn primary" disabled={!!busy || !chosen.length} onClick={run}>
+            Export{chosen.length > 1 ? ` ${chosen.length}` : ""}
           </button>
         </>
       }
     >
+      {progress && <ProgressBar {...progress} />}
+      {ids.length > 1 && (
+        <div className="field">
+          <span>
+            Photos · {chosen.length} of {ids.length}{" "}
+            <button type="button" className="btn ghost small" onClick={() => setSelected(new Set(chosen.length === ids.length ? [] : ids))}>
+              {chosen.length === ids.length ? "Select none" : "Select all"}
+            </button>
+          </span>
+          <div className="export-list">
+            {ids.map((id) => (
+              <ExportItem
+                key={id}
+                id={id}
+                checked={selected.has(id)}
+                onToggle={() =>
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
       <div className="row">
         <label className="field" style={{ flex: 1 }}>
           <span>Format</span>
@@ -145,8 +215,10 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         <span>File name suffix</span>
         <input className="input" placeholder="e.g. -web" value={s.suffix} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => set({ suffix: e.target.value.replace(/[\\/:*?"<>|]/g, "") })} />
       </label>
+      <DestinationPicker count={chosen.length} value={destination} onChange={setDestination} />
+      <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={previewUrl} />
       <p className="faint" style={{ fontSize: 11, margin: 0 }}>
-        Colors are exported in sRGB. {ids.length > 1 && canChooseFolder() ? "You will choose a destination folder." : "Files are saved through your browser's downloads."}
+        Colors are exported in sRGB. Existing files are never overwritten.
       </p>
     </Dialog>
   );

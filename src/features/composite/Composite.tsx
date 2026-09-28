@@ -17,9 +17,13 @@ import {
   removeStoredDocument,
 } from "@/core/document/session";
 import { openProject, saveProject } from "@/core/document/project";
-import { type DocExport, exportDocument, newDocument } from "./actions";
+import { newDocument } from "./actions";
 import { addLayerMenu, deleteSelected, duplicateSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
+import { openLooks } from "@/features/looks/LooksDialog";
+import { readLookFile } from "@/core/looks/look";
+import { saveLook } from "@/core/looks/store";
+import { ExportDocumentDialog } from "./ExportDocument";
 import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { CompositeView, zoomComposite } from "./View";
 
@@ -107,85 +111,6 @@ function NewDocumentDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
-  const doc = useStore(composite, (s) => s.doc);
-  const [o, setO] = useState<DocExport>({ format: "png", scale: 1, quality: 0.92, background: "#ffffff" });
-  const [busy, setBusy] = useState(false);
-  if (!doc) return null;
-  return (
-    <Dialog
-      title={`Export “${doc.name}”`}
-      onClose={() => !busy && onClose()}
-      footer={
-        <>
-          <span className="dim num" style={{ marginRight: "auto" }}>
-            {Math.round(doc.width * o.scale)} × {Math.round(doc.height * o.scale)} px
-          </span>
-          <button type="button" className="btn" disabled={busy} onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const blob = await exportDocument(doc, o);
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${doc.name}.${o.format === "jpeg" ? "jpg" : o.format}`;
-                a.click();
-                setTimeout(() => URL.revokeObjectURL(url), 5000);
-                onClose();
-              } catch (error) {
-                toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "Exporting…" : "Export"}
-          </button>
-        </>
-      }
-    >
-      <div className="row">
-        <label className="field" style={{ flex: 1 }}>
-          <span>Format</span>
-          <select className="input" value={o.format} onChange={(e) => setO({ ...o, format: e.target.value as DocExport["format"] })}>
-            <option value="png">PNG (keeps transparency)</option>
-            <option value="webp">WebP (keeps transparency)</option>
-            <option value="jpeg">JPEG</option>
-          </select>
-        </label>
-        <label className="field" style={{ width: 190 }}>
-          <span>Size</span>
-          <select className="input" value={o.scale} onChange={(e) => setO({ ...o, scale: Number(e.target.value) })}>
-            {[0.25, 0.5, 1, 1.5, 2, 3, 4].map((s) => (
-              <option key={s} value={s} disabled={Math.max(doc.width, doc.height) * s > 8192}>
-                {s * 100}% · {Math.round(doc.width * s)} × {Math.round(doc.height * s)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {o.format !== "png" && (
-        <label className="field">
-          <span>Quality {Math.round(o.quality * 100)}</span>
-          <input type="range" min={40} max={100} value={Math.round(o.quality * 100)} onChange={(e) => setO({ ...o, quality: Number(e.target.value) / 100 })} />
-        </label>
-      )}
-      {o.format === "jpeg" && (
-        <label className="row">
-          Background for transparent areas <input type="color" value={o.background} onChange={(e) => setO({ ...o, background: e.target.value })} />
-        </label>
-      )}
-    </Dialog>
-  );
-}
-
 async function saveProjectFile() {
   const doc = composite.getState().doc;
   if (!doc) return;
@@ -211,6 +136,14 @@ function openProjectFile() {
     const file = input.files?.[0];
     if (!file) return;
     try {
+      // A .focused file is either a look (reusable edits) or a project.
+      const look = await readLookFile(file);
+      if (look) {
+        await saveLook(look);
+        toast(`Added the look “${look.name}”.`);
+        openLooks({ kind: "composite" });
+        return;
+      }
       const { document: doc, missing } = await openProject(file);
       openDocument(doc);
       if (missing.length) toast(`Opened. ${missing.length} photo(s) were not in the library or the file: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`, "error");
@@ -379,6 +312,9 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       </button>
       <button type="button" className="btn small" disabled={!doc} onClick={() => openEffectsBrowser()} title="Add an effect layer (Shift+E)">
         ✦ Effects
+      </button>
+      <button type="button" className="btn small" disabled={!doc} onClick={() => openLooks({ kind: "composite" })} title="Save this composition's effects and edits as a look, or apply one">
+        Looks…
       </button>
       <button type="button" className="btn small primary" disabled={!doc} onClick={onExport} title="Export (Ctrl+Shift+E)">
         Export…

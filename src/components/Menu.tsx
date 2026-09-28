@@ -81,11 +81,13 @@ export function Dialog({
   children,
   footer,
   onClose,
+  wide,
 }: {
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   onClose: () => void;
+  wide?: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -99,7 +101,7 @@ export function Dialog({
   }, [onClose]);
   return createPortal(
     <div className="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true">
+      <div className={wide ? "dialog wide" : "dialog"} role="dialog" aria-modal="true">
         <header>{title}</header>
         <div className="dialog-body">{children}</div>
         {footer && <div className="dialog-actions">{footer}</div>}

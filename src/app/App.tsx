@@ -2,6 +2,7 @@ import { type DragEvent, lazy, Suspense, useEffect, useState } from "react";
 import { ActivityBar } from "./ActivityBar";
 import { MenuHost } from "@/components/Menu";
 import { ExportHost } from "@/features/export/host";
+import { LooksHost } from "@/features/looks/LooksDialog";
 import { importProgress, itemsFromDataTransfer } from "@/core/catalog/import";
 import { catalog, loadCatalogIntoStore } from "@/core/catalog/store";
 import { pulseActivity } from "@/lib/activity";
@@ -157,6 +158,7 @@ export function App() {
       <Toast />
       <ActivityBar />
       <ExportHost />
+      <LooksHost />
       <MenuHost />
     </div>
   );

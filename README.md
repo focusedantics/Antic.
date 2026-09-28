@@ -22,6 +22,14 @@ one asset system and one effects library:
   kaleidoscope, liquid warp, a tracking HUD, thermal and night vision. You pick them from
   a browser with live previews of your own image. Every effect is editable and can be
   masked, blended and exported.
+- **Looks**: save your edits as a reusable look: Develop settings, masks, effect, text
+  and adjustment layers, and video effects. Apply it to many photos at once, to a
+  composition or to a video, and share it as a `.focused` file. AI masks (subject, sky,
+  people, objects) are detected again on each photo.
+- **Export**: progress bars; pick several photos, compositions or videos; save to
+  Downloads, one ZIP, a folder on your computer (Chrome/Edge) or Google Drive (see
+  `docs/DEPLOYMENT.md`); add a text watermark with font, size, opacity, color, shadow and
+  one of nine positions, or tile it across the image.
 - **Video**: import MP4/MOV clips; trim with handles on a frame strip; lower the
   resolution, quality (bitrate) and frame rate; drop or keep the audio; apply any effect
   with a strength control; and export a new MP4 with a size estimate. Decoding, effects

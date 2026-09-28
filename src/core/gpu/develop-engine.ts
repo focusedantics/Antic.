@@ -1,5 +1,6 @@
 import { beginActivity } from "@/lib/activity";
 import { similarImages } from "./verify";
+import { drawWatermark, type Watermark } from "@/core/export/watermark";
 import { getRaster, getSetting, getThumb, putSetting, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
@@ -747,10 +748,11 @@ export class DevelopEngine {
   }
 }
 
-export async function encodePixels(pixels: ImageData, type: string, quality: number, background?: string): Promise<Blob> {
+export async function encodePixels(pixels: ImageData, type: string, quality: number, background?: string, watermark?: Watermark): Promise<Blob> {
   const canvas = new OffscreenCanvas(pixels.width, pixels.height);
   const ctx = canvas.getContext("2d")!;
   ctx.putImageData(pixels, 0, 0);
+  let out = canvas;
   if (type === "image/jpeg") {
     // JPEG has no alpha: flatten against the chosen background.
     const flat = new OffscreenCanvas(pixels.width, pixels.height);
@@ -758,9 +760,10 @@ export async function encodePixels(pixels: ImageData, type: string, quality: num
     fctx.fillStyle = background ?? "#ffffff";
     fctx.fillRect(0, 0, flat.width, flat.height);
     fctx.drawImage(canvas, 0, 0);
-    return flat.convertToBlob({ type, quality });
+    out = flat;
   }
-  return canvas.convertToBlob({ type, quality });
+  if (watermark?.enabled) drawWatermark(out.getContext("2d")!, out.width, out.height, watermark);
+  return out.convertToBlob({ type, quality });
 }
 
 const unpremultiply = `#version 300 es

@@ -79,10 +79,11 @@ interface FocusedDB extends DBSchema {
   settings: { key: string; value: unknown };
   videos: { key: string; value: VideoRecord };
   videoFiles: { key: string; value: Blob };
+  looks: { key: string; value: unknown };
 }
 
 const DB_NAME = "focused-catalog";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 let dbPromise: Promise<IDBPDatabase<FocusedDB>> | null = null;
 
 export function catalogDb() {
@@ -93,6 +94,7 @@ export function catalogDb() {
         db.createObjectStore("videos", { keyPath: "id" });
         db.createObjectStore("videoFiles");
       }
+      if (oldVersion < 3) db.createObjectStore("looks", { keyPath: "id" });
     },
     blocking() {
       // Another tab upgraded the schema: release the connection so it can proceed.
@@ -244,4 +246,15 @@ export async function deleteVideo(id: string) {
   await tx.objectStore("videos").delete(id);
   await tx.objectStore("videoFiles").delete(id);
   await tx.done;
+}
+
+/** Saved looks (validated by core/looks when read). */
+export async function listLooks(): Promise<unknown[]> {
+  return (await catalogDb()).getAll("looks");
+}
+export async function putLook(look: { id: string }) {
+  await (await catalogDb()).put("looks", look);
+}
+export async function deleteLook(id: string) {
+  await (await catalogDb()).delete("looks", id);
 }

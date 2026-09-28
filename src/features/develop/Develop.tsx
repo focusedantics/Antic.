@@ -6,6 +6,7 @@ import { catalog } from "@/core/catalog/store";
 import { currentHistory, develop, type DevelopTool, flushDevelop } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { openExport } from "@/features/export/host";
+import { openLooks } from "@/features/looks/LooksDialog";
 import { showInDevelop } from "./loader";
 import { autoWhiteBalance, BasicPanel } from "./panels/Basic";
 import { ColorGradingPanel, ColorMixerPanel } from "./panels/Color";
@@ -77,6 +78,17 @@ function Toolbar({ onExport }: { onExport: () => void }) {
         }}
       >
         ✦ Effects…
+      </button>
+      <button
+        type="button"
+        className="btn small"
+        title="Save these edits as a look, or apply one"
+        onClick={() => {
+          const id = develop.getState().assetId;
+          if (id) openLooks({ kind: "develop", assetId: id });
+        }}
+      >
+        Looks…
       </button>
       <button type="button" className="btn small" disabled={!history?.status().canUndo} title="Undo (Ctrl+Z)" onClick={() => history?.undo()}>
         Undo

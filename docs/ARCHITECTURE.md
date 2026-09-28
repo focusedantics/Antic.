@@ -231,6 +231,25 @@ uses the first supported codec (H.264 → HEVC → VP9 → AV1), and `mp4-muxer`
 file. Audio packets inside the range are copied, not re-encoded. Queues are bounded by
 awaiting `decodeQueueSize` / `encodeQueueSize`, so memory stays flat during long clips.
 
+## Looks (`core/looks`, `features/looks`)
+
+A look is plain data (see ROADMAP → Looks) validated by `sanitizeLook`. Develop values
+are validated again by `sanitizeRecipe` when pasted. `fitLayers` refits canvas-relative
+layers to another canvas: canvas-wide layers cover it, positions scale per axis, and
+sizes scale uniformly. `features/looks/apply.ts` pastes develop groups, runs the AI
+selections again for AI mask components, and builds compositions through
+`features/composite/actions.photoSize`.
+
+## Export destinations and watermark (`core/export`)
+
+`ExportSink` delivers one export run to a `Destination`: separate downloads, a ZIP built
+with fflate (store only), a directory handle, or Google Drive. Google sign-in uses the
+OAuth token flow in a popup. The popup returns to `public/oauth-callback.html`, which
+posts the token over a `BroadcastChannel`: the page is cross-origin isolated, so the popup
+can't reach its opener. Uploads are resumable and go to `https://www.googleapis.com`.
+Watermarks are drawn with Canvas 2D after readback (photos and compositions) or uploaded
+once as an overlay texture (video frames).
+
 ## Reading pixels back
 
 Every image that leaves the GPU goes through `Gpu.readImage`: exports, thumbnails,

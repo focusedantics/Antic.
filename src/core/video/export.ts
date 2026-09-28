@@ -3,6 +3,7 @@ import { track } from "@/lib/activity";
 import { type Demuxed, demux } from "./demux";
 import { outputFrameRate, outputSize, type VideoEdit, videoBitrate } from "./model";
 import { VideoRenderer } from "./renderer";
+import { drawWatermark, type Watermark } from "@/core/export/watermark";
 
 export type ExportProgress = { readonly done: number; readonly total: number; readonly stage: string };
 
@@ -36,11 +37,11 @@ async function chooseEncoder(width: number, height: number, bitrate: number, fra
  * re-rendered on the GPU (scale, rotation, effect) and re-encoded; audio
  * packets inside the trim range are copied as they are.
  */
-export function exportVideo(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) => void, signal: AbortSignal): Promise<Blob> {
-  return track(run(file, edit, onProgress, signal));
+export function exportVideo(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) => void, signal: AbortSignal, watermark?: Watermark): Promise<Blob> {
+  return track(run(file, edit, onProgress, signal, watermark));
 }
 
-async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) => void, signal: AbortSignal): Promise<Blob> {
+async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) => void, signal: AbortSignal, watermark?: Watermark): Promise<Blob> {
   if (typeof VideoDecoder === "undefined" || typeof VideoEncoder === "undefined") throw new Error("Video export needs WebCodecs (a recent Chrome, Edge or Safari).");
   onProgress({ done: 0, total: 1, stage: "Reading video…" });
   const media: Demuxed = await demux(file);
@@ -81,6 +82,11 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
 
   const canvas = new OffscreenCanvas(size.width, size.height);
   const renderer = new VideoRenderer(canvas);
+  if (watermark?.enabled) {
+    const stamp = new OffscreenCanvas(size.width, size.height);
+    drawWatermark(stamp.getContext("2d")!, size.width, size.height, watermark);
+    renderer.setOverlay(stamp);
+  }
   let failure: unknown = null;
   let encoded = 0;
   const videoEncoder = new VideoEncoder({

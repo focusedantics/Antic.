@@ -7,7 +7,7 @@ import { Panel } from "@/components/Panel";
 import { Slider } from "@/components/Slider";
 import { effectById, newEffect } from "@/core/effects/registry";
 import { demux } from "@/core/video/demux";
-import { type ExportProgress, exportVideo } from "@/core/video/export";
+import { exportVideo } from "@/core/video/export";
 import {
   estimateBytes,
   FRAME_RATES,
@@ -16,6 +16,7 @@ import {
   outputSize,
   QUALITIES,
   type Quality,
+  sanitizeEdit,
   type Resolution,
   RESOLUTIONS,
   type VideoOutput,
@@ -35,7 +36,12 @@ import {
   videoHistory,
 } from "@/core/video/session";
 import { track } from "@/lib/activity";
+import { getVideo } from "@/core/catalog/db";
+import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
+import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
+import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
 import { EffectParams } from "@/features/effects/EffectParams";
+import { openLooks } from "@/features/looks/LooksDialog";
 import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { formatBytes } from "@/features/library/format";
 import { formatTime, grabFrame, playback, seek, stepFrames, togglePlay } from "./playback";
@@ -314,86 +320,134 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
 }
 
 function ExportVideoDialog({ onClose }: { onClose: () => void }) {
-  const clip = useStore(video, (s) => s.clips.find((c) => c.id === s.openId));
-  const [progress, setProgress] = useState<ExportProgress>({ done: 0, total: 1, stage: "Starting…" });
-  const [result, setResult] = useState<{ size: number } | null>(null);
+  const clips = useStore(video, (s) => s.clips);
+  const openId = useStore(video, (s) => s.openId);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(openId ? [openId] : []));
+  const [destination, setDestination] = useState<Destination>(initialDestination);
+  const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+  const [result, setResult] = useState<{ count: number; bytes: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const { openId, edit } = video.getState();
-    if (!openId || !edit || !clip) return;
+  useEffect(() => () => controllerRef.current?.abort(), []);
+  const chosen = clips.filter((c) => selected.has(c.id));
+  const busy = !!progress;
+
+  const run = async () => {
+    rememberWatermark(watermark);
+    flushVideo();
     const controller = new AbortController();
     controllerRef.current = controller;
-    let live = true;
-    void (async () => {
-      try {
-        const file = await openClipFile(openId);
-        if (!file) throw new Error("The video file is missing.");
-        const blob = await exportVideo(file, edit, (p) => live && setProgress(p), controller.signal);
-        if (!live) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${clip.name}-edit.mp4`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 10_000);
-        setResult({ size: blob.size });
-        toast(`Exported ${clip.name}-edit.mp4 (${formatBytes(blob.size)}).`);
-      } catch (err) {
-        if (!live || controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : String(err));
+    const sink = new ExportSink(destination, `Focused videos (${chosen.length}).zip`);
+    let count = 0;
+    let bytes = 0;
+    setError(null);
+    try {
+      for (const [i, clip] of chosen.entries()) {
+        const prefix = chosen.length > 1 ? `${i + 1}/${chosen.length} · ${clip.name} · ` : "";
+        setProgress({ done: 0, total: 1, label: `${prefix}Reading video…` });
+        const file = await openClipFile(clip.id);
+        if (!file) throw new Error(`${clip.name}: the video file is missing.`);
+        const state = video.getState();
+        const edit = clip.id === state.openId && state.edit ? state.edit : sanitizeEdit((await getVideo(clip.id))?.edit, clip.duration);
+        const blob = await exportVideo(file, edit, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark);
+        setProgress({ done: 1, total: 1, label: `${prefix}Saving…` });
+        await sink.add(`${clip.name}-edit.mp4`, blob);
+        count++;
+        bytes += blob.size;
       }
-    })();
-    return () => {
-      live = false;
-      controller.abort();
-    };
-  }, [clip]);
-  const cancel = () => controllerRef.current?.abort();
-  const pct = Math.min(100, Math.round((progress.done / Math.max(1, progress.total)) * 100));
-  const busy = !result && !error;
+      setProgress({ done: 1, total: 1, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
+      await sink.finish();
+      setResult({ count, bytes });
+      toast(`Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
+    } catch (err) {
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProgress(null);
+    }
+  };
+
   return (
     <Dialog
-      title={`Export “${clip?.name ?? "video"}”`}
+      wide
+      title={chosen.length === 1 ? `Export “${chosen[0].name}”` : `Export ${chosen.length} videos`}
       onClose={() => {
-        cancel();
+        controllerRef.current?.abort();
         onClose();
       }}
       footer={
-        busy ? (
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              cancel();
-              onClose();
-            }}
-          >
-            Cancel
-          </button>
-        ) : (
+        result ? (
           <button type="button" className="btn primary" onClick={onClose}>
             Done
           </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                controllerRef.current?.abort();
+                if (!busy) onClose();
+              }}
+            >
+              {busy ? "Stop" : "Cancel"}
+            </button>
+            <button type="button" className="btn primary" disabled={busy || !chosen.length || !canEncode} onClick={() => void run()}>
+              Export MP4{chosen.length > 1 ? ` × ${chosen.length}` : ""}
+            </button>
+          </>
         )
       }
     >
-      {error ? (
-        <p style={{ color: "var(--danger)" }}>{error}</p>
-      ) : result ? (
-        <p>Saved through your browser's downloads · {formatBytes(result.size)}</p>
-      ) : (
+      {progress && (
         <>
-          <p className="dim" style={{ margin: 0 }}>
-            {progress.stage} {progress.total > 1 && <span className="num">{Math.min(progress.done, progress.total)} / {progress.total} frames</span>}
-          </p>
-          <div className="export-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-            <div style={{ width: `${pct}%` }} />
-          </div>
+          <ProgressBar {...progress} />
           <p className="faint" style={{ fontSize: 10, margin: 0 }}>
             Rendering happens on this device. Keep this tab open until it finishes.
           </p>
         </>
+      )}
+      {error && <p style={{ color: "var(--danger)", margin: 0 }}>{error}</p>}
+      {result ? (
+        <p>
+          Saved {result.count} video{result.count === 1 ? "" : "s"} · {formatBytes(result.bytes)} · {describeDestination(destination)}
+        </p>
+      ) : (
+        !busy && (
+          <>
+            {clips.length > 1 && (
+              <div className="field">
+                <span>Videos · {chosen.length} of {clips.length} (each with its own trim, effect and output settings)</span>
+                <div className="export-list">
+                  {clips.map((c) => (
+                    <label key={c.id}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() =>
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            return next;
+                          })
+                        }
+                      />
+                      {c.poster ? <img src={c.poster} alt="" /> : <span className="ph" />}
+                      <span className="name">
+                        {c.name}
+                        {c.id === openId ? " (open)" : ""}
+                      </span>
+                      <span className="faint num">{formatTime(c.duration)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <DestinationPicker count={chosen.length} value={destination} onChange={setDestination} />
+            <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={chosen[0]?.poster ?? null} />
+          </>
+        )
       )}
     </Dialog>
   );
@@ -424,6 +478,9 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       </button>
       <button type="button" className="btn small" disabled={!edit} onClick={() => chooseEffect(edit?.effect?.id ?? null)}>
         ✦ Effects
+      </button>
+      <button type="button" className="btn small" disabled={!edit} onClick={() => openLooks({ kind: "video" })}>
+        Looks…
       </button>
       <button type="button" className="btn small primary" disabled={!edit || !canEncode} onClick={onExport} title="Export MP4 (Ctrl+Shift+E)">
         Export MP4…

@@ -1,4 +1,5 @@
 import { track } from "@/lib/activity";
+import type { Watermark } from "@/core/export/watermark";
 import { setWorkspace, toast } from "@/app/state";
 import { getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
@@ -9,7 +10,7 @@ import { composite, editDocument, openDocument, setDocumentThumbnailer } from "@
 import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
 
 /** Developed pixel size of a photo, from its recipe crop and the catalog dimensions. */
-function photoSize(assetId: string) {
+export function photoSize(assetId: string) {
   const asset = getAsset(assetId);
   const recipe = recipeFor(assetId);
   // Prefer the decoded photo's real size; fall back to the catalog, then to 3:2.
@@ -77,20 +78,22 @@ export function usedAssets(doc: CompositeDocument) {
 
 export type DocExport = { format: "png" | "jpeg" | "webp"; scale: number; quality: number; background: string };
 
-export function exportDocument(doc: CompositeDocument, options: DocExport): Promise<Blob> {
-  return track(renderDocumentExport(doc, options));
+export function exportDocument(doc: CompositeDocument, options: DocExport, watermark?: Watermark): Promise<Blob> {
+  return track(renderDocumentExport(doc, options, watermark));
 }
 
-async function renderDocumentExport(doc: CompositeDocument, options: DocExport): Promise<Blob> {
+async function renderDocumentExport(doc: CompositeDocument, options: DocExport, watermark?: Watermark): Promise<Blob> {
   const engine = developEngine();
   // Wait for every photo in the composition to be decoded at full quality.
   for (let i = 0; i < 600 && usedAssets(doc).some((id) => !engine.hasSource(id) || engine.hasSource(id, "preview")); i++) {
     for (const id of usedAssets(doc)) engine.ensureSource(id);
     await new Promise((r) => setTimeout(r, 100));
   }
-  const pixels = engine.exportDocument(doc, options.scale);
+  // Never above 8192 px on the long side, whatever the chosen scale.
+  const scale = Math.min(options.scale, 8192 / Math.max(doc.width, doc.height));
+  const pixels = engine.exportDocument(doc, scale);
   const type = options.format === "png" ? "image/png" : options.format === "webp" ? "image/webp" : "image/jpeg";
-  return encodePixels(pixels, type, options.quality, options.background);
+  return encodePixels(pixels, type, options.quality, options.background, watermark);
 }
 
 // Saved compositions get a small preview in the documents list.

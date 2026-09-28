@@ -6,6 +6,7 @@ import { recipeFor } from "@/core/develop/session";
 import { loadSource } from "@/core/develop/source-loader";
 import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
 import { buildExif, insertExif } from "./exif";
+import type { Watermark } from "./watermark";
 
 export type ExportFormat = "jpeg" | "png" | "webp";
 export type ExportSettings = {
@@ -59,11 +60,11 @@ export function exportSize(full: { width: number; height: number }, s: ExportSet
 export type ExportResult = { name: string; blob: Blob; width: number; height: number };
 
 /** Develops and encodes one photo from its original and recipe. */
-export function exportAsset(id: AssetId, settings: ExportSettings): Promise<ExportResult> {
-  return track(renderExport(id, settings));
+export function exportAsset(id: AssetId, settings: ExportSettings, watermark?: Watermark): Promise<ExportResult> {
+  return track(renderExport(id, settings, watermark));
 }
 
-async function renderExport(id: AssetId, settings: ExportSettings): Promise<ExportResult> {
+async function renderExport(id: AssetId, settings: ExportSettings, watermark?: Watermark): Promise<ExportResult> {
   const asset = getAsset(id);
   const recipe = recipeFor(id);
   if (!asset || !recipe) throw new Error("Photo not found");
@@ -76,7 +77,7 @@ async function renderExport(id: AssetId, settings: ExportSettings): Promise<Expo
   const full = outputSize(source.size, recipe.geometry);
   const size = exportSize(full, settings);
   const pixels = engine.exportPixels(source, recipe, Math.max(size.width, size.height));
-  let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background);
+  let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background, watermark);
   if (settings.format === "jpeg" && settings.metadata !== "none") {
     const exif =
       settings.metadata === "all" ? asset.exif : { copyright: asset.exif.copyright, artist: asset.exif.artist };
@@ -89,31 +90,4 @@ async function renderExport(id: AssetId, settings: ExportSettings): Promise<Expo
   }
   const base = asset.fileName.replace(/\.[^.]+$/, "");
   return { name: `${base}${settings.suffix}.${extension[settings.format]}`, blob, width: pixels.width, height: pixels.height };
-}
-
-type DirectoryHandle = FileSystemDirectoryHandle & {
-  getFileHandle(name: string, options: { create: boolean }): Promise<FileSystemFileHandle & { createWritable(): Promise<FileSystemWritableFileStream> }>;
-};
-
-export const canChooseFolder = () => typeof (window as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
-
-export async function chooseFolder(): Promise<DirectoryHandle> {
-  return (window as unknown as { showDirectoryPicker: (o: object) => Promise<DirectoryHandle> }).showDirectoryPicker({ id: "focused-export", mode: "readwrite" });
-}
-
-/** Saves into a chosen folder, or through a browser download. Never overwrites an original. */
-export async function save(result: ExportResult, folder?: DirectoryHandle) {
-  if (folder) {
-    const handle = await folder.getFileHandle(result.name, { create: true });
-    const writable = await handle.createWritable();
-    await writable.write(result.blob);
-    await writable.close();
-    return;
-  }
-  const url = URL.createObjectURL(result.blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = result.name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

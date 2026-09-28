@@ -195,7 +195,41 @@ Known limitations:
   notice. There is no audio re-encoding or volume control.
 - One clip at a time: there is no multi-clip timeline, no transitions and no speed change.
 
+## Looks
+
+Done:
+- A look (`core/looks/look.ts`) holds any subset of: develop groups (masks optional,
+  crop optional), the non-photo layers of a composition (effects, adjustments, text,
+  gradients, fills, shapes, groups, with their masks and blend modes, stored relative to
+  the canvas), and a video effect with its strength.
+- Save from Develop, Composite or Video (**Looks…** in each toolbar). Apply to the
+  selected photos in Library (develop settings, plus a new composition per photo with the
+  look's layers), to the open photo, to the open composition (layers added on top,
+  develop settings applied to its photos) or to the open video.
+- AI mask components store what they selected, not another photo's pixels. On apply,
+  they run the same selection (subject, background, sky, people, or object from the
+  stored points) on each photo. Components that fail are dropped, never reused.
+- Looks are stored in IndexedDB (`looks`, schema v3). They download as `.focused` files
+  (a ZIP with `look.json`) and import through Looks → Import, Composite → Open .focused…,
+  or by dropping the file on the window. Project files still open as projects.
+
+Limits: brush and gradient mask positions are relative to the frame, so they land in the
+same place on a differently framed photo. Spot-removal circles are not included, since
+they are photo-specific.
+
 ## Export and feedback
+
+- Photo, composition and video exports share one set of controls
+  (`features/export/ExportParts.tsx`):
+  - a checklist to choose several items;
+  - a destination: Downloads, one ZIP, a folder via the File System Access API
+    (Chrome/Edge), or Google Drive (`core/export/drive.ts`, which uploads with the
+    `drive.file` scope to a "Focused exports" folder);
+  - a watermark (`core/export/watermark.ts`): text, seven font families, bold/italic,
+    color, size and margin relative to the short side, opacity, shadow, nine positions
+    or tiled. For video it is burned into every frame.
+  - a progress bar with Stop.
+- File names never collide within one export run.
 
 - Every dialog keeps its action buttons pinned and visible, and scrolls its content in
   short windows. Library has an **Export…** button, a context-menu item and

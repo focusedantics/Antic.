@@ -27,6 +27,16 @@ void main() {
   outColor = mix(texture(uOriginal, vUv), texture(uEffect, vUv), uMix);
 }`;
 
+/** Straight-alpha overlay (the watermark) laid over the frame. */
+const overlayPass = `${header}
+uniform sampler2D uFrame;
+uniform sampler2D uOverlay;
+void main() {
+  vec4 f = texture(uFrame, vUv);
+  vec4 o = texture(uOverlay, vUv);
+  outColor = vec4(mix(f.rgb, o.rgb, o.a), 1.0);
+}`;
+
 /** Working targets store the top row first; the canvas draws bottom-up, so flip. */
 const present = `${header}
 uniform sampler2D uInput;
@@ -45,6 +55,7 @@ export class VideoRenderer {
   private pipeline: DevelopPipeline;
   private effects: EffectRunner;
   private source: Texture | null = null;
+  private overlay: Texture | null = null;
 
   constructor(readonly canvas: HTMLCanvasElement | OffscreenCanvas) {
     this.gpu = new Gpu(canvas);
@@ -59,6 +70,12 @@ export class VideoRenderer {
     }
     this.gpu.upload(this.source, image);
     return this.source;
+  }
+
+  /** An image drawn over every frame (null removes it); must match the output size. */
+  setOverlay(image: OffscreenCanvas | null) {
+    this.gpu.dispose(this.overlay);
+    this.overlay = image ? this.gpu.texture(image.width, image.height, "rgba8", image) : null;
   }
 
   /**
@@ -92,6 +109,12 @@ export class VideoRenderer {
         frame = mixed;
       }
     }
+    if (this.overlay) {
+      const stamped = this.pipeline.acquire(width, height);
+      this.gpu.pass("video-overlay", overlayPass, { target: stamped, textures: { uFrame: frame, uOverlay: this.overlay } });
+      this.pipeline.release(frame);
+      frame = stamped;
+    }
     const { gl } = this.gpu;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -113,7 +136,9 @@ export class VideoRenderer {
     this.effects.dispose();
     this.pipeline.trim();
     this.gpu.dispose(this.source);
+    this.gpu.dispose(this.overlay);
     this.source = null;
+    this.overlay = null;
     // Offscreen export contexts are released right away; an on-screen canvas may be reused.
     if (!(this.canvas instanceof HTMLCanvasElement)) (this.gpu.gl.getExtension("WEBGL_lose_context") as { loseContext(): void } | null)?.loseContext();
   }

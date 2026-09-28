@@ -1,3 +1,4 @@
+import { openLooks } from "@/features/looks/LooksDialog";
 import { isVideoFile } from "@/core/video/model";
 import { openExport } from "@/features/export/host";
 import { selectAsset, setWorkspace, targetIds, toast, ui } from "@/app/state";
@@ -28,7 +29,7 @@ export function pickFiles(options: { directory?: boolean } = {}) {
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
-  input.accept = `${acceptAttribute},video/mp4,video/quicktime,.mp4,.mov,.m4v`;
+  input.accept = `${acceptAttribute},video/mp4,video/quicktime,.mp4,.mov,.m4v,.focused`;
   if (options.directory) (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
   input.onchange = () => {
     if (input.files?.length) void runImport(itemsFromFileList(input.files));
@@ -50,10 +51,44 @@ export async function importFolderInPlace() {
   }
 }
 
+/** Adds looks to the Looks list and opens projects in Composite. */
+async function openFocusedFiles(files: File[]) {
+  const [{ readLookFile }, { saveLook }, { openProject }, { openDocument }] = await Promise.all([
+    import("@/core/looks/look"),
+    import("@/core/looks/store"),
+    import("@/core/document/project"),
+    import("@/core/document/session"),
+  ]);
+  let looksAdded = 0;
+  for (const file of files) {
+    try {
+      const look = await readLookFile(file);
+      if (look) {
+        await saveLook(look);
+        looksAdded++;
+        continue;
+      }
+      const { document, missing } = await openProject(file);
+      openDocument(document);
+      setWorkspace("composite");
+      if (missing.length) toast(`Opened “${document.name}”. ${missing.length} photo(s) are missing.`, "error");
+    } catch (error) {
+      toast(`${file.name}: ${error instanceof Error ? error.message : error}`, "error");
+    }
+  }
+  if (looksAdded) {
+    toast(`Added ${looksAdded} look${looksAdded === 1 ? "" : "s"}.`);
+    openLooks({ kind: "library", ids: targetIds() });
+  }
+}
+
 export async function runImport(items: Parameters<typeof importItems>[0]) {
-  // Videos go to the Video workspace; everything else into the photo library.
-  const videos = items.filter((i) => isVideoFile(i.file)).map((i) => i.file);
-  const photos = items.filter((i) => !isVideoFile(i.file));
+  // .focused files are looks or projects; videos go to the Video workspace; the rest are photos.
+  const focused = items.filter((i) => i.file.name.toLowerCase().endsWith(".focused")).map((i) => i.file);
+  if (focused.length) void openFocusedFiles(focused);
+  const rest = items.filter((i) => !i.file.name.toLowerCase().endsWith(".focused"));
+  const videos = rest.filter((i) => isVideoFile(i.file)).map((i) => i.file);
+  const photos = rest.filter((i) => !isVideoFile(i.file));
   if (videos.length) {
     const { importVideos } = await import("@/core/video/session");
     setWorkspace("video");
@@ -120,6 +155,7 @@ export function assetMenu(x: number, y: number) {
   openMenu(x, y, [
     { label: "Open in Develop", shortcut: "D", onSelect: () => setWorkspace("develop") },
     { label: ids.length > 1 ? `Export ${ids.length} photos…` : "Export…", shortcut: "Ctrl+Shift+E", onSelect: () => openExport(ids) },
+    { label: ids.length > 1 ? `Apply a Look to ${ids.length} photos…` : "Apply a Look…", onSelect: () => openLooks({ kind: "library", ids }) },
     { label: "Add to Composite", onSelect: () => void addToComposite(ids) },
     ...(ids.length === 1 ? [{ label: "Apply an Effect…", onSelect: () => void startEffectsFor(ids[0]) }] : []),
     "separator",

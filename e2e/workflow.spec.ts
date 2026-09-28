@@ -154,7 +154,8 @@ test("video: import an MP4, trim, add an effect, lower quality and export", asyn
   await expect(page.locator(".side.right")).toContainText("CMYK Print");
   await page.getByLabel("Quality").selectOption("low");
   await page.getByLabel("Frame rate").selectOption("15");
-  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("button", { name: "Export MP4…" }).first().click()]);
+  await page.getByRole("button", { name: "Export MP4…" }).first().click();
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
   expect(download.suggestedFilename()).toBe("clip-edit.mp4");
   await expect(page.getByRole("dialog")).toContainText("Saved");
   // The edit survives a reload.
@@ -163,4 +164,41 @@ test("video: import an MP4, trim, add an effect, lower quality and export", asyn
   await page.getByRole("button", { name: /^Video/ }).click();
   await expect(page.getByRole("slider", { name: "Trim start" })).toHaveAttribute("aria-valuenow", "0.5", { timeout: 30_000 });
   await expect(page.locator(".side.right")).toContainText("CMYK Print");
+});
+
+test("looks: save a composition's effects as a look, apply it to other photos, batch export with a watermark", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape"), await makeImage(page, "subject.jpg", "subject")]);
+  await page.locator(".cell", { hasText: "landscape" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Apply an Effect…" }).click();
+  await page.getByLabel("Search effects").fill("bricks");
+  await page.locator(".fx-card", { hasText: "Toy Bricks" }).click();
+  await expect(page.locator(".layer-row").first()).toContainText("Toy Bricks");
+
+  // Save the composition's layers and the photo's develop settings as a look.
+  await page.getByRole("button", { name: "Looks…" }).click();
+  await page.getByLabel("Look name").fill("Bricks");
+  await page.getByRole("button", { name: "Save look" }).click();
+  await expect(page.locator(".look-row", { hasText: "Bricks" })).toContainText("1 layer (1 effect)");
+  const [lookFile] = await Promise.all([page.waitForEvent("download"), page.locator(".look-row", { hasText: "Bricks" }).getByRole("button", { name: ".focused" }).click()]);
+  expect(lookFile.suggestedFilename()).toBe("Bricks.focused");
+  await page.getByRole("button", { name: "Close" }).click();
+
+  // Apply it to both photos from the Library: one composition per photo.
+  await page.keyboard.press("g");
+  await page.keyboard.press("Control+a");
+  await page.getByRole("button", { name: "Looks…" }).click();
+  await page.locator(".look-row", { hasText: "Bricks" }).getByRole("button", { name: "Apply" }).click();
+  await expect(page.locator(".toast")).toContainText("Created 2 compositions", { timeout: 30_000 });
+
+  // Batch export both photos into one ZIP with a watermark.
+  await page.getByRole("button", { name: "Export…" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Photos · 2 of 2");
+  await dialog.getByLabel("Export destination").selectOption("zip");
+  await dialog.getByLabel("Add a watermark").check();
+  await expect(dialog.locator(".watermark-preview")).toBeVisible();
+  await dialog.getByRole("button", { name: "top left" }).click();
+  const [zipFile] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export 2" }).click()]);
+  expect(zipFile.suggestedFilename()).toBe("Focused export (2 photos).zip");
 });
