@@ -195,10 +195,14 @@ Done:
   inside the trim range.
 - An edit is data (`core/video/model.ts`): trim, effect and strength, and output settings
   (resolution 360p–4K or the original size, quality, frame rate, keep audio). Quality
-  defaults to **Maximum**: the original's own bits per pixel plus 50 % headroom for the
-  re-encode, with a visually lossless floor (0.3 bits/pixel). High, Medium, Low and a
-  custom bitrate (up to 200 Mb/s) make smaller files. Browser encoders have no true
-  lossless mode. It has undo/redo, is saved automatically and survives a reload.
+  defaults to **Maximum**. An untrimmed clip (or one trimmed from a keyframe) with nothing
+  to render is copied losslessly. Otherwise frames are encoded at near-lossless constant
+  quality where the browser supports it, without an RGB round trip when there is nothing to
+  draw. High, Medium and Low trade quality for size, following the original's bitrate, and
+  a custom bitrate goes up to 200 Mb/s. Edits saved on the old default (Medium) move to
+  Maximum.
+- Preview without an effect is the browser's own playback. With an effect, frames are
+  decoded with WebCodecs and rendered on the GPU. It has undo/redo, is saved automatically and survives a reload.
 - Export (`core/video/export.ts`) demuxes the file with mp4box.js and decodes it with
   WebCodecs from the keyframe before the trim start. Each frame is re-rendered on the GPU
   (rotation, scaling, effect) and re-encoded as H.264, falling back to HEVC, VP9 or AV1

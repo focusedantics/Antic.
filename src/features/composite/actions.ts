@@ -157,7 +157,7 @@ async function renderDocumentExport(doc: CompositeDocument, options: DocExport, 
     if (options.format === "gif") return await encodeGif(render, { ...common, dither: options.dither });
     // Quality 92 (the default) ≈ 0.33 bits per pixel: visually lossless H.264.
     const bitrate = Math.round(Math.min(100e6, Math.max(2e6, width * height * animation.fps * (0.1 + options.quality * 0.25))));
-    return await encodeLoopVideo(render, { ...common, repeats: Math.max(1, Math.round(options.repeats)), bitrate });
+    return await encodeLoopVideo(render, { ...common, repeats: Math.max(1, Math.round(options.repeats)), bitrate, quality: options.quality });
   } finally {
     release();
   }

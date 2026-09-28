@@ -1,7 +1,8 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { track } from "@/lib/activity";
 import { type Demuxed, demux } from "./demux";
-import { outputFrameRate, outputSize, type VideoEdit, videoBitrate } from "./model";
+import { chooseEncoder, encodeOptions } from "./encoder";
+import { outputFrameRate, outputSize, type VideoEdit, videoBitrate, videoQuality } from "./model";
 import { VideoRenderer } from "./renderer";
 import { drawWatermark, type Watermark, watermarkFont } from "@/core/export/watermark";
 import { loadFonts } from "@/core/text/fonts";
@@ -11,47 +12,18 @@ export type ExportProgress = { readonly done: number; readonly total: number; re
 const MICRO = 1e6;
 
 /**
- * The first encoder this browser supports, best compatibility first (H.264 plays
- * everywhere). Hardware encoders can refuse very high bitrates; the bitrate then
- * steps down before the codec changes.
- */
-export async function chooseEncoder(width: number, height: number, bitrate: number, framerate: number) {
-  for (const factor of [1, 0.6, 0.35]) {
-    const found = await findEncoder(width, height, Math.round(bitrate * factor), framerate);
-    if (found) return found;
-  }
-  throw new Error("This browser can't encode video. Use a recent Chrome, Edge or Safari.");
-}
-
-async function findEncoder(width: number, height: number, bitrate: number, framerate: number) {
-  const area = width * height;
-  // H.264 level: enough for the frame size and for the bitrate (High profile limits: 3.1 ≈ 17.5, 4.2 ≈ 62.5, 5.1 ≈ 300 Mb/s).
-  const byArea = area <= 921_600 ? 0 : area <= 2_228_224 ? 1 : area <= 8_912_896 ? 2 : 3;
-  const byRate = bitrate <= 17.5e6 ? 0 : bitrate <= 62.5e6 ? 1 : 2;
-  const avcLevel = ["1f", "2a", "33", "34"][Math.max(byArea, byRate)];
-  const candidates: { codec: string; mux: "avc" | "hevc" | "vp9" | "av1"; extra?: Partial<VideoEncoderConfig> }[] = [
-    { codec: `avc1.6400${avcLevel}`, mux: "avc", extra: { avc: { format: "avc" } } as Partial<VideoEncoderConfig> },
-    { codec: `avc1.4d00${avcLevel}`, mux: "avc", extra: { avc: { format: "avc" } } as Partial<VideoEncoderConfig> },
-    { codec: "hvc1.1.6.L123.B0", mux: "hevc", extra: { hevc: { format: "hevc" } } as Partial<VideoEncoderConfig> },
-    { codec: "vp09.00.41.08", mux: "vp9" },
-    { codec: "av01.0.08M.08", mux: "av1" },
-  ];
-  for (const c of candidates) {
-    const config: VideoEncoderConfig = { codec: c.codec, width, height, bitrate, framerate, latencyMode: "quality", ...c.extra };
-    try {
-      const support = await VideoEncoder.isConfigSupported(config);
-      if (support.supported) return { config: support.config ?? config, mux: c.mux };
-    } catch {
-      // Try the next codec.
-    }
-  }
-  return null;
-}
-
-/**
- * Renders an edited clip to a new MP4: frames are decoded with WebCodecs,
- * re-rendered on the GPU (scale, rotation, effect) and re-encoded; audio
- * packets inside the trim range are copied as they are.
+ * Writes an edited clip to a new MP4, losing as little as possible:
+ *
+ * - **Copy**: at Maximum quality with nothing to render (no effect, watermark,
+ *   resize or frame-rate change) and a trim that starts on a keyframe, the
+ *   original compressed frames are copied as they are, bit for bit.
+ * - **Passthrough**: with nothing to render otherwise, decoded frames go
+ *   straight to the encoder in their native YUV, skipping the RGB round trip
+ *   (and its colour rounding) through the GPU.
+ * - **Render**: frames are decoded with WebCodecs, re-rendered on the GPU
+ *   (scale, rotation, effect, watermark) and re-encoded.
+ *
+ * Audio packets inside the trim range are always copied as they are.
  */
 export function exportVideo(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) => void, signal: AbortSignal, watermark?: Watermark): Promise<Blob> {
   return track(run(file, edit, onProgress, signal, watermark));
@@ -71,23 +43,35 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
   const srcH = v.config.codedHeight!;
   const size = outputSize(rotated ? srcH : srcW, rotated ? srcW : srcH, edit.output.resolution);
   const fps = outputFrameRate(edit.output, v.fps);
-  const bitrate = videoBitrate(edit.output, size.width, size.height, fps, v.bitsPerPixel);
-  const encoder = await chooseEncoder(size.width, size.height, bitrate, fps);
   const audio = edit.output.audio ? media.audio : null;
+  const start = edit.trimStart * MICRO;
+  const end = edit.trimEnd * MICRO;
+  const ts = v.track.timescale;
+  const toMicro = (t: number) => (t / ts) * MICRO;
+
+  // Nothing to draw: same size, same frame rate, no effect or watermark.
+  const plain = !(edit.effect && edit.effectMix > 0) && !watermark?.enabled && size.width === (rotated ? srcH : srcW) && size.height === (rotated ? srcW : srcH) && fps >= v.fps - 0.01;
+  if (plain && edit.output.quality === "maximum") {
+    const copied = copyVideo(media, audio, start, end);
+    if (copied) {
+      onProgress({ done: 1, total: 1, stage: "Copying the original frames…" });
+      return copied;
+    }
+  }
+  // Passthrough encodes the unrotated decoded frames and flags the rotation in the file, like the original.
+  const encW = plain ? srcW : size.width;
+  const encH = plain ? srcH : size.height;
+  const bitrate = videoBitrate(edit.output, size.width, size.height, fps, v.bitsPerPixel);
+  const encoder = await chooseEncoder(encW, encH, bitrate, fps, videoQuality(edit.output));
 
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
     fastStart: "in-memory",
     firstTimestampBehavior: "offset",
-    video: { codec: encoder.mux, width: size.width, height: size.height },
+    video: { codec: encoder.mux, width: encW, height: encH, ...(plain && v.rotation ? { rotation: v.rotation } : {}) },
     ...(audio ? { audio: { codec: audio.codec, numberOfChannels: audio.config.numberOfChannels, sampleRate: audio.config.sampleRate } } : {}),
   });
-
-  const start = edit.trimStart * MICRO;
-  const end = edit.trimEnd * MICRO;
-  const ts = v.track.timescale;
-  const toMicro = (t: number) => (t / ts) * MICRO;
   // Decoding has to begin at the keyframe at or before the trim start.
   let first = 0;
   for (let i = 0; i < v.samples.length; i++) {
@@ -96,12 +80,12 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
   }
   const expected = Math.max(1, Math.round(((end - start) / MICRO) * fps));
 
-  const canvas = new OffscreenCanvas(size.width, size.height);
+  const canvas = new OffscreenCanvas(encW, encH);
   const renderer = new VideoRenderer(canvas);
   if (watermark?.enabled) {
     await loadFonts([watermarkFont(watermark)]);
-    const stamp = new OffscreenCanvas(size.width, size.height);
-    drawWatermark(stamp.getContext("2d")!, size.width, size.height, watermark);
+    const stamp = new OffscreenCanvas(encW, encH);
+    drawWatermark(stamp.getContext("2d")!, encW, encH, watermark);
     renderer.setOverlay(stamp);
   }
   let failure: unknown = null;
@@ -133,13 +117,19 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
       return;
     }
     if (minStep) nextSlot = Math.max(nextSlot + minStep, t + minStep * 0.5);
-    renderer.draw(frame, frame.displayWidth, frame.displayHeight, v.rotation, size.width, size.height, edit, undefined, Math.max(0, t - start) / MICRO);
-    frame.close();
     const stamp = Math.max(0, Math.round(t - start));
-    const out = new VideoFrame(canvas, { timestamp: stamp, duration: Math.round(minStep || MICRO / v.fps) });
+    const duration = Math.round(minStep || MICRO / v.fps);
+    let out: VideoFrame;
+    if (plain && frame.displayWidth === encW && frame.displayHeight === encH) {
+      out = new VideoFrame(frame, { timestamp: stamp, duration });
+    } else {
+      renderer.draw(frame, frame.displayWidth, frame.displayHeight, plain ? 0 : v.rotation, encW, encH, edit, undefined, Math.max(0, t - start) / MICRO);
+      out = new VideoFrame(canvas, { timestamp: stamp, duration });
+    }
+    frame.close();
     const keyFrame = stamp - lastKey >= 2 * MICRO;
     if (keyFrame) lastKey = stamp;
-    videoEncoder.encode(out, { keyFrame });
+    videoEncoder.encode(out, encodeOptions(encoder, keyFrame));
     out.close();
     encoded++;
     onProgress({ done: encoded, total: expected, stage: "Rendering frames…" });
@@ -192,4 +182,62 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
     if (videoEncoder.state !== "closed") videoEncoder.close();
     renderer.dispose();
   }
+}
+
+const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [
+  [/^avc[13]\./, "avc"],
+  [/^(hvc1|hev1)\./, "hevc"],
+  [/^vp09\./, "vp9"],
+  [/^av01\./, "av1"],
+];
+
+/**
+ * Lossless trim: copies the original compressed video (and audio) samples
+ * into a new MP4. Only possible when the trim starts on a keyframe (within
+ * half a frame); returns null otherwise, or for codecs the muxer can't write.
+ */
+function copyVideo(media: Demuxed, audio: Demuxed["audio"], start: number, end: number): Blob | null {
+  const v = media.video;
+  const mux = COPY_MUX.find(([re]) => re.test(v.config.codec))?.[1];
+  // The muxer needs a stated colour description to write VP9/AV1 configuration boxes.
+  if (!mux || !v.samples.every((s) => s.data) || ((mux === "vp9" || mux === "av1") && !v.colorSpace)) return null;
+  const ts = v.track.timescale;
+  const pts = (i: number) => (v.samples[i].cts / ts) * MICRO;
+  const half = MICRO / v.fps / 2;
+  const key = v.samples.findIndex((s, i) => s.is_sync && Math.abs(pts(i) - start) <= half);
+  if (key < 0) return null;
+  const origin = pts(key);
+  // Everything shown before the trim end, plus any frame decoded in between (B-frame references).
+  let cut = key;
+  for (let i = key; i < v.samples.length; i++) if (pts(i) < end - half) cut = i;
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({
+    target,
+    fastStart: "in-memory",
+    // Video decode times start before its first presentation time when it has B-frames; shift both tracks together so they stay in sync.
+    firstTimestampBehavior: "cross-track-offset",
+    video: { codec: mux, width: v.config.codedWidth!, height: v.config.codedHeight!, ...(v.rotation ? { rotation: v.rotation } : {}) },
+    ...(audio ? { audio: { codec: audio.codec, numberOfChannels: audio.config.numberOfChannels, sampleRate: audio.config.sampleRate } } : {}),
+  });
+  let first = true;
+  for (let i = key; i <= cut; i++) {
+    const s = v.samples[i];
+    const t = pts(i) - origin;
+    if (t < 0) continue; // leading frames of an open GOP belong before the keyframe
+    const decoderConfig = { codec: v.config.codec, codedWidth: v.config.codedWidth, codedHeight: v.config.codedHeight, description: v.config.description, ...(v.colorSpace ? { colorSpace: v.colorSpace } : {}) };
+    muxer.addVideoChunkRaw(s.data!, s.is_sync ? "key" : "delta", t, (s.duration / ts) * MICRO, first ? { decoderConfig } : undefined, ((s.cts - s.dts) / ts) * MICRO);
+    first = false;
+  }
+  if (audio) {
+    const ats = audio.track.timescale;
+    let firstAudio = true;
+    for (const s of audio.samples) {
+      const t = (s.cts / ats) * MICRO;
+      if (t < origin || t >= end) continue;
+      muxer.addAudioChunkRaw(s.data!, "key", t - origin, (s.duration / ats) * MICRO, firstAudio ? { decoderConfig: audio.config } : undefined);
+      firstAudio = false;
+    }
+  }
+  muxer.finalize();
+  return new Blob([target.buffer], { type: "video/mp4" });
 }

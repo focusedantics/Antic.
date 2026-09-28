@@ -251,21 +251,28 @@ serialized edit) plus its file (`videoFiles`). The file is copied on import and 
 modified. `session.ts` opens a clip with an undo history over its `VideoEdit`
 (`model.ts`, sanitized on load) and saves changes after a short delay.
 
-Preview: the player plays the file in a `<video>` (under the output canvas, inside the
-stage), which provides the audio and the clock. During playback, frames come from
-`PreviewDecoder` (`preview.ts`): it demuxes the clip and decodes it with WebCodecs about a
-second ahead of `currentTime`, restarting from a keyframe after seeks and loops. Reading
-frames back from a playing `<video>` returns a stale frame on some browsers and GPUs, so
-it is only used while paused or seeking, and for playback when WebCodecs is missing. On
-that path, frames are drawn on each presented frame (`requestVideoFrameCallback`), or on
-an animation-frame loop when those callbacks stall. A `<video>` frame is drawn into a 2D
-canvas at the working size, which applies rotation; a decoded frame goes straight to the
-GPU with the track's rotation. `VideoRenderer` (`renderer.ts`) runs either through its own
-WebGL context. That context has the same `EffectRunner` as Composite, and the effect
-strength mixes the result with the original frame. Preview and export use output-relative
-effect units, so they match.
+Preview: the player plays the file in a `<video>` inside the stage, which provides the
+audio and the clock. Without an effect, that `<video>` is what you see: playback is
+exactly the browser's own. With an effect, the output canvas on top renders every frame.
+During playback those frames come from `PreviewDecoder` (`preview.ts`). It demuxes the
+clip and decodes it with WebCodecs about a second ahead of `currentTime`, restarting from
+a keyframe after seeks and loops. Reading frames back from a playing `<video>` returns a
+stale frame on some browsers and GPUs, so it is only used while paused or seeking, and for
+playback when WebCodecs is missing. A `<video>` frame is drawn into a 2D canvas at the
+working size, which applies rotation. A decoded frame goes straight to the GPU with the
+track's rotation. `VideoRenderer` (`renderer.ts`) runs either one through its own WebGL
+context. That context has the same `EffectRunner` as Composite, and the effect strength
+mixes the result with the original frame. Preview and export use output-relative effect
+units, so they match.
 
-Export (`export.ts`): mp4box.js demuxes the file (`demux.ts`, which also rebuilds decoder
+Export (`export.ts`) loses as little as possible. At Maximum quality, with nothing to
+render (no effect, watermark, resize or frame-rate change) and a trim that starts on a
+keyframe, it copies the original compressed samples, bit for bit (VP9/AV1 need the colour
+description the file states). With nothing to render otherwise, decoded frames go to the
+encoder in their native YUV, skipping the RGB round trip. Presets encode at constant
+quality (a per-frame quantizer, `encoder.ts`) where the browser supports it. This avoids
+the frame drops and smeared detail of a starved bitrate. Otherwise they use a bitrate
+relative to the original's bits per pixel. When rendering, mp4box.js demuxes the file (`demux.ts`, which also rebuilds decoder
 descriptions: avcC/hvcC/vpcC/av1C, AAC AudioSpecificConfig, OpusHead). `VideoDecoder`
 starts at the keyframe before the trim start. Frames outside the range, or above the
 target frame rate, are dropped. The rest are rotated, scaled and stylized by a

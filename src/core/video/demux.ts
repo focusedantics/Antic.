@@ -15,6 +15,8 @@ export type DemuxedVideo = {
   readonly fps: number;
   /** Bits per pixel per frame of the original encoding (drives "Maximum" export quality). */
   readonly bitsPerPixel: number;
+  /** Colour description stated by the file, if any (needed to copy VP9/AV1 losslessly). */
+  readonly colorSpace?: VideoColorSpaceInit;
 };
 
 export type DemuxedAudio = {
@@ -35,7 +37,8 @@ export type Demuxed = {
 type Entry = {
   avcC?: { write(s: DataStream): void };
   hvcC?: { write(s: DataStream): void };
-  vpcC?: { write(s: DataStream): void };
+  vpcC?: { write(s: DataStream): void; colourPrimaries?: number; transferCharacteristics?: number; matrixCoefficients?: number; videoFullRangeFlag?: number };
+  colr?: { colour_type?: string; colour_primaries?: number; transfer_characteristics?: number; matrix_coefficients?: number; full_range_flag?: number };
   av1C?: { write(s: DataStream): void };
   esds?: { esd?: { descs?: { descs?: { data?: Uint8Array }[] }[] } };
   dOps?: { OutputChannelCount: number; PreSkip: number; InputSampleRate: number; OutputGain: number };
@@ -44,6 +47,25 @@ type Entry = {
 function sampleEntry(file: ReturnType<typeof createFile>, track: Track): Entry | undefined {
   const trak = file.getTrackById(track.id) as unknown as { mdia: { minf: { stbl: { stsd: { entries: Entry[] } } } } };
   return trak.mdia.minf.stbl.stsd.entries[0];
+}
+
+// ISO/IEC 23091-2 code points → WebCodecs names (unlisted ones stay unknown).
+const PRIMARIES: Record<number, string> = { 1: "bt709", 5: "bt470bg", 6: "smpte170m", 9: "bt2020", 12: "smpte432" };
+const TRANSFER: Record<number, string> = { 1: "bt709", 6: "smpte170m", 8: "linear", 13: "iec61966-2-1", 16: "pq", 18: "hlg" };
+const MATRIX: Record<number, string> = { 0: "rgb", 1: "bt709", 5: "bt470bg", 6: "smpte170m", 9: "bt2020-ncl" };
+
+/** The track's colour description (from vpcC, or an nclx colr box), when it states one. */
+function colorSpaceOf(entry: Entry | undefined): VideoColorSpaceInit | undefined {
+  const v = entry?.vpcC;
+  const c = entry?.colr?.colour_type === "nclx" ? entry.colr : undefined;
+  // Code 2 means "unspecified" (mp4-muxer always writes it into vpcC and states the colours in colr).
+  const pick = (a: number | undefined, b: number | undefined) => (a !== undefined && a !== 2 ? a : b);
+  const primaries = pick(v?.colourPrimaries, c?.colour_primaries);
+  const transfer = pick(v?.transferCharacteristics, c?.transfer_characteristics);
+  const matrix = pick(v?.matrixCoefficients, c?.matrix_coefficients);
+  const full = c?.full_range_flag ?? v?.videoFullRangeFlag;
+  if (primaries === undefined || !PRIMARIES[primaries] || !TRANSFER[transfer ?? -1] || !MATRIX[matrix ?? -1]) return undefined;
+  return { primaries: PRIMARIES[primaries], transfer: TRANSFER[transfer!], matrix: MATRIX[matrix!], fullRange: !!full } as VideoColorSpaceInit;
 }
 
 /** The codec configuration box (avcC, hvcC, vpcC, av1C) without its 8-byte header. */
@@ -137,5 +159,5 @@ export async function demux(file: Blob): Promise<Demuxed> {
       audioNote = `The ${at.codec} audio track can't be carried over; the export will be silent.`;
     }
   }
-  return { duration: movie.duration / movie.timescale || seconds, video: { track: vt, samples: vSamples, config, rotation: rotationOf(vt), fps, bitsPerPixel }, audio, audioNote };
+  return { duration: movie.duration / movie.timescale || seconds, video: { track: vt, samples: vSamples, config, rotation: rotationOf(vt), fps, bitsPerPixel, colorSpace: colorSpaceOf(entry) }, audio, audioNote };
 }

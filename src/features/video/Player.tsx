@@ -63,6 +63,10 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
   const frameCanvas = useRef<OffscreenCanvas | null>(null);
   const editRef = useRef(edit);
   editRef.current = edit;
+  // With nothing to render, the browser's own <video> is shown: playback is exactly the original file's.
+  const native = !edit.effect || edit.effectMix <= 0;
+  const nativeRef = useRef(native);
+  nativeRef.current = native;
   const [error, setError] = useState<string | null>(null);
   const time = useStore(playback, (s) => s.time);
   const playing = useStore(playback, (s) => s.playing);
@@ -100,6 +104,7 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
 
   /** Draws the <video> element's current frame (paused, seeking, or without WebCodecs). */
   const draw = () => {
+    if (nativeRef.current) return;
     const v = videoRef.current;
     const canvas = canvasRef.current;
     const renderer = rendererRef.current;
@@ -148,7 +153,8 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
     const v = videoRef.current!;
     setPlaybackElement(v);
     playback.setState({ time: 0, playing: false });
-    // While playing, frames come from our own WebCodecs decoder, driven by the
+    // With an effect to render, the canvas shows each frame. While playing,
+    // frames come from our own WebCodecs decoder, driven by the
     // <video> clock (which also plays the audio): reading frames back from a
     // playing <video> returns a stale frame on some browsers and GPUs. Without
     // WebCodecs, the <video> is drawn on each presented frame, or on every
@@ -163,7 +169,6 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
         if (!live) made?.dispose();
         else {
           decoder = made;
-          if (made && !v.paused) made.seek(v.currentTime);
         }
       } catch {
         // No decoder: the <video> fallback below draws playback.
@@ -183,9 +188,10 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
       const e = editRef.current;
       if (v.currentTime >= e.trimEnd - 0.01) v.currentTime = e.trimStart;
     };
+    let resync = true;
     const onVideoFrame = () => {
       lastCallback = performance.now();
-      if (!decoding()) {
+      if (!nativeRef.current && !decoding()) {
         wrapTrim();
         drawCurrent();
       }
@@ -194,7 +200,15 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
     const onAnimationFrame = () => {
       if (v.paused) return;
       wrapTrim();
-      if (decoding()) {
+      if (nativeRef.current) {
+        // The <video> is on screen; the decoder resyncs when an effect is added.
+        resync = true;
+      } else if (decoding()) {
+        if (resync) {
+          decoder!.seek(v.currentTime);
+          lastFrame = null;
+          resync = false;
+        }
         const frame = decoder!.frameAt(v.currentTime);
         if (frame && frame !== lastFrame) {
           lastFrame = frame;
@@ -210,7 +224,7 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
       playback.setState({ playing: true });
       cancelAnimationFrame(animationFrame);
       lastFrame = null;
-      decoder?.seek(v.currentTime);
+      resync = true;
       if (v.requestVideoFrameCallback) {
         v.cancelVideoFrameCallback?.(videoCallback);
         videoCallback = v.requestVideoFrameCallback(onVideoFrame);
@@ -296,7 +310,7 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
 
   return (
     <div className="vid-player">
-      <div className="vid-stage" ref={stageRef}>
+      <div className={native ? "vid-stage native" : "vid-stage"} ref={stageRef}>
         <video ref={videoRef} className="vid-source" src={url} muted={false} playsInline preload="auto" aria-hidden="true" tabIndex={-1} />
         <canvas ref={canvasRef} className="vid-canvas" onClick={togglePlay} />
         {error && <div className="develop-status error">{error}</div>}

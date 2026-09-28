@@ -20,7 +20,8 @@ export type VideoOutput = {
 };
 
 export type VideoEdit = {
-  readonly version: 1;
+  /** 2 since Maximum became the default quality (version 1 edits on "medium" had never chosen it). */
+  readonly version: 2;
   /** Seconds from the start of the source. */
   readonly trimStart: number;
   readonly trimEnd: number;
@@ -41,17 +42,24 @@ export const RESOLUTIONS: { id: Resolution; label: string; lines: number }[] = [
 ];
 
 /**
- * Browser encoders have no lossless mode, so "Maximum" is the closest thing:
- * at least the source's own bits per pixel with 50 % headroom for the
- * re-encode, and never below a visually lossless floor.
+ * Presets encode at constant quality where the browser supports it
+ * (`quality`, mapped to the codec's quantizer): the encoder then spends
+ * whatever a frame needs, so noisy clips and effects such as dithering or
+ * grain keep their detail and no frames are dropped. Browser encoders have
+ * no lossless mode; Maximum is visually lossless. Where only a target
+ * bitrate is available (and for the size estimate), a preset is a multiple
+ * of the original's own bits per pixel, never below a floor.
  */
-export const QUALITIES: { id: Quality; label: string; bitsPerPixel: number }[] = [
-  { id: "maximum", label: "Maximum (matches the original)", bitsPerPixel: 0.3 },
-  { id: "high", label: "High", bitsPerPixel: 0.2 },
-  { id: "medium", label: "Medium", bitsPerPixel: 0.1 },
-  { id: "low", label: "Low (small file)", bitsPerPixel: 0.035 },
-  { id: "custom", label: "Custom bitrate", bitsPerPixel: 0 },
+export const QUALITIES: { id: Quality; label: string; quality: number; sourceFactor: number; bitsPerPixel: number }[] = [
+  { id: "maximum", label: "Maximum (matches the original)", quality: 1, sourceFactor: 2, bitsPerPixel: 0.5 },
+  { id: "high", label: "High", quality: 0.75, sourceFactor: 1, bitsPerPixel: 0.25 },
+  { id: "medium", label: "Medium", quality: 0.5, sourceFactor: 0.5, bitsPerPixel: 0.12 },
+  { id: "low", label: "Low (small file)", quality: 0.25, sourceFactor: 0.2, bitsPerPixel: 0.04 },
+  { id: "custom", label: "Custom bitrate", quality: 0, sourceFactor: 0, bitsPerPixel: 0 },
 ];
+
+/** Constant-quality level (0..1) for a preset; null for a custom bitrate. */
+export const videoQuality = (output: VideoOutput): number | null => (output.quality === "custom" ? null : QUALITIES.find((q) => q.id === output.quality)!.quality);
 
 export const MAX_BITRATE = 200e6;
 
@@ -66,7 +74,7 @@ export const FRAME_RATES: { id: FrameRate; label: string }[] = [
 export const defaultOutput: VideoOutput = { resolution: "original", quality: "maximum", bitrate: 20, frameRate: "original", audio: true };
 
 export function defaultEdit(duration: number): VideoEdit {
-  return { version: 1, trimStart: 0, trimEnd: Math.max(0, duration), effect: null, effectMix: 1, output: defaultOutput };
+  return { version: 2, trimStart: 0, trimEnd: Math.max(0, duration), effect: null, effectMix: 1, output: defaultOutput };
 }
 
 const num = (v: unknown, fallback: number, min: number, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback);
@@ -79,15 +87,17 @@ export function sanitizeEdit(v: unknown, duration: number): VideoEdit {
   const d = Math.max(0, duration);
   const trimStart = num(e.trimStart, 0, 0, d);
   const trimEnd = num(e.trimEnd, d, trimStart, d);
+  // Edits saved before Maximum became the default still say "medium", the old default.
+  const legacyDefault = e.version !== 2 && o.quality === "medium";
   return {
-    version: 1,
+    version: 2,
     trimStart,
     trimEnd,
     effect: e.effect ? sanitizeEffect(e.effect) : null,
     effectMix: num(e.effectMix, 1, 0, 1),
     output: {
       resolution: oneOf(o.resolution, RESOLUTIONS, defaultOutput.resolution),
-      quality: oneOf(o.quality, QUALITIES, defaultOutput.quality),
+      quality: legacyDefault ? "maximum" : oneOf(o.quality, QUALITIES, defaultOutput.quality),
       bitrate: num(o.bitrate, defaultOutput.bitrate, 0.2, MAX_BITRATE / 1e6),
       frameRate: oneOf(o.frameRate, FRAME_RATES, defaultOutput.frameRate),
       audio: o.audio !== false,
@@ -114,7 +124,7 @@ export function sourceBitsPerPixel(bytes: number, seconds: number, width: number
 export function videoBitrate(output: VideoOutput, width: number, height: number, fps: number, sourceBpp = 0) {
   if (output.quality === "custom") return Math.round(output.bitrate * 1e6);
   const q = QUALITIES.find((x) => x.id === output.quality)!;
-  const bpp = output.quality === "maximum" ? Math.max(q.bitsPerPixel, sourceBpp * 1.5) : q.bitsPerPixel;
+  const bpp = Math.max(q.bitsPerPixel, sourceBpp * q.sourceFactor);
   return Math.round(Math.min(MAX_BITRATE, Math.max(250e3, width * height * Math.min(fps, 60) * bpp)));
 }
 

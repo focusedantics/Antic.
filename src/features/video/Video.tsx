@@ -252,7 +252,9 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
   const size = outputSize(clip.width, clip.height, o.resolution);
   const outFps = outputFrameRate(o, fps);
   const sourceBpp = clipInfo?.bitsPerPixel ?? 0;
-  const bytes = estimateBytes(edit, clip.width, clip.height, fps, clipInfo?.hasAudio ?? true, sourceBpp);
+  // Maximum quality with nothing to render and a trim from the start copies the original frames (see core/video/export.ts).
+  const copies = o.quality === "maximum" && !(edit.effect && edit.effectMix > 0) && size.width === clip.width && size.height === clip.height && outFps >= fps - 0.01 && edit.trimStart < 0.01;
+  const bytes = copies ? (clip.byteSize * (edit.trimEnd - edit.trimStart)) / Math.max(0.01, clip.duration) : estimateBytes(edit, clip.width, clip.height, fps, clipInfo?.hasAudio ?? true, sourceBpp);
   const mbps = videoBitrate(o, size.width, size.height, outFps, sourceBpp) / 1e6;
   return (
     <Panel id="vid-output" title="Output">
@@ -315,6 +317,11 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
         {size.width}×{size.height} · {Math.round(outFps * 100) / 100} fps · ≈ {formatBytes(bytes)}
         <span className="faint"> (was {formatBytes(clip.byteSize)})</span>
       </p>
+      {copies && (
+        <p className="faint" style={{ fontSize: 10 }}>
+          Lossless: the original frames are copied without re-encoding (unless you add a watermark).
+        </p>
+      )}
       {!canEncode && <p className="faint">This browser can't encode video (WebCodecs). Use a recent Chrome, Edge or Safari to export.</p>}
       {clipInfo?.decodable === false && canEncode && <p className="faint">This browser can't decode {clipInfo.codec} video, so it can't be exported here.</p>}
       <button type="button" className="btn primary" style={{ width: "100%" }} disabled={!canEncode} onClick={onExport}>

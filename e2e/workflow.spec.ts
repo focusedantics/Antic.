@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
+import { createFile, MP4BoxBuffer } from "mp4box";
 
 /** Draws a synthetic photo in the page and returns it as a file payload. */
 async function makeImage(page: Page, name: string, kind: "landscape" | "subject") {
@@ -160,8 +162,18 @@ test("video: import an MP4, trim, add an effect, lower quality and export", asyn
   const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
   expect(download.suggestedFilename()).toBe("clip-edit.mp4");
   await expect(page.getByRole("dialog")).toContainText("Saved");
-  // The edit survives a reload.
+  // 1.5 s kept at 15 fps: every frame is there (encoders starved of bits drop frames).
+  expect(mp4Frames(readFileSync((await download.path())!))).toBeGreaterThanOrEqual(22);
   await page.getByRole("button", { name: "Done" }).click();
+  // Maximum quality at the original frame rate keeps all 45 frames of the 30 fps source.
+  await page.getByLabel("Quality").selectOption("maximum");
+  await page.getByLabel("Frame rate").selectOption("original");
+  await page.getByRole("button", { name: "Export MP4…" }).first().click();
+  const [full] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
+  expect(mp4Frames(readFileSync((await full.path())!))).toBe(45);
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByLabel("Quality").selectOption("low");
+  // The edit survives a reload.
   await page.reload();
   await page.getByRole("button", { name: /^Video/ }).click();
   await expect(page.getByRole("slider", { name: "Trim start" })).toHaveAttribute("aria-valuenow", "0.5", { timeout: 30_000 });
@@ -204,6 +216,36 @@ test("looks: save a composition's effects as a look, apply it to other photos, b
   const [zipFile] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export 2" }).click()]);
   expect(zipFile.suggestedFilename()).toBe("Focused export (2 photos).zip");
 });
+
+/** Number of video frames (samples) in an MP4. */
+function mp4Frames(bytes: Buffer): number {
+  const file = createFile();
+  let frames = -1;
+  file.onReady = (info) => {
+    frames = info.videoTracks[0]?.nb_samples ?? 0;
+  };
+  file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 0));
+  file.flush();
+  return frames;
+}
+
+/** Frame count and a digest of every video sample's bytes (equal digests = identical frames). */
+function mp4Samples(bytes: Buffer): { frames: number; digest: number } {
+  const file = createFile();
+  let frames = 0;
+  let digest = 0;
+  file.onReady = (info) => {
+    frames = info.videoTracks[0].nb_samples;
+    file.setExtractionOptions(info.videoTracks[0].id, null, { nbSamples: 1_000_000 });
+    file.start();
+  };
+  file.onSamples = (_id, _user, samples) => {
+    for (const sample of samples) for (const b of sample.data!) digest = (digest * 31 + b) | 0;
+  };
+  file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 0));
+  file.flush();
+  return { frames, digest };
+}
 
 /** Counts the image blocks in a GIF by walking its block structure. */
 function gifFrames(bytes: Buffer): number {
@@ -277,8 +319,7 @@ test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still f
     const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
     expect(download.suggestedFilename()).toMatch(new RegExp(`\\.${extension}$`));
     const path = await download.path();
-    const { readFileSync } = await import("node:fs");
-    return readFileSync(path!);
+      return readFileSync(path!);
   };
 
   const gif = await exportAs("gif", "gif");
@@ -293,15 +334,31 @@ test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still f
   expect(png.subarray(1, 4).toString("latin1")).toBe("PNG");
 });
 
-test("video: playback shows new frames even when the <video> only hands back a stale frame", async ({ page }) => {
+test("video: playback moves, natively without an effect and rendered with one (even when the <video> hands back stale frames)", async ({ page }) => {
   await freshLibrary(page);
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
   await chooser.setFiles("tests/fixtures/clip.mp4");
-  const canvas = page.locator(".vid-canvas");
-  await expect(canvas).toBeVisible({ timeout: 30_000 });
+  const stage = page.locator(".vid-stage");
+  await expect(page.locator(".vid-canvas")).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(1000);
-  // Reproduce browsers where frame callbacks stall and a playing <video> keeps
-  // handing back the same frame to drawImage: playback must still move.
+  const distinctWhilePlaying = async () => {
+    await page.keyboard.press("Space");
+    const seen = new Set<string>();
+    const start = Date.now();
+    while (Date.now() - start < 1200) seen.add(createHash("md5").update(await stage.screenshot()).digest("hex"));
+    await page.keyboard.press("Space");
+    return seen.size;
+  };
+  // No effect: the browser's own video is on screen.
+  await expect(stage).toHaveClass(/native/);
+  expect(await distinctWhilePlaying()).toBeGreaterThanOrEqual(3);
+
+  // With an effect the canvas renders every frame. Reproduce browsers where frame
+  // callbacks stall and a playing <video> keeps handing back the same frame.
+  await page.getByRole("button", { name: "✦ Add effect…" }).click();
+  await page.getByLabel("Search effects").fill("halftone");
+  await page.locator(".fx-card", { hasText: "CMYK Print" }).click();
+  await expect(stage).not.toHaveClass(/native/);
   await page.evaluate(() => {
     const original = OffscreenCanvasRenderingContext2D.prototype.drawImage;
     OffscreenCanvasRenderingContext2D.prototype.drawImage = function (this: OffscreenCanvasRenderingContext2D, ...args: unknown[]) {
@@ -311,11 +368,7 @@ test("video: playback shows new frames even when the <video> only hands back a s
     } as typeof original;
     for (const v of document.querySelectorAll("video")) Object.assign(v, { requestVideoFrameCallback: () => 0 });
   });
-  await page.keyboard.press("Space");
-  const seen = new Set<string>();
-  const start = Date.now();
-  while (Date.now() - start < 1200) seen.add(createHash("md5").update(await canvas.screenshot()).digest("hex"));
-  expect(seen.size).toBeGreaterThanOrEqual(3);
+  expect(await distinctWhilePlaying()).toBeGreaterThanOrEqual(3);
 });
 
 test("text: bundled fonts and animated text export as a GIF", async ({ page }) => {
@@ -336,7 +389,18 @@ test("text: bundled fonts and animated text export as a GIF", async ({ page }) =
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Format").selectOption("gif");
   const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
-  const { readFileSync } = await import("node:fs");
   const gif = readFileSync((await download.path())!);
   expect(gifFrames(gif)).toBe(45);
+});
+
+test("video: an untrimmed export at maximum quality copies the original frames bit for bit", async ({ page }) => {
+  await freshLibrary(page);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
+  await chooser.setFiles("tests/fixtures/clip.mp4");
+  await expect(page.locator(".vid-canvas")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByLabel("Quality")).toHaveValue("maximum");
+  await page.getByRole("button", { name: "Export MP4…" }).first().click();
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
+  const out = mp4Samples(readFileSync((await download.path())!));
+  expect(out).toEqual(mp4Samples(readFileSync("tests/fixtures/clip.mp4")));
 });

@@ -1,5 +1,5 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
-import { chooseEncoder } from "@/core/video/export";
+import { chooseEncoder, encodeOptions } from "@/core/video/encoder";
 import { loadFonts } from "@/core/text/fonts";
 import { drawWatermark, type Watermark, watermarkFont } from "./watermark";
 import { buildPalette } from "./gif";
@@ -122,12 +122,12 @@ export async function encodeGif(render: FrameSource, o: AnimatedOptions & { read
 }
 
 /** Encodes the loop, played `repeats` times, as an H.264 (or VP9/AV1) MP4. */
-export async function encodeLoopVideo(render: FrameSource, o: AnimatedOptions & { readonly repeats: number; readonly bitrate: number }): Promise<Blob> {
+export async function encodeLoopVideo(render: FrameSource, o: AnimatedOptions & { readonly repeats: number; readonly bitrate: number; readonly quality: number }): Promise<Blob> {
   if (typeof VideoEncoder === "undefined") throw new Error("MP4 export needs WebCodecs (a recent Chrome, Edge or Safari).");
   // Video encoders want even dimensions; the frame is cropped by at most a pixel.
   const width = o.width - (o.width % 2);
   const height = o.height - (o.height % 2);
-  const encoder = await chooseEncoder(width, height, o.bitrate, o.fps);
+  const encoder = await chooseEncoder(width, height, o.bitrate, o.fps, o.quality);
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({ target, fastStart: "in-memory", video: { codec: encoder.mux, width, height, frameRate: o.fps } });
   let failure: unknown = null;
@@ -149,7 +149,7 @@ export async function encodeLoopVideo(render: FrameSource, o: AnimatedOptions & 
       while (video.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 4));
       const canvas = flat.draw(await render(n % o.frames));
       const frame = new VideoFrame(canvas, { timestamp: Math.round(n * step), duration: Math.round(step) });
-      video.encode(frame, { keyFrame: n % (o.fps * 2) === 0 });
+      video.encode(frame, encodeOptions(encoder, n % (o.fps * 2) === 0));
       frame.close();
       o.onProgress(n + 1, total + 1, `Encoding frame ${n + 1} of ${total}`);
       if (n % 4 === 3) await yieldToUi();

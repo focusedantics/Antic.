@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { demux } from "@/core/video/demux";
-import { defaultEdit, estimateBytes, isVideoFile, outputSize, sanitizeEdit, sourceBitsPerPixel, videoBitrate } from "@/core/video/model";
+import { encodeOptions, quantizerFor } from "@/core/video/encoder";
+import { defaultEdit, estimateBytes, isVideoFile, outputSize, sanitizeEdit, sourceBitsPerPixel, videoBitrate, videoQuality } from "@/core/video/model";
 
 describe("video edits", () => {
   it("sanitizes stored edits against the clip length", () => {
@@ -35,17 +36,37 @@ describe("video edits", () => {
   it("defaults to maximum quality, which never drops below the original's bitrate", () => {
     const base = defaultEdit(10);
     expect(base.output.quality).toBe("maximum");
+    expect(videoQuality(base.output)).toBeGreaterThan(0.9);
+    expect(videoQuality({ ...base.output, quality: "custom" })).toBeNull();
     const fullHd = 1920 * 1080 * 30;
-    // A phone clip at ~0.25 bits per pixel (≈ 16 Mb/s): maximum gives 1.5× that.
-    expect(videoBitrate(base.output, 1920, 1080, 30, 0.25)).toBeCloseTo(fullHd * 0.375, -3);
+    // A phone clip at ~0.4 bits per pixel: the bitrate fallback for maximum is twice that.
+    expect(videoBitrate(base.output, 1920, 1080, 30, 0.4)).toBeCloseTo(fullHd * 0.8, -3);
     // An unusually lean source still gets the visually lossless floor.
-    expect(videoBitrate(base.output, 1920, 1080, 30, 0.02)).toBeCloseTo(fullHd * 0.3, -3);
+    expect(videoBitrate(base.output, 1920, 1080, 30, 0.02)).toBeCloseTo(fullHd * 0.5, -3);
+    // Presets follow the source: a very noisy (e.g. dithered) clip keeps its bits.
+    const noisy = 1.9;
+    expect(videoBitrate({ ...base.output, quality: "high" }, 480, 480, 15.7, noisy)).toBeCloseTo(480 * 480 * 15.7 * noisy, -3);
     const high = videoBitrate({ ...base.output, quality: "high" }, 1920, 1080, 30, 0.25);
     const medium = videoBitrate({ ...base.output, quality: "medium" }, 1920, 1080, 30, 0.25);
     expect(high).toBeLessThan(videoBitrate(base.output, 1920, 1080, 30, 0.25));
     expect(medium).toBeLessThan(high);
-    expect(high).toBeGreaterThan(10e6);
     expect(sourceBitsPerPixel(20e6, 10, 1920, 1080, 30)).toBeCloseTo((20e6 * 8) / 10 / fullHd);
+  });
+
+  it("moves edits saved on the old default (medium) to maximum, but keeps later choices", () => {
+    expect(sanitizeEdit({ version: 1, output: { quality: "medium" } }, 5).output.quality).toBe("maximum");
+    expect(sanitizeEdit({ output: { quality: "medium" } }, 5).output.quality).toBe("maximum");
+    expect(sanitizeEdit({ version: 1, output: { quality: "low" } }, 5).output.quality).toBe("low");
+    expect(sanitizeEdit({ version: 2, output: { quality: "medium" } }, 5).output.quality).toBe("medium");
+  });
+
+  it("maps quality to each codec's quantizer (lower is better)", () => {
+    expect(quantizerFor("avc", 1)).toBe(8);
+    expect(quantizerFor("avc", 0.25)).toBe(29);
+    expect(quantizerFor("vp9", 1)).toBe(4);
+    expect(quantizerFor("av1", 0.5)).toBe(30);
+    expect(encodeOptions({ config: { codec: "avc1.64001f", width: 2, height: 2 }, mux: "avc", quantizer: 13 }, true)).toEqual({ keyFrame: true, avc: { quantizer: 13 } });
+    expect(encodeOptions({ config: { codec: "avc1.64001f", width: 2, height: 2 }, mux: "avc", quantizer: null }, false)).toEqual({ keyFrame: false });
   });
 
   it("recognizes video files", () => {
