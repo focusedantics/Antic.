@@ -99,7 +99,7 @@ export function aiImage(pipeline: DevelopPipeline, source: GpuSource): ImageInpu
   const target = pipeline.render(source, createDefaultRecipe(source.info), { width, height, draft: true });
   const pixels = pipeline.encode(target);
   pipeline.release(target);
-  return { data: new Uint8ClampedArray(pixels.buffer as ArrayBuffer), width, height };
+  return { data: pixels, width, height };
 }
 
 async function store(result: AiMask, assetId: string): Promise<RasterRecord> {

@@ -522,7 +522,17 @@ export class DevelopPipeline {
   }
 
   /** Display-encoded RGBA8 pixels of a rendered target, rows top-first. */
-  encode(input: Texture, width = input.width, height = input.height): Uint8Array {
+  /** Working-space image → display-encoded RGBA pixels (top row first). */
+  encode(input: Texture, width = input.width, height = input.height): Uint8ClampedArray {
+    const target = this.acquire(width, height, "rgba8");
+    this.gpu.pass("encode", S.encode, { target, textures: { uImage: input } });
+    const pixels = this.gpu.readImage(target).data;
+    this.release(target);
+    return pixels;
+  }
+
+  /** Like `encode`, but with gl.readPixels: fast and with no canvas involved, for small analysis reads (histogram). */
+  encodeRaw(input: Texture, width = input.width, height = input.height): Uint8Array {
     const target = this.acquire(width, height, "rgba8");
     this.gpu.pass("encode", S.encode, { target, textures: { uImage: input } });
     const pixels = this.gpu.readRgba8(target);

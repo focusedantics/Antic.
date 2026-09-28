@@ -231,6 +231,18 @@ uses the first supported codec (H.264 → HEVC → VP9 → AV1), and `mp4-muxer`
 file. Audio packets inside the range are copied, not re-encoded. Queues are bounded by
 awaiting `decodeQueueSize` / `encodeQueueSize`, so memory stays flat during long clips.
 
+## Reading pixels back
+
+Every image that leaves the GPU goes through `Gpu.readImage`: exports, thumbnails,
+previews, effect previews and the AI input image. It draws the (straight-alpha) result
+into the engine's own canvas in tiles of up to 2048 px, and copies each tile out with a
+2D canvas `drawImage`. That is the same path the browser uses to show the canvas.
+`gl.readPixels` on offscreen framebuffers is kept only for small analysis reads (the
+histogram and the eyedropper), because some browser/GPU combinations return it wrong:
+blank, shrunken or stale images. The canvas is borrowed for the duration of one
+synchronous call and redrawn right after. A one-time background job re-renders developed
+thumbnails made before this change.
+
 ## GPU memory and export verification
 
 `DevelopPipeline` pools render targets by size and format, but keeps idle targets only

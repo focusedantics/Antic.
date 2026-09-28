@@ -76,7 +76,12 @@ export function App() {
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
-    loadCatalogIntoStore().catch((error) => toast(`Could not open the library: ${error}`, "error"));
+    loadCatalogIntoStore()
+      .then(() => {
+        // One-time background repair of thumbnails rendered with the old readback.
+        setTimeout(() => void import("@/core/gpu/develop-engine").then((m) => m.developEngine().repairThumbnails()).catch(() => undefined), 4000);
+      })
+      .catch((error) => toast(`Could not open the library: ${error}`, "error"));
     window.addEventListener("keydown", handleKey);
     // Library edits (ratings, flags, keywords…) save instantly; give them a visible beat.
     const unsubscribe = catalog.subscribe((s, prev) => {

@@ -78,6 +78,19 @@ void main() {
   outColor = vec4(a, a, a, a);
 }`;
 
+/** Draws one tile of a straight-alpha image into the (bottom-up, premultiplied) canvas. */
+const READBACK_FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uInput;
+uniform vec4 uRect; // tile x, y, width, height in uv, y measured from the top row
+void main() {
+  vec2 uv = vec2(uRect.x + vUv.x * uRect.z, uRect.y + (1.0 - vUv.y) * uRect.w);
+  vec4 c = texture(uInput, uv);
+  outColor = vec4(c.rgb * c.a, c.a);
+}`;
+
 export class GpuError extends Error {}
 
 export class Gpu {
@@ -420,6 +433,63 @@ export class Gpu {
     gl.viewport(0, 0, target.width, target.height);
     gl.clearColor(value, value, value, value);
     gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
+  /** Called after `readImage` borrowed the canvas, so its owner can redraw it. */
+  onCanvasBorrowed: (() => void) | null = null;
+
+  /**
+   * Copies a straight-alpha, display-encoded image into CPU memory (top row
+   * first, like ImageData). Instead of gl.readPixels on an offscreen framebuffer,
+   * which some browser/GPU combinations return wrong, each tile is drawn into the
+   * canvas and copied out with the browser's own canvas path — the same one that
+   * puts frames on screen.
+   */
+  readImage(input: Texture): ImageData {
+    const { gl, canvas } = this;
+    const W = input.width;
+    const H = input.height;
+    const out = new OffscreenCanvas(W, H);
+    const ctx = out.getContext("2d", { willReadFrequently: true })!;
+    const saved = [canvas.width, canvas.height];
+    let tile = 2048;
+    try {
+      for (let ty = 0; ty < H; ty += tile) {
+        for (let tx = 0; tx < W; tx += tile) {
+          const tw = Math.min(tile, W - tx);
+          const th = Math.min(tile, H - ty);
+          if (canvas.width !== tw || canvas.height !== th) {
+            canvas.width = tw;
+            canvas.height = th;
+          }
+          if (gl.drawingBufferWidth < tw || gl.drawingBufferHeight < th) {
+            // The browser capped the drawing buffer: retry with smaller tiles.
+            if (tile <= 256) throw new GpuError("The browser limited the drawing buffer too far to export.");
+            tile /= 2;
+            ctx.clearRect(0, 0, W, H);
+            tx = W;
+            ty = -tile;
+            continue;
+          }
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, tw, th);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          this.pass("readback", READBACK_FRAGMENT, {
+            target: null,
+            viewport: [0, 0, tw, th],
+            textures: { uInput: input },
+            uniforms: { uRect: [tx / W, ty / H, tw / W, th / H] },
+          });
+          ctx.drawImage(canvas as CanvasImageSource, 0, 0, tw, th, tx, ty, tw, th);
+        }
+      }
+    } finally {
+      canvas.width = saved[0];
+      canvas.height = saved[1];
+      this.onCanvasBorrowed?.();
+    }
+    return ctx.getImageData(0, 0, W, H);
   }
 
   /** Reads RGBA8 pixels from a target (bottom-up rows, as GL stores them). */

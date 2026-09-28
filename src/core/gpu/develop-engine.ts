@@ -1,12 +1,12 @@
 import { beginActivity } from "@/lib/activity";
 import { similarImages } from "./verify";
-import { getRaster, putThumb } from "@/core/catalog/db";
+import { getRaster, getSetting, getThumb, putSetting, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { fullCrop } from "@/core/develop/defaults";
 import { outputSize, type Size } from "@/core/develop/geometry";
 import type { DevelopRecipe } from "@/core/develop/recipe";
-import { currentHistory, develop, type Histogram } from "@/core/develop/session";
+import { currentHistory, develop, type Histogram, recipeFor } from "@/core/develop/session";
 import { type LoadedSource, loadSource } from "@/core/develop/source-loader";
 import type { CompositeDocument } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
@@ -58,6 +58,8 @@ export class DevelopEngine {
     this.canvas = document.createElement("canvas");
     this.canvas.className = "develop-canvas";
     this.gpu = new Gpu(this.canvas);
+    // Exports borrow the canvas to read pixels back; redraw the view afterwards.
+    this.gpu.onCanvasBorrowed = () => this.requestRender();
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
     this.compositor = this.createCompositor();
@@ -127,6 +129,8 @@ export class DevelopEngine {
 
   private restore() {
     this.gpu = new Gpu(this.canvas);
+    // Exports borrow the canvas to read pixels back; redraw the view afterwards.
+    this.gpu.onCanvasBorrowed = () => this.requestRender();
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
     this.compositor = this.createCompositor();
@@ -483,10 +487,10 @@ export class DevelopEngine {
     const target = this.compositor.render(doc, scale);
     const out = this.pipeline.acquire(target.width, target.height, "rgba8");
     this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: target } });
-    const data = this.gpu.readRgba8(out);
+    const image = this.gpu.readImage(out);
     this.pipeline.release(out);
     this.pipeline.release(target);
-    return new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), target.width, target.height);
+    return image;
   }
 
   /**
@@ -543,10 +547,10 @@ export class DevelopEngine {
         const result = runner.apply(base, effects[i], unit);
         const out = this.pipeline.acquire(base.width, base.height, "rgba8");
         this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: result } });
-        const data = this.gpu.readRgba8(out);
+        const image = this.gpu.readImage(out);
         this.pipeline.release(out);
         this.pipeline.release(result);
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), base.width, base.height), 0, 0);
+        ctx.putImageData(image, 0, 0);
         const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.82 });
         if (generation !== this.previewGeneration) return;
         onPreview(i, URL.createObjectURL(blob));
@@ -641,7 +645,7 @@ export class DevelopEngine {
     const scale = Math.min(1, 320 / Math.max(target.width, target.height));
     const w = Math.max(1, Math.round(target.width * scale));
     const h = Math.max(1, Math.round(target.height * scale));
-    const px = this.pipeline.encode(target, w, h);
+    const px = this.pipeline.encodeRaw(target, w, h);
     const r = new Uint32Array(256);
     const g = new Uint32Array(256);
     const b = new Uint32Array(256);
@@ -695,6 +699,36 @@ export class DevelopEngine {
     updateAsset(assetId, { thumbRevision: revision, thumbState: "ready" });
   }
 
+  /**
+   * Re-renders developed thumbnails saved before readback moved to the canvas path
+   * (on some GPUs those came out blank or wrong). Runs once per catalog, in the background.
+   */
+  async repairThumbnails() {
+    const flag = "thumbs-readback-v2";
+    if (await getSetting(flag)) return;
+    const { invalidateImage } = await import("@/app/thumbs");
+    for (const asset of [...catalog.getState().assets.values()]) {
+      const record = await getThumb(asset.id);
+      const recipe = recipeFor(asset.id);
+      if (record?.previewSource !== "developed" || !recipe || this.lost) continue;
+      try {
+        if (!this.hasSource(asset.id) || this.hasSource(asset.id, "preview")) {
+          const loaded = await loadSource(asset);
+          this.setSource(asset.id, loaded, loaded.quality);
+        }
+        const src = this.sources.get(asset.id)!.gpu;
+        const type = recipe.masks.some((m) => m.cutout && m.visible) ? "image/webp" : "image/jpeg";
+        const thumb = await this.renderBlob(src, recipe, 480, type, 0.85);
+        const preview = await this.renderBlob(src, recipe, 2560, type, 0.88);
+        await putThumb(asset.id, { thumb, preview, previewSource: "developed", revision: record.revision });
+        invalidateImage(asset.id);
+      } catch (error) {
+        console.warn(`Could not repair the thumbnail of ${asset.fileName}`, error);
+      }
+    }
+    await putSetting(flag, true);
+  }
+
   /** Renders a recipe to an encoded image whose long side is at most `longSide`. */
   async renderBlob(source: GpuSource, recipe: DevelopRecipe, longSide: number, type: string, quality: number, background?: string): Promise<Blob> {
     const pixels = this.renderPixels(source, recipe, longSide);
@@ -709,7 +743,7 @@ export class DevelopEngine {
     const target = this.pipeline.render(source, recipe, { width, height, masks: this.masks });
     const data = this.pipeline.encode(target);
     this.pipeline.release(target);
-    return new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), width, height);
+    return new ImageData(new Uint8ClampedArray(data), width, height);
   }
 }
 
