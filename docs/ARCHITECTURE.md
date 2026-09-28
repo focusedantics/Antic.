@@ -155,7 +155,7 @@ A **document** (`core/document`) is a layer tree:
 Document
  ├── canvas (width, height, background)
  ├── assets referenced by id
- ├── layers: image (asset + recipe) · raster · fill · gradient · text · shape · adjustment · group
+ ├── layers: image (asset + recipe) · fill · gradient · text · shape · adjustment · effect · group
  │     each: visibility, lock, opacity, fill opacity, blend mode, transform, crop,
  │           mask (vector/raster), clipping, name
  └── history, snapshots
@@ -172,6 +172,28 @@ layers convert the backdrop to linear Rec.2020 and reuse the develop tone/color 
 Per-layer content is cached by its inputs and evicted when unused.
 
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
+
+### Effects (`core/effects`)
+
+An effect is data: `{ id, params }` on an `effect` layer. `registry.ts` lists the
+definitions. Each one declares typed parameters (number, select, color, toggle, text),
+which drive both the Properties UI and the sanitizer. Each also has a `render` function
+made of one or more GLSL passes from `library/*`.
+
+`runtime.ts` (`EffectRunner`) copies the backdrop into a mipmapped texture. Effects can
+then read a cell's average color in one `textureLod`, which is how ASCII, halftone,
+mosaics and bricks stay cheap at any size. The runner also binds the shared prelude
+(`glsl.ts`: hashing, value noise, Oklab palette matching, Bayer matrices, anti-aliased
+coverage, auto-leveling) and lends pooled targets and blurs for multi-pass effects. It
+builds glyph atlases for the text effects with Canvas 2D, sorted by ink coverage for
+density ramps.
+
+The compositor treats an effect layer like an adjustment layer. It runs the effect on the
+backdrop (or on its clipping base), applies the mask and fill, then blends the result
+with the layer's mode and opacity. Spatial parameters are in units of 1/1000 of the
+document's long side, so results do not depend on render scale. The Effects browser asks
+the engine for previews (`DevelopEngine.effectPreviews`). The engine renders the layers
+below the insertion point once, then runs each effect on that image at 360 px.
 
 ### Transparency (Remove Background)
 

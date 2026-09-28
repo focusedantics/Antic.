@@ -53,7 +53,7 @@ function snapLines(exclude: ReadonlySet<string>) {
   const y = [0, doc.height / 2, doc.height];
   if (showGuides) for (const g of doc.guides) (g.axis === "x" ? x : y).push(g.position);
   for (const l of flatten(doc.layers)) {
-    if (exclude.has(l.id) || !l.visible || l.kind === "fill" || l.kind === "adjustment" || l.kind === "group") continue;
+    if (exclude.has(l.id) || !l.visible || l.kind === "fill" || l.kind === "adjustment" || l.kind === "effect" || l.kind === "group") continue;
     const b = layerBounds(l);
     x.push(b.x, b.x + b.width / 2, b.x + b.width);
     y.push(b.y, b.y + b.height / 2, b.y + b.height);
@@ -183,7 +183,7 @@ export function CompositeView() {
     const p = engine.clientToDoc(e.clientX, e.clientY);
     if (tool === "mask" && maskLayerId) return paintMask(e);
     // Topmost visible, unlocked layer under the pointer (groups are selected through their children).
-    const candidates = flatten(doc.layers).filter((l) => l.visible && l.kind !== "group" && l.kind !== "adjustment" && l.kind !== "fill");
+    const candidates = flatten(doc.layers).filter((l) => l.visible && l.kind !== "group" && l.kind !== "adjustment" && l.kind !== "effect" && l.kind !== "fill");
     const hit = [...candidates].reverse().find((l) => hitTest(l, p));
     if (!hit) {
       composite.setState({ selection: [] });
@@ -358,7 +358,7 @@ export function CompositeView() {
   };
 
   let overlay: React.ReactNode = null;
-  if (doc && primary && tool === "move" && primary.kind !== "fill" && primary.kind !== "adjustment" && primary.kind !== "group") {
+  if (doc && primary && tool === "move" && primary.kind !== "fill" && primary.kind !== "adjustment" && primary.kind !== "effect" && primary.kind !== "group") {
     const quad = contentCorners(primary.transform).map(local);
     const top = { x: (quad[0].x + quad[1].x) / 2, y: (quad[0].y + quad[1].y) / 2 };
     const center = local({ x: primary.transform.x, y: primary.transform.y });

@@ -109,6 +109,7 @@ export function assetMenu(x: number, y: number) {
   openMenu(x, y, [
     { label: "Open in Develop", shortcut: "D", onSelect: () => setWorkspace("develop") },
     { label: "Add to Composite", onSelect: () => void addToComposite(ids) },
+    ...(ids.length === 1 ? [{ label: "Apply an Effect…", onSelect: () => void startEffectsFor(ids[0]) }] : []),
     "separator",
     { label: "Pick", shortcut: "P", onSelect: () => flag("pick") },
     { label: "Reject", shortcut: "X", onSelect: () => flag("reject") },
@@ -141,6 +142,11 @@ export function assetMenu(x: number, y: number) {
 export function compare(ids: string[]) {
   if (ids.length < 2) return;
   ui.setState({ activeId: ids[0], compareId: ids[1], libraryView: "compare", workspace: "library" });
+}
+
+async function startEffectsFor(id: string) {
+  const { startEffects } = await import("@/features/composite/actions");
+  await startEffects(id);
 }
 
 async function addToComposite(ids: string[]) {

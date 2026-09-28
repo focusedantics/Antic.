@@ -1,4 +1,5 @@
 import type { DevelopRecipe, MaskComponent } from "@/core/develop/recipe";
+import type { EffectInstance } from "@/core/effects/types";
 import type { Point } from "@/lib/math";
 
 /**
@@ -157,13 +158,15 @@ export type GradientLayer = LayerBase & { readonly kind: "gradient"; readonly gr
 export type TextLayer = LayerBase & { readonly kind: "text"; readonly style: TextStyle };
 export type ShapeLayer = LayerBase & { readonly kind: "shape"; readonly style: ShapeStyle };
 export type AdjustmentLayer = LayerBase & { readonly kind: "adjustment"; readonly adjustment: Adjustment };
+/** A stylization effect (ASCII, halftone, glass…) applied to everything below it, like an adjustment. */
+export type EffectLayer = LayerBase & { readonly kind: "effect"; readonly effect: EffectInstance };
 export type GroupLayer = LayerBase & {
   readonly kind: "group";
   readonly children: readonly Layer[];
   readonly expanded: boolean;
 };
 
-export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | AdjustmentLayer | GroupLayer;
+export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | AdjustmentLayer | EffectLayer | GroupLayer;
 export type LayerKind = Layer["kind"];
 
 export type Guide = { readonly id: string; readonly axis: "x" | "y"; readonly position: number };

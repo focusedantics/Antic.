@@ -135,13 +135,36 @@ Done:
 - Tools: click-select topmost layer, drag handles, rotate knob, Ctrl-drag perspective,
   snapping to canvas, guides and other layers (Alt bypasses), rulers → guides, align and
   distribute, arrow-key nudging, drag photos from the filmstrip onto the canvas.
-- Export PNG/WebP (with transparency) and JPEG (flattened onto a chosen color) at 25–200 %.
+- Export PNG/WebP (with transparency) and JPEG (flattened onto a chosen color) at
+  25–400 % (up to 8192 px on the long side), with a quality setting for JPEG and WebP.
 
 Known limitations:
 - Groups are always isolated (no "pass through"); layer styles (shadows, strokes on
   raster content) are not implemented.
 - Text is a single style per layer (no per-character styling) and uses system fonts.
 - Image layers render at up to 4096 px per layer; exports cap at 8192 px on the long side.
+
+## Effects
+
+Done:
+- 38 original GLSL effects in nine categories: Light & glass, Type & code, Halftone & dither,
+  Textile & craft, Pixel & 3D, Edges & outlines, Analog & glitch, Experimental, and
+  Tracking & interface. Every parameter is real: the GPU reads each one.
+- Effect layers in Composite. Each is non-destructive and applies to everything below it,
+  or only to its clipping base. It has opacity, fill, a blend mode and a layer mask, and
+  it is saved in documents and `.focused` files with sanitized parameters.
+- Sizes are in 1/1000 of the document's long side, so the canvas, the previews and a 400 %
+  export show the same number of cells, dots and lines.
+- Effects browser: categories with counts, search, grid and list views, and live previews
+  rendered on the GPU from the layers the effect will sit on. It can add a new layer or
+  swap the effect on an existing one.
+- Entry points: Composite toolbar and **Shift+E**, the **+ Layer** menu, Develop's
+  **Effects…** button, and Library's **Apply an Effect…** context-menu item.
+
+Known limitations:
+- Effects are still images; animated or video output is not implemented.
+- Text effects use the platform's monospace font. Katakana in Code Rain needs a font that
+  has those glyphs; otherwise the browser falls back.
 
 ## Stage 7 — Retouching
 
@@ -166,7 +189,9 @@ originals; reopening relinks by fingerprint or imports the included originals).
 ## Tests
 
 - `npm test` — unit tests: history, library queries, geometry and brush dabs, white balance
-  colorimetry, EXIF writer, raster ops (guided filter), document operations, heal source search.
+  colorimetry, EXIF writer, raster ops (guided filter), document operations, heal source search,
+  effect registry/parameter sanitizing/effect layers.
 - `npm run e2e` — Playwright in Chromium: Library → Develop → reload persistence; a brush
-  mask; composite with an AI cutout (bundled model) and PNG export. Set `CHROMIUM_PATH` to use
+  mask; composite with an AI cutout (bundled model) and PNG export; effects browser → effect
+  layer → edit, swap, undo and export. Set `CHROMIUM_PATH` to use
   a preinstalled Chromium.

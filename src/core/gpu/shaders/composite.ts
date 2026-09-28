@@ -229,3 +229,24 @@ void main() {
   vec3 checker = mod(cell.x + cell.y, 2.0) < 1.0 ? vec3(0.8) : vec3(0.62);
   outColor = vec4(c.rgb + checker * (1.0 - c.a), 1.0);
 }`;
+
+/** Scales premultiplied content by a layer mask (content space) and fill opacity. */
+export const maskContent = `${header}
+uniform sampler2D uInput;
+uniform sampler2D uMask;
+uniform mat3 uToContent;
+uniform int uMaskOn;
+uniform int uMaskInvert;
+uniform float uMaskDensity;
+uniform float uFill;
+void main() {
+  vec4 c = texture(uInput, vUv);
+  float a = uFill;
+  if (uMaskOn == 1) {
+    vec3 h = uToContent * vec3(gl_FragCoord.xy, 1.0);
+    float m = texture(uMask, clamp(h.xy / h.z, 0.0, 1.0)).r;
+    if (uMaskInvert == 1) m = 1.0 - m;
+    a *= 1.0 - uMaskDensity * (1.0 - m);
+  }
+  outColor = c * a;
+}`;

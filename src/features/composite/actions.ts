@@ -56,6 +56,20 @@ export async function addAssetsToComposite(ids: readonly string[], at?: { x: num
   setWorkspace("composite");
 }
 
+/**
+ * Starts a new composition from one photo (sized to it, the photo filling the
+ * canvas) and opens the Effects browser on it.
+ */
+export async function startEffects(assetId: string) {
+  const size = photoSize(assetId);
+  const scale = Math.min(1, 6000 / Math.max(size.width, size.height));
+  const name = getAsset(assetId)?.fileName.replace(/\.[^.]+$/, "") ?? "Composition";
+  openDocument(createDocument(Math.round(size.width * scale), Math.round(size.height * scale), `${name} effects`, "#ffffff"));
+  await addAssetsToComposite([assetId]);
+  const { openEffectsBrowser } = await import("@/features/effects/EffectsBrowser");
+  openEffectsBrowser();
+}
+
 export function usedAssets(doc: CompositeDocument) {
   return [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])))];
 }

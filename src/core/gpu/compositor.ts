@@ -2,7 +2,8 @@ import { recipeFor } from "@/core/develop/session";
 import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
 import { canvasToContent } from "@/core/document/operations";
-import type { AdjustmentLayer, BlendMode, CompositeDocument, GradientLayer, Layer, ShapeLayer, TextLayer } from "@/core/document/model";
+import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, ShapeLayer, TextLayer } from "@/core/document/model";
+import { EffectRunner } from "@/core/effects/runtime";
 import { BLEND_MODES } from "@/core/document/model";
 import { type Mat3, mul3, toGlMat3 } from "@/lib/math";
 import type { Gpu, Target, Texture } from "./gl";
@@ -29,13 +30,16 @@ export type SourceProvider = (assetId: string) => GpuSource | null;
 export class Compositor {
   private contents = new Map<string, Cached>();
   private frame = 0;
+  private readonly effects: EffectRunner;
 
   constructor(
     private readonly gpu: Gpu,
     private readonly pipeline: DevelopPipeline,
     private readonly masks: MaskRenderer,
     private readonly sources: SourceProvider,
-  ) {}
+  ) {
+    this.effects = new EffectRunner(gpu, pipeline);
+  }
 
   /** Renders `doc` at `scale` working pixels per document pixel. The caller releases the result. */
   render(doc: CompositeDocument, scale: number): Target {
@@ -63,12 +67,20 @@ export class Compositor {
         current = this.adjust(current, layer, scale);
         continue;
       }
+      if (layer.kind === "effect") {
+        current = this.effect(current, layer, scale, doc, false);
+        continue;
+      }
       let content = this.layerContent(layer, current.width, current.height, scale, doc);
       if (!content) continue;
       for (const c of clipped) {
         if (!c.visible) continue;
         if (c.kind === "adjustment") {
           content = this.adjust(content, c, scale);
+          continue;
+        }
+        if (c.kind === "effect") {
+          content = this.effect(content, c, scale, doc, true);
           continue;
         }
         const cc = this.layerContent(c, current.width, current.height, scale, doc);
@@ -143,6 +155,7 @@ export class Compositor {
         break;
       }
       case "adjustment":
+      case "effect":
         return null;
     }
     const mask = layer.mask?.enabled && layer.mask.components.length ? this.layerMask(layer, texture, scale) : null;
@@ -289,10 +302,40 @@ export class Compositor {
     return out;
   }
 
+  /**
+   * Runs an effect layer on `input` (everything below it, or its clipping base)
+   * and blends the result back with the layer's mode, opacity and mask.
+   */
+  private effect(input: Target, layer: EffectLayer, scale: number, doc: CompositeDocument, atop: boolean): Target {
+    const unit = (Math.max(doc.width, doc.height) * scale) / 1000;
+    let result = this.effects.apply(input, layer.effect, unit);
+    const mask = layer.mask?.enabled && layer.mask.components.length ? this.layerMask(layer, null, scale) : null;
+    const fill = SPECIAL.has(layer.blend) ? 1 : layer.fillOpacity;
+    if (mask || fill < 1) {
+      const masked = this.pipeline.acquire(input.width, input.height);
+      this.gpu.pass("mask-content", C.maskContent, {
+        target: masked,
+        textures: { uInput: result, uMask: mask },
+        uniforms: {
+          uToContent: toGlMat3(this.toContent(layer, scale)),
+          uMaskOn: mask ? 1 : 0,
+          uMaskInvert: layer.mask?.invert ? 1 : 0,
+          uMaskDensity: layer.mask?.density ?? 1,
+          uFill: fill,
+        },
+      });
+      this.pipeline.release(result);
+      if (mask) this.pipeline.release(mask as Target);
+      result = masked;
+    }
+    return this.blend(input, result, layer, atop);
+  }
+
   /** Forgets cached layer content, e.g. when a mask raster finished loading. */
   dispose() {
     for (const c of this.contents.values()) this.gpu.dispose(c.texture);
     this.contents.clear();
+    this.effects.dispose();
   }
 }
 

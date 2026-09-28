@@ -108,3 +108,30 @@ test("composite: remove background of a photo placed over another, export PNG", 
   const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), page.getByRole("button", { name: "Export", exact: true }).click()]);
   expect(download.suggestedFilename()).toMatch(/\.png$/);
 });
+
+test("effects: browse, apply, edit, swap and export an effect layer", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "subject.jpg", "subject")]);
+  await page.locator(".cell").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Apply an Effect…" }).click();
+  const browser = page.getByRole("dialog", { name: "Effects" });
+  await expect(browser).toBeVisible();
+  // Live previews render from the photo itself.
+  await expect(browser.locator(".fx-thumb img").first()).toBeVisible({ timeout: 60_000 });
+  await browser.getByRole("button", { name: /Halftone & dither/ }).click();
+  await expect(browser.locator(".fx-card")).toHaveCount(6);
+  await browser.getByLabel("Search effects").fill("bricks");
+  await browser.locator(".fx-card", { hasText: "Toy Bricks" }).click();
+  await expect(browser).toBeHidden();
+  await expect(page.locator(".layer-row").first()).toContainText("Toy Bricks");
+  await page.getByLabel("Colors").selectOption("photo");
+  await page.getByRole("button", { name: "Change…" }).click();
+  await page.getByLabel("Search effects").fill("ascii");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".layer-row").first()).toContainText("ASCII");
+  await page.keyboard.press("Control+z");
+  await expect(page.locator(".layer-row").first()).toContainText("Toy Bricks");
+  await page.getByRole("button", { name: "Export…" }).click();
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), page.getByRole("button", { name: "Export", exact: true }).click()]);
+  expect(download.suggestedFilename()).toMatch(/effects\.png$/);
+});

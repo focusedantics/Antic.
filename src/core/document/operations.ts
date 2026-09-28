@@ -1,6 +1,7 @@
 import { defaultBasic, defaultColorGrading, defaultColorMixer, defaultToneCurve } from "@/core/develop/defaults";
 import { homography } from "@/core/develop/geometry";
 import { sanitizeRecipe } from "@/core/develop/operations";
+import { effectById, newEffect, sanitizeEffect } from "@/core/effects/registry";
 import { createId } from "@/lib/id";
 import { clamp, invert3, type Mat3, type Point } from "@/lib/math";
 import {
@@ -115,6 +116,12 @@ export const adjustmentLayer = (doc: CompositeDocument): Layer => ({
   kind: "adjustment",
   adjustment: { basic: defaultBasic, toneCurve: defaultToneCurve, colorMixer: defaultColorMixer, colorGrading: defaultColorGrading, profile: "color" },
 });
+
+export function effectLayer(doc: CompositeDocument, effectId: string): Layer | null {
+  const effect = newEffect(effectId);
+  if (!effect) return null;
+  return { ...base(effectById(effectId)!.name, canvasTransform(doc)), kind: "effect", effect };
+}
 
 export const groupLayer = (doc: CompositeDocument, children: Layer[] = [], name = "Group"): GroupLayer => ({
   ...base(name, canvasTransform(doc)),
@@ -299,9 +306,29 @@ export function layerBounds(layer: Layer): { x: number; y: number; width: number
   return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
 }
 
+/**
+ * `doc` with everything painted above a point hidden: above layer `id` (it stays
+ * visible) or, when `hideSelf`, from `id` up. With no id the whole document shows.
+ * Used to preview what an effect placed there would receive as input.
+ */
+export function layersBelow(doc: CompositeDocument, id: string | null, hideSelf = false): CompositeDocument {
+  if (!id) return doc;
+  let reached = false;
+  const walk = (layers: readonly Layer[]): Layer[] =>
+    layers.map((l) => {
+      if (reached) return l.visible ? { ...l, visible: false } : l;
+      if (l.id === id) {
+        reached = true;
+        return hideSelf ? { ...l, visible: false } : l;
+      }
+      return l.kind === "group" ? { ...l, children: walk(l.children) } : l;
+    });
+  return { ...doc, layers: walk(doc.layers) };
+}
+
 /** Is canvas point `p` inside the layer's visible quad? */
 export function hitTest(layer: Layer, p: Point): boolean {
-  if (layer.kind === "fill" || layer.kind === "adjustment") return true;
+  if (layer.kind === "fill" || layer.kind === "adjustment" || layer.kind === "effect") return true;
   const m = canvasToContent(layer.transform);
   const w = m[6] * p.x + m[7] * p.y + m[8];
   const u = (m[0] * p.x + m[1] * p.y + m[2]) / w;
@@ -481,6 +508,10 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
       const a = obj(l.adjustment);
       const r = sanitizeRecipe({ ...a, toneCurve: a?.toneCurve }, { raw: false });
       return { ...common, kind: "adjustment", adjustment: { basic: r.basic, toneCurve: r.toneCurve, colorMixer: r.colorMixer, colorGrading: r.colorGrading, profile: r.profile } };
+    }
+    case "effect": {
+      const effect = sanitizeEffect(l.effect);
+      return effect ? { ...common, kind: "effect", effect } : null;
     }
     case "group":
       return {

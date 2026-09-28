@@ -20,6 +20,7 @@ import { openProject, saveProject } from "@/core/document/project";
 import { type DocExport, exportDocument, newDocument } from "./actions";
 import { addLayerMenu, deleteSelected, duplicateSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
+import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { CompositeView, zoomComposite } from "./View";
 
 type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
@@ -159,12 +160,12 @@ function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
             <option value="jpeg">JPEG</option>
           </select>
         </label>
-        <label className="field" style={{ width: 120 }}>
-          <span>Scale</span>
+        <label className="field" style={{ width: 190 }}>
+          <span>Size</span>
           <select className="input" value={o.scale} onChange={(e) => setO({ ...o, scale: Number(e.target.value) })}>
-            {[0.25, 0.5, 1, 2].map((s) => (
-              <option key={s} value={s}>
-                {s * 100}%
+            {[0.25, 0.5, 1, 1.5, 2, 3, 4].map((s) => (
+              <option key={s} value={s} disabled={Math.max(doc.width, doc.height) * s > 8192}>
+                {s * 100}% · {Math.round(doc.width * s)} × {Math.round(doc.height * s)}
               </option>
             ))}
           </select>
@@ -376,6 +377,9 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       <button type="button" className="btn small" disabled={!doc} onClick={(e) => addLayerMenu(e.clientX, e.clientY)}>
         + Layer
       </button>
+      <button type="button" className="btn small" disabled={!doc} onClick={() => openEffectsBrowser()} title="Add an effect layer (Shift+E)">
+        ✦ Effects
+      </button>
       <button type="button" className="btn small primary" disabled={!doc} onClick={onExport} title="Export (Ctrl+Shift+E)">
         Export…
       </button>
@@ -435,6 +439,10 @@ function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
   }
   if (key === "v") {
     composite.setState({ tool: "move", maskLayerId: null });
+    return true;
+  }
+  if (key === "e" && e.shiftKey) {
+    openEffectsBrowser();
     return true;
   }
   if (key === "1") {
@@ -522,6 +530,7 @@ export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> 
           ) : null
         }
       />
+      <EffectsBrowserHost />
       {dialog === "new" && <NewDocumentDialog onClose={() => setDialog(null)} />}
       {dialog === "export" && <ExportDocumentDialog onClose={() => setDialog(null)} />}
     </>

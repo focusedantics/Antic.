@@ -14,6 +14,14 @@ one asset system:
 - **Composite**: layered compositions of developed photos, gradients, text, shapes and
   adjustment layers, with 24 blend modes, clipping, layer masks, transforms with
   perspective, transparency, and `.focused` project files.
+- **Effects**: 38 GPU stylization effects added as layers. They include ASCII and code
+  rain, CMYK and one-ink halftone, retro dither palettes, risograph, engraving, cross
+  stitch, knit, tile mosaic, paper cutout, toy bricks, iso cubes, LED wall, relief, ink
+  drawing, neon edges, topographic contours, blueprint, pencil hatching, CRT, VHS,
+  datamosh glitch, fluted glass, stained glass, halation, prism, aura gradient,
+  kaleidoscope, liquid warp, a tracking HUD, thermal and night vision. You pick them from
+  a browser with live previews of your own image. Every effect is editable and can be
+  masked, blended and exported.
 
 A photo flows through all three without being flattened. Import a RAW, develop it,
 remove its background with the local AI, place it over another photo, add a gradient,
@@ -52,7 +60,7 @@ with import-by-copy and download-based export.
 | Everywhere | **G** Library grid · **E** Loupe · **N** Survey · **Shift+C** Compare · **D** Develop · **C** Composite · **←/→** previous/next photo · **P/X/U** pick/reject/unflag · **6–9** color labels · **Tab** hide panels · **Shift+F** filmstrip |
 | Library | **0–5** rating · **Ctrl+A** select all · **Ctrl+G** stack · **Delete** remove |
 | Develop | **1** fit · **2** 100 % · **3** 200 % · **5 / Y** cycle before/after · **\\** toggle before · **J** clipping · **R** crop · **M** masks · **B** brush mask · **Q** heal · **W** white balance selector · **Shift+U** auto white balance · **[ ]** brush size · **O** mask overlay · **Space** pan · **Ctrl+Z / Ctrl+Shift+Z** undo/redo · **Ctrl+Shift+C / V** copy/paste settings · **Ctrl+Shift+E** export |
-| Composite | **V** move · **1** fit · **2** 100 % · **arrows** nudge (Shift ×10) · **Ctrl+J** duplicate · **Ctrl+G / Ctrl+Shift+G** group/ungroup · **Ctrl+Alt+G** clipping mask · **Ctrl+[ ]** arrange · **Ctrl+;** guides · **Delete** delete layer · **Ctrl+Z** undo |
+| Composite | **Shift+E** effects browser · **V** move · **1** fit · **2** 100 % · **arrows** nudge (Shift ×10) · **Ctrl+J** duplicate · **Ctrl+G / Ctrl+Shift+G** group/ungroup · **Ctrl+Alt+G** clipping mask · **Ctrl+[ ]** arrange · **Ctrl+;** guides · **Delete** delete layer · **Ctrl+Z** undo |
 
 ## Documentation
 

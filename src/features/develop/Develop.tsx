@@ -65,6 +65,19 @@ function Toolbar({ onExport }: { onExport: () => void }) {
         Clipping
       </button>
       <span className="spacer" />
+      <button
+        type="button"
+        className="btn small"
+        title="Open this photo in a new composition with an effect layer"
+        onClick={async () => {
+          const id = develop.getState().assetId;
+          if (!id) return;
+          const { startEffects } = await import("@/features/composite/actions");
+          await startEffects(id);
+        }}
+      >
+        ✦ Effects…
+      </button>
       <button type="button" className="btn small" disabled={!history?.status().canUndo} title="Undo (Ctrl+Z)" onClick={() => history?.undo()}>
         Undo
       </button>

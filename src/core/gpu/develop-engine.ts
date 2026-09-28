@@ -7,6 +7,8 @@ import type { DevelopRecipe } from "@/core/develop/recipe";
 import { currentHistory, develop, type Histogram } from "@/core/develop/session";
 import { type LoadedSource, loadSource } from "@/core/develop/source-loader";
 import type { CompositeDocument } from "@/core/document/model";
+import { EffectRunner } from "@/core/effects/runtime";
+import type { EffectInstance } from "@/core/effects/types";
 import { flatten } from "@/core/document/operations";
 import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
@@ -47,6 +49,8 @@ export class DevelopEngine {
   compositor: Compositor;
   private compositeResult: { target: Target; key: unknown[] } | null = null;
   private loadingSources = new Set<AssetId>();
+  private previewEffects: EffectRunner | null = null;
+  private previewGeneration = 0;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -124,6 +128,7 @@ export class DevelopEngine {
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
     this.compositor = this.createCompositor();
+    this.previewEffects = null;
     this.result = this.before = null;
     this.compositeResult = null;
     const sources = [...this.sources.entries()];
@@ -477,6 +482,52 @@ export class DevelopEngine {
     this.pipeline.release(out);
     this.pipeline.release(target);
     return new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), target.width, target.height);
+  }
+
+  /**
+   * Renders small previews of `effects` applied to `doc` (the layers the effect
+   * would sit on), one at a time so the UI stays responsive. A newer call
+   * cancels an older one. Returns object URLs the caller revokes.
+   */
+  async effectPreviews(doc: CompositeDocument, longSide: number, effects: readonly EffectInstance[], onPreview: (index: number, url: string) => void): Promise<void> {
+    const generation = ++this.previewGeneration;
+    // Previews need the photos: wait (up to a minute) for every image layer to decode.
+    const ids = [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" && l.visible ? [l.assetId] : [])))];
+    for (let i = 0; i < 600 && ids.some((id) => !this.hasSource(id)); i++) {
+      if (generation !== this.previewGeneration) return;
+      for (const id of ids) this.ensureSource(id);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (this.lost || generation !== this.previewGeneration) return;
+    const scale = Math.min(1, longSide / Math.max(doc.width, doc.height));
+    const base = this.compositor.render(doc, scale);
+    this.previewEffects ??= new EffectRunner(this.gpu, this.pipeline);
+    const runner = this.previewEffects;
+    const unit = (Math.max(doc.width, doc.height) * scale) / 1000;
+    const canvas = new OffscreenCanvas(base.width, base.height);
+    const ctx = canvas.getContext("2d")!;
+    try {
+      for (let i = 0; i < effects.length; i++) {
+        if (generation !== this.previewGeneration || this.lost) return;
+        const result = runner.apply(base, effects[i], unit);
+        const out = this.pipeline.acquire(base.width, base.height, "rgba8");
+        this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: result } });
+        const data = this.gpu.readRgba8(out);
+        this.pipeline.release(out);
+        this.pipeline.release(result);
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), base.width, base.height), 0, 0);
+        const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.82 });
+        if (generation !== this.previewGeneration) return;
+        onPreview(i, URL.createObjectURL(blob));
+      }
+    } finally {
+      this.pipeline.release(base);
+    }
+  }
+
+  /** Stops an in-flight `effectPreviews`. */
+  cancelEffectPreviews() {
+    this.previewGeneration++;
   }
 
   /** True while any photo of the composition is still decoding. */

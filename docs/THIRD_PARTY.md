@@ -48,6 +48,15 @@ vite (MIT), @vitejs/plugin-react (MIT), typescript (Apache-2.0), vitest (MIT),
 | Björn Ottosson, Oklab | Public domain | Oklab matrices | shaders |
 | [Vercel agent-skills](https://github.com/vercel-labs/agent-skills) | MIT | Agent skills vendored into `.claude/skills/` | `.claude/skills/` |
 
+## Effects
+
+All effect shaders in `src/core/effects/library/` were written for this project. The
+look of the effects browser was inspired by screenshots of Ladybug.app. None of its code,
+assets or effect implementations were available or used. Retro dither palettes use the
+published color values of the PICO-8 (CC0 palette), Game Boy (DMG) and CGA palettes. The
+toy-brick palette is a generic set of plastic colors and uses no trademarks. Glyph atlases
+are drawn at runtime with the platform's monospace font, so no font files are bundled.
+
 ## Studied for architecture only (no code copied)
 
 - **OpenShop** (MIT) — layered document, adjustment layers, local AI tool set.

@@ -23,9 +23,10 @@ import {
 } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { ui } from "@/app/state";
+import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { addAssetsToComposite } from "./actions";
 
-const kindIcon: Record<Layer["kind"], string> = { image: "▣", fill: "■", gradient: "◐", text: "T", shape: "◆", adjustment: "◑", group: "▤" };
+const kindIcon: Record<Layer["kind"], string> = { image: "▣", fill: "■", gradient: "◐", text: "T", shape: "◆", adjustment: "◑", effect: "✦", group: "▤" };
 
 export function addLayer(kind: "fill" | "gradient" | "text" | "rectangle" | "ellipse" | "adjustment" | "group") {
   const { doc, selection } = composite.getState();
@@ -71,6 +72,7 @@ export function addLayerMenu(x: number, y: number) {
     { label: "Rectangle", onSelect: () => addLayer("rectangle") },
     { label: "Ellipse", onSelect: () => addLayer("ellipse") },
     { label: "Adjustment", onSelect: () => addLayer("adjustment") },
+    { label: "Effect…", shortcut: "Shift+E", onSelect: () => openEffectsBrowser() },
     "separator",
     { label: "Group selected layers", shortcut: "Ctrl+G", onSelect: () => addLayer("group") },
   ]);
@@ -260,7 +262,7 @@ export function LayersPanel() {
             onGestureEnd={endDocGesture}
             onChange={(v) => setAll("Opacity", (l) => ({ ...l, opacity: v / 100 }))}
           />
-          {primary.kind !== "adjustment" && primary.kind !== "group" && (
+          {primary.kind !== "adjustment" && primary.kind !== "effect" && primary.kind !== "group" && (
             <Slider
               label="Fill"
               value={Math.round(primary.fillOpacity * 100)}
