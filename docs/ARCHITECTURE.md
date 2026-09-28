@@ -133,9 +133,19 @@ low-resolution preview matches the full-resolution export. While a slider is dra
 pipeline renders at reduced resolution and re-renders at full view resolution on release.
 
 WebGL2 is the baseline because it runs everywhere (including headless test browsers).
-The pipeline is written against a small backend interface so a WebGPU backend can be
-added for large exports and compute-heavy passes; `core/gpu/capabilities.ts` reports
-what the browser supports.
+Rendering code only talks to `core/gpu/gl.ts` (`Gpu.pass`, targets, textures), which is the
+seam for a future WebGPU backend. AI inference already uses WebGPU when available.
+
+Spot repairs (`recipe.retouch`) are applied first, to a cached, mipmapped copy of the
+source, so every later pass sees the repaired pixels.
+
+### One engine, one canvas
+
+`core/gpu/develop-engine.ts` owns a single canvas and WebGL2 context. Develop and
+Composite both attach it to their view (it is moved, not recreated), so decoded photos,
+retouched sources and mask rasters on the GPU are shared: an image layer in a composition
+reuses the photo already decoded for Develop. The canvas is the view's first child; React
+tool overlays (crop frame, mask handles, transform handles) render above it.
 
 ## Composite
 
@@ -151,9 +161,30 @@ Document
  └── history, snapshots
 ```
 
-Compositing runs on the GPU with separable and non-separable blend modes following the
-W3C Compositing and Blending spec, in premultiplied alpha, with isolated groups.
+`core/gpu/compositor.ts` renders a document bottom to top: each layer's content (a
+developed photo, a text or shape raster, a procedural gradient or fill) is placed on a
+canvas-sized target through the layer's homography with its crop and mask, then blended
+onto the backdrop. Blending follows the W3C Compositing and Blending spec in
+premultiplied, display-encoded space (like Photoshop), including the non-separable
+Hue/Saturation/Color/Luminosity modes and Photoshop's fill opacity for the eight special
+modes. Clipped layers composite "atop" their base; groups render in isolation; adjustment
+layers convert the backdrop to linear Rec.2020 and reuse the develop tone/color shaders.
+Per-layer content is cached by its inputs and evicted when unused.
+
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
+
+### Transparency (Remove Background)
+
+A develop mask can be the photo's *cutout* (`mask.cutout`): its coverage multiplies the
+alpha channel. Remove Background creates an AI subject mask marked as the cutout, so the
+cutout is refined like any mask (add a brush to restore, subtract one to erase, feather or
+shift the AI edge) and flows into Library thumbnails, exports and compositions.
+
+### Project files
+
+`.focused` files (`core/document/project.ts`) are ZIPs holding the document, each
+referenced photo's recipe and metadata, the AI rasters the recipes reference and,
+optionally, the original files. Photos are relinked by content fingerprint.
 
 ## Workers
 
@@ -161,7 +192,7 @@ PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
 | --- | --- |
 | `core/image/image.worker.ts` (pool of ≤4) | metadata, embedded previews, thumbnails, previews |
 | LibRaw worker (inside libraw-wasm) | RAW decoding |
-| AI worker | model loading and inference (Transformers.js, WebGPU → WASM) |
+| `core/ai/ai.worker.ts` | model loading and inference: Transformers.js (BiRefNet, MODNet, DETR, SlimSAM) and ONNX Runtime directly for the bundled U²-Netp; WebGPU → WASM |
 
 ## Status
 

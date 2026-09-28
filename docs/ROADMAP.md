@@ -1,5 +1,7 @@
 # Roadmap and status
 
+Last updated with Stage 7 (partial).
+
 A control counts as implemented only when changing it changes the image correctly and
 the result survives a reload.
 
@@ -9,10 +11,10 @@ the result survives a reload.
 | 2 | Develop renderer, adjustments, histogram, crop, before/after, recipes, presets | Done (see below) |
 | 3 | Mask engine: brush, linear, radial, range masks, per-mask adjustments | Done (see below) |
 | 4 | Local AI: Select Subject/Sky/Object, Remove Background | Done (see below) |
-| 5 | Composite document: layers, groups, transforms, opacity, blend modes, masks | Planned |
-| 6 | Gradients, text, shapes | Planned |
-| 7 | Retouching: healing, clone, dodge/burn | Planned |
-| 8 | Presets, sync, snapshots, `.focused` project files | Planned |
+| 5 | Composite document: layers, groups, transforms, opacity, blend modes, masks | Done (see below) |
+| 6 | Gradients, text, shapes | Done (see below) |
+| 7 | Retouching: healing, clone, dodge/burn | Partly done: Develop spot heal/clone, dodge/burn brushes |
+| 8 | Presets, sync, snapshots, `.focused` project files | Done |
 | 9 | Performance: WebGPU backend, tiled export, region-of-interest rendering | Planned |
 | 10 | PSD interoperability, advanced export | Planned |
 
@@ -115,3 +117,56 @@ Known limitations:
 - No color decontamination at cutout edges yet (a thin fringe of the old background can
   remain on soft edges).
 - Depth Range masks need a depth model and are not implemented.
+
+## Stages 5 & 6 — Composite
+
+Done:
+- Documents: canvas size, background color or transparency, guides; autosaved to IndexedDB
+  with thumbnails; open/delete from the Compositions panel.
+- Layers: image (a library photo, live-developed with its recipe — including its cutout),
+  solid fill, gradient (linear/radial, angle, scale, offset, up to 16 stops with opacity),
+  text (font, size, weight, italic, color, alignment, line height, tracking), shapes
+  (rectangle with corner radius, ellipse, fill, stroke), adjustment layers (exposure,
+  tone, vibrance, saturation, B&W) and groups.
+- Per layer: visibility, lock, opacity, fill opacity (Photoshop semantics for the special
+  modes), 24 blend modes, clipping masks, transform (move, scale, rotate, flip, perspective),
+  crop, editable layer masks (brush, linear, radial; add/subtract; invert; density).
+- GPU compositing in premultiplied display space following the W3C spec; groups isolate.
+- Tools: click-select topmost layer, drag handles, rotate knob, Ctrl-drag perspective,
+  snapping to canvas, guides and other layers (Alt bypasses), rulers → guides, align and
+  distribute, arrow-key nudging, drag photos from the filmstrip onto the canvas.
+- Export PNG/WebP (with transparency) and JPEG (flattened onto a chosen color) at 25–200 %.
+
+Known limitations:
+- Groups are always isolated (no "pass through"); layer styles (shadows, strokes on
+  raster content) are not implemented.
+- Text is a single style per layer (no per-character styling) and uses system fonts.
+- Image layers render at up to 4096 px per layer; exports cap at 8192 px on the long side.
+
+## Stage 7 — Retouching
+
+Done: Develop spot removal (heal and clone) as recipe data with automatic source search,
+manual Alt-drag sources and draggable circles; Dodge/Burn brush masks.
+Not done: pixel painting tools in Composite (clone stamp, smudge, blur/sharpen brushes),
+content-aware fill.
+
+## Stage 8 — Presets, sync, snapshots, projects
+
+Done: presets with amount and JSON import/export, copy/paste/sync of setting groups,
+named snapshots, `.focused` project files (document + recipes + AI rasters, optional
+originals; reopening relinks by fingerprint or imports the included originals).
+
+## Stages 9 & 10 — Not started
+
+- WebGPU backend, tiled full-resolution export beyond 8192 px, region-of-interest
+  rendering at 1:1, background thumbnail regeneration for synced photos.
+- PSD import/export, 16-bit TIFF export, embedded ICC profiles in exports.
+- Tauri desktop packaging.
+
+## Tests
+
+- `npm test` — unit tests: history, library queries, geometry and brush dabs, white balance
+  colorimetry, EXIF writer, raster ops (guided filter), document operations, heal source search.
+- `npm run e2e` — Playwright in Chromium: Library → Develop → reload persistence; a brush
+  mask; composite with an AI cutout (bundled model) and PNG export. Set `CHROMIUM_PATH` to use
+  a preinstalled Chromium.
