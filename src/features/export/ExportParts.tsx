@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
 import { Slider } from "@/components/Slider";
 import { canChooseFolder, chooseFolder, type Destination, describeDestination } from "@/core/export/destination";
-import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition } from "@/core/export/watermark";
+import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition, watermarkFont } from "@/core/export/watermark";
+import { ensureFont, fontLoads } from "@/core/text/fonts";
 
 export function ProgressBar({ done, total, label }: { done: number; total: number; label: string }) {
   const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
@@ -81,6 +83,7 @@ export function WatermarkEditor({ value, onChange, previewUrl }: { value: Waterm
     img.onload = () => setImage(img);
     img.src = previewUrl;
   }, [previewUrl]);
+  const fontGeneration = useStore(fontLoads, (f) => f.generation);
   useEffect(() => {
     const c = canvas.current;
     if (!c || !value.enabled) return;
@@ -93,8 +96,9 @@ export function WatermarkEditor({ value, onChange, previewUrl }: { value: Waterm
     ctx.fillStyle = "#444";
     ctx.fillRect(0, 0, c.width, c.height);
     if (image) ctx.drawImage(image, 0, 0, c.width, c.height);
+    ensureFont(watermarkFont(value));
     drawWatermark(ctx, c.width, c.height, value);
-  }, [image, value]);
+  }, [image, value, fontGeneration]);
   return (
     <div className="watermark-editor">
       <label className="check">

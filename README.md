@@ -11,7 +11,8 @@ one asset system and one effects library:
   lens corrections, crop, straighten and keystone, and effects. It also has masks
   (brush, gradients, luminance and color ranges, and local AI for subject, sky, people
   and objects), spot healing, presets, snapshots, history, and export.
-- **Composite**: layered compositions of developed photos, gradients, text, shapes and
+- **Composite**: layered compositions of developed photos, gradients, text (18 bundled
+  fonts, and animated text: typewriter, wave, bounce, neon flicker, glitch and more), shapes and
   adjustment layers, with 24 blend modes, clipping, layer masks, transforms with
   perspective, transparency, and `.focused` project files.
 - **Effects**: 48 GPU stylization effects added as layers, 19 of them animated (snow, rain,
@@ -32,8 +33,8 @@ one asset system and one effects library:
 - **Export**: progress bars; pick several photos, compositions or videos; save to
   Downloads, one ZIP or a folder on your computer (Chrome/Edge); add a text watermark with font, size, opacity, color, shadow and
   one of nine positions, or tile it across the image.
-- **Video**: import MP4/MOV clips; trim with handles on a frame strip; lower the
-  resolution, quality (bitrate) and frame rate; drop or keep the audio; apply any effect
+- **Video**: import MP4/MOV clips; trim with handles on a frame strip; export at the
+  original's quality by default, or lower the resolution, quality (bitrate) and frame rate; drop or keep the audio; apply any effect
   with a strength control; and export a new MP4 with a size estimate. Decoding, effects
   and encoding all run on your device with WebCodecs and the GPU.
 

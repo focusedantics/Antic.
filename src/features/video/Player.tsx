@@ -125,21 +125,51 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
     const v = videoRef.current!;
     setPlaybackElement(v);
     playback.setState({ time: 0, playing: false });
-    let frameHandle = 0;
-    const onFrame = () => {
+    // Frames are drawn from requestVideoFrameCallback when the browser delivers it,
+    // and from an animation-frame loop otherwise (or when callbacks stall, which
+    // some browsers do for a video they consider hidden), so playback never
+    // freezes on one frame.
+    let videoCallback = 0;
+    let animationFrame = 0;
+    let lastCallback = 0;
+    let lastDrawn = -1;
+    const drawCurrent = () => {
+      draw();
+      lastDrawn = v.currentTime;
+    };
+    const wrapTrim = () => {
       const e = editRef.current;
       if (v.currentTime >= e.trimEnd - 0.01) v.currentTime = e.trimStart;
-      draw();
-      playback.setState({ time: v.currentTime });
-      if (!v.paused) frameHandle = v.requestVideoFrameCallback ? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(onFrame);
+    };
+    const onVideoFrame = () => {
+      lastCallback = performance.now();
+      wrapTrim();
+      drawCurrent();
+      if (!v.paused && v.requestVideoFrameCallback) videoCallback = v.requestVideoFrameCallback(onVideoFrame);
+    };
+    const onAnimationFrame = () => {
+      if (v.paused) return;
+      wrapTrim();
+      if (performance.now() - lastCallback > 100 && v.currentTime !== lastDrawn) drawCurrent();
+      if (Math.abs(playback.getState().time - v.currentTime) > 1 / 60) playback.setState({ time: v.currentTime });
+      animationFrame = requestAnimationFrame(onAnimationFrame);
     };
     const onPlay = () => {
       const e = editRef.current;
       if (v.currentTime < e.trimStart || v.currentTime >= e.trimEnd - 0.01) v.currentTime = e.trimStart;
       playback.setState({ playing: true });
-      onFrame();
+      cancelAnimationFrame(animationFrame);
+      if (v.requestVideoFrameCallback) {
+        v.cancelVideoFrameCallback?.(videoCallback);
+        videoCallback = v.requestVideoFrameCallback(onVideoFrame);
+      }
+      drawCurrent();
+      animationFrame = requestAnimationFrame(onAnimationFrame);
     };
-    const onPause = () => playback.setState({ playing: false });
+    const onPause = () => {
+      playback.setState({ playing: false, time: v.currentTime });
+      drawCurrent();
+    };
     const onSeeked = () => {
       playback.setState({ time: v.currentTime });
       draw();
@@ -156,8 +186,8 @@ export function Player({ url, edit, duration }: { url: string; edit: VideoEdit; 
     v.addEventListener("error", onError);
     return () => {
       v.pause();
-      if (v.cancelVideoFrameCallback) v.cancelVideoFrameCallback(frameHandle);
-      else cancelAnimationFrame(frameHandle);
+      v.cancelVideoFrameCallback?.(videoCallback);
+      cancelAnimationFrame(animationFrame);
       v.removeEventListener("play", onPlay);
       v.removeEventListener("pause", onPause);
       v.removeEventListener("seeked", onSeeked);

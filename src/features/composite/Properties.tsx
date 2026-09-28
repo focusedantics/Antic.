@@ -8,9 +8,10 @@ import { basicRanges } from "@/core/develop/params";
 import { defaultShape as defaultMaskShape, newComponent, setCutout, shapeLabels } from "@/core/develop/masks";
 import type { Basic, MaskComponent } from "@/core/develop/recipe";
 import { ANIMATION_LIMITS, DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
-import type { DocAnimation, Gradient, GradientStop, Layer, ShapeStyle, TextStyle, Transform } from "@/core/document/model";
+import type { DocAnimation, Gradient, GradientStop, Layer, ShapeStyle, TextMotionKind, TextStyle, Transform } from "@/core/document/model";
+import { FONT_GROUPS, FONTS, fontLabel } from "@/core/text/fonts";
 import { effectById } from "@/core/effects/registry";
-import { emptyMask, fitTransform, locate, updateLayer } from "@/core/document/operations";
+import { emptyMask, fitTransform, locate, TEXT_MOTIONS, updateLayer } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
 import { EffectParams } from "@/features/effects/EffectParams";
@@ -258,29 +259,30 @@ function GradientSection({ layer }: { layer: Extract<Layer, { kind: "gradient" }
   );
 }
 
-const fonts = [
-  "Inter, system-ui, sans-serif",
-  "Georgia, serif",
-  "'Times New Roman', serif",
-  "'Helvetica Neue', Arial, sans-serif",
-  "'Courier New', monospace",
-  "'Trebuchet MS', sans-serif",
-  "Impact, sans-serif",
-  "'Brush Script MT', cursive",
-];
-
 function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
   const s = layer.style;
-  const update = (label: string, patch: Partial<TextStyle>) => set(layer.id, label, (l) => (l.kind === "text" ? { ...l, style: { ...l.style, ...patch } } : l));
+  const motion = s.motion && s.motion.kind !== "none" ? s.motion : null;
+  const update = (label: string, patch: Partial<TextStyle>) =>
+    set(layer.id, label, (l) => {
+      if (l.kind !== "text") return l;
+      const style = { ...l.style, ...patch };
+      if (!style.motion) delete (style as { motion?: unknown }).motion;
+      return { ...l, style };
+    });
   return (
     <>
       <div className="subhead">Text</div>
       <textarea className="input" rows={3} value={s.text} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => update("Edit text", { text: e.target.value })} aria-label="Text" style={{ width: "100%" }} />
-      <select className="input" value={s.font} onChange={(e) => update("Font", { font: e.target.value })} aria-label="Font" style={{ width: "100%", margin: "6px 0" }}>
-        {fonts.map((f) => (
-          <option key={f} value={f}>
-            {f.split(",")[0].replace(/'/g, "")}
-          </option>
+      <select className="input" value={s.font} onChange={(e) => update("Font", { font: e.target.value })} aria-label="Font" style={{ width: "100%", margin: "6px 0", fontFamily: s.font }}>
+        {!FONTS.some((f) => f.css === s.font) && <option value={s.font}>{fontLabel(s.font)}</option>}
+        {FONT_GROUPS.map((group) => (
+          <optgroup key={group} label={group}>
+            {FONTS.filter((f) => f.group === group).map((f) => (
+              <option key={f.css} value={f.css} style={{ fontFamily: f.css }}>
+                {f.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
       <div className="row">
@@ -306,6 +308,52 @@ function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
       <Slider label="Size" value={s.size} min={4} max={1000} defaultValue={96} format={(v) => `${v}px`} onGestureStart={() => beginDocGesture("Font size")} onGestureEnd={endDocGesture} onChange={(v) => update("Font size", { size: v })} />
       <Slider label="Line height" value={Math.round(s.lineHeight * 100)} min={60} max={300} defaultValue={115} format={(v) => `${v}%`} onGestureStart={() => beginDocGesture("Line height")} onGestureEnd={endDocGesture} onChange={(v) => update("Line height", { lineHeight: v / 100 })} />
       <Slider label="Tracking" value={Math.round(s.letterSpacing * 1000)} min={-100} max={500} defaultValue={0} onGestureStart={() => beginDocGesture("Tracking")} onGestureEnd={endDocGesture} onChange={(v) => update("Tracking", { letterSpacing: v / 1000 })} />
+      <label className="field" style={{ marginTop: 8 }}>
+        <span>Animation</span>
+        <select
+          className="input"
+          value={motion?.kind ?? "none"}
+          onChange={(e) => {
+            const kind = e.target.value as TextMotionKind;
+            update("Text animation", { motion: kind === "none" ? undefined : { kind, speed: motion?.speed ?? 1, amount: motion?.amount ?? 0.5 } });
+          }}
+        >
+          {TEXT_MOTIONS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {motion && (
+        <>
+          <Slider
+            label="Strength"
+            value={Math.round(motion.amount * 100)}
+            min={0}
+            max={100}
+            defaultValue={50}
+            format={(v) => `${v}%`}
+            onGestureStart={() => beginDocGesture("Animation strength")}
+            onGestureEnd={endDocGesture}
+            onChange={(v) => update("Animation strength", { motion: { ...motion, amount: v / 100 } })}
+          />
+          {TEXT_MOTIONS.find((m) => m.id === motion.kind)?.repeats && (
+            <Slider
+              label="Speed"
+              value={motion.speed}
+              min={1}
+              max={4}
+              defaultValue={1}
+              format={(v) => `${v}× per loop`}
+              onGestureStart={() => beginDocGesture("Animation speed")}
+              onGestureEnd={endDocGesture}
+              onChange={(v) => update("Animation speed", { motion: { ...motion, speed: v } })}
+            />
+          )}
+          <LoopSection />
+        </>
+      )}
     </>
   );
 }
@@ -419,7 +467,7 @@ function LoopSection() {
         onGestureEnd={endDocGesture}
         onChange={(v) => setAnimation("Frame rate", { fps: v })}
       />
-      <p className="faint" style={{ fontSize: 11 }}>Shared by every animated effect in this composition; GIF and MP4 exports use one loop.</p>
+      <p className="faint" style={{ fontSize: 11 }}>Shared by every animated effect and text layer in this composition; GIF and MP4 exports use one loop.</p>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { chooseEncoder } from "@/core/video/export";
-import { drawWatermark, type Watermark } from "./watermark";
+import { loadFonts } from "@/core/text/fonts";
+import { drawWatermark, type Watermark, watermarkFont } from "./watermark";
 import { buildPalette } from "./gif";
 import type { GifWorkerRequest, GifWorkerResponse } from "./gif.worker";
 
@@ -61,6 +62,7 @@ const yieldToUi = () => new Promise((r) => setTimeout(r, 0));
  * mapped/compressed in a worker, a few frames in flight at a time.
  */
 export async function encodeGif(render: FrameSource, o: AnimatedOptions & { readonly dither: boolean }): Promise<Blob> {
+  if (o.watermark?.enabled) await loadFonts([watermarkFont(o.watermark)]);
   const flat = new Flattener(o.width, o.height, o.background, o.watermark);
   const sampleCount = Math.min(o.frames, 8);
   const samples: Uint8ClampedArray[] = [];
@@ -136,6 +138,7 @@ export async function encodeLoopVideo(render: FrameSource, o: AnimatedOptions & 
     },
   });
   video.configure(encoder.config);
+  if (o.watermark?.enabled) await loadFonts([watermarkFont(o.watermark)]);
   const flat = new Flattener(width, height, o.background, o.watermark);
   const total = o.frames * o.repeats;
   const step = 1e6 / o.fps;

@@ -215,6 +215,22 @@ frames in flight. MP4 plays the loop N times through WebCodecs and mp4-muxer, re
 video workspace's encoder choice. Both flatten onto an opaque background and stamp the
 watermark. Only the first frame goes through `verifiedRender`; the rest reuse its caches.
 
+### Text and fonts (`core/text`)
+
+`fonts.ts` lists the fonts: bundled open-licensed families (Fontsource, declared in
+`styles/fonts.css`, Latin subset) and a few system fonts. A text layer stores a CSS
+family stack. Font files download on first use. Canvas text does not trigger that
+download reliably, so the compositor calls `ensureFont` and adds
+`fontLoads.generation` to the text raster's cache key. The engine re-renders when the
+generation changes. Exports and watermarks `await loadFonts` before drawing.
+
+`draw.ts` draws a text style into its box. With `style.motion` (typewriter, pop in,
+wave, bounce, rainbow, pulse, neon flicker, glitch), letters are laid out one by one and
+moved for the loop phase. The raster's cache key then includes the phase, so moving text
+is redrawn each frame and still text is drawn once. Repeating motions complete whole
+cycles per loop. Flicker and glitch use a hash of the frame number, so the preview and
+the export match.
+
 ### Transparency (Remove Background)
 
 A develop mask can be the photo's *cutout* (`mask.cutout`): its coverage multiplies the
@@ -235,8 +251,11 @@ serialized edit) plus its file (`videoFiles`). The file is copied on import and 
 modified. `session.ts` opens a clip with an undo history over its `VideoEdit`
 (`model.ts`, sanitized on load) and saves changes after a short delay.
 
-Preview: the player plays the file in a hidden `<video>`. On each presented frame
-(`requestVideoFrameCallback`), it draws the frame into a 2D canvas at the working size,
+Preview: the player plays the file in a `<video>` that sits, fully visible, under the
+output canvas. Browsers may stop presenting new frames for an invisible or 1 px video, so
+it is never hidden. On each presented frame (`requestVideoFrameCallback`), or on an
+animation-frame loop when those callbacks stall or are missing, it draws the frame into a
+2D canvas at the working size,
 which applies rotation, and `VideoRenderer` (`renderer.ts`) runs it through its own
 WebGL context. That context has the same `EffectRunner` as Composite, and the effect
 strength mixes the result with the original frame. Preview and export use output-relative

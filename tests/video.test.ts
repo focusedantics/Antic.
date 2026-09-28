@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { demux } from "@/core/video/demux";
-import { defaultEdit, estimateBytes, isVideoFile, outputSize, sanitizeEdit, videoBitrate } from "@/core/video/model";
+import { defaultEdit, estimateBytes, isVideoFile, outputSize, sanitizeEdit, sourceBitsPerPixel, videoBitrate } from "@/core/video/model";
 
 describe("video edits", () => {
   it("sanitizes stored edits against the clip length", () => {
@@ -10,7 +10,7 @@ describe("video edits", () => {
     expect(e.trimEnd).toBe(10);
     expect(e.effectMix).toBe(1);
     expect(e.effect).toBeNull();
-    expect(e.output).toMatchObject({ resolution: "original", quality: "custom", bitrate: 80, audio: false });
+    expect(e.output).toMatchObject({ resolution: "original", quality: "custom", bitrate: 200, audio: false });
     expect(sanitizeEdit({ trimStart: 6, trimEnd: 2 }, 10).trimEnd).toBe(6);
     expect(sanitizeEdit({ effect: { id: "vhs", params: { bleed: 1000 } } }, 5).effect?.params.bleed).toBe(40);
   });
@@ -30,6 +30,22 @@ describe("video edits", () => {
     expect(low).toBeLessThan(high);
     expect(trimmed).toBeCloseTo(low / 2, -3);
     expect(videoBitrate({ ...base.output, quality: "custom", bitrate: 2.5 }, 1920, 1080, 30)).toBe(2_500_000);
+  });
+
+  it("defaults to maximum quality, which never drops below the original's bitrate", () => {
+    const base = defaultEdit(10);
+    expect(base.output.quality).toBe("maximum");
+    const fullHd = 1920 * 1080 * 30;
+    // A phone clip at ~0.25 bits per pixel (≈ 16 Mb/s): maximum gives 1.5× that.
+    expect(videoBitrate(base.output, 1920, 1080, 30, 0.25)).toBeCloseTo(fullHd * 0.375, -3);
+    // An unusually lean source still gets the visually lossless floor.
+    expect(videoBitrate(base.output, 1920, 1080, 30, 0.02)).toBeCloseTo(fullHd * 0.3, -3);
+    const high = videoBitrate({ ...base.output, quality: "high" }, 1920, 1080, 30, 0.25);
+    const medium = videoBitrate({ ...base.output, quality: "medium" }, 1920, 1080, 30, 0.25);
+    expect(high).toBeLessThan(videoBitrate(base.output, 1920, 1080, 30, 0.25));
+    expect(medium).toBeLessThan(high);
+    expect(high).toBeGreaterThan(10e6);
+    expect(sourceBitsPerPixel(20e6, 10, 1920, 1080, 30)).toBeCloseTo((20e6 * 8) / 10 / fullHd);
   });
 
   it("recognizes video files", () => {

@@ -144,7 +144,11 @@ Done:
 Known limitations:
 - Groups are always isolated (no "pass through"); layer styles (shadows, strokes on
   raster content) are not implemented.
-- Text is a single style per layer (no per-character styling) and uses system fonts.
+- Text is a single style per layer (no per-character styling). 18 bundled fonts (sans,
+  serif, display, neon, 3D, colour, script, handwriting, mono, pixel) plus system fonts.
+- Animated text (typewriter, pop in, wave, bounce, rainbow, pulse, neon flicker, glitch)
+  uses the composition's loop. Letters are placed one by one while animating, so kerning
+  pairs are not applied, and letters that move past the layer's box are clipped.
 - Image layers render at up to 4096 px per layer; exports cap at 8192 px on the long side.
 
 ## Effects
@@ -190,8 +194,11 @@ Done:
   timeline with draggable, keyboard-accessible trim handles, and a playhead that loops
   inside the trim range.
 - An edit is data (`core/video/model.ts`): trim, effect and strength, and output settings
-  (resolution 360p–4K or the original size, High/Medium/Low/custom bitrate, frame rate,
-  keep audio). It has undo/redo, is saved automatically and survives a reload.
+  (resolution 360p–4K or the original size, quality, frame rate, keep audio). Quality
+  defaults to **Maximum**: the original's own bits per pixel plus 50 % headroom for the
+  re-encode, with a visually lossless floor (0.3 bits/pixel). High, Medium, Low and a
+  custom bitrate (up to 200 Mb/s) make smaller files. Browser encoders have no true
+  lossless mode. It has undo/redo, is saved automatically and survives a reload.
 - Export (`core/video/export.ts`) demuxes the file with mp4box.js and decodes it with
   WebCodecs from the keyframe before the trim start. Each frame is re-rendered on the GPU
   (rotation, scaling, effect) and re-encoded as H.264, falling back to HEVC, VP9 or AV1

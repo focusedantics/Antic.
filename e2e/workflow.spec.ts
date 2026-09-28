@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 
 /** Draws a synthetic photo in the page and returns it as a file payload. */
@@ -68,7 +69,8 @@ test("library → develop → persistence", async ({ page }) => {
   for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowRight");
   await expect(exposure).toHaveAttribute("aria-valuenow", "0.5");
   await expect(page.locator(".history-item")).toHaveText(["Exposure", "Open"]);
-  await page.waitForTimeout(800);
+  // Recipe saves are debounced (300 ms + 250 ms catalog flush + the IndexedDB write).
+  await page.waitForTimeout(2000);
   await page.reload();
   await page.keyboard.press("d");
   await expect(page.getByRole("slider", { name: "Exposure" })).toHaveAttribute("aria-valuenow", "0.5");
@@ -289,4 +291,43 @@ test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still f
 
   const png = await exportAs("png", "png");
   expect(png.subarray(1, 4).toString("latin1")).toBe("PNG");
+});
+
+test("video: playback keeps drawing new frames, even when frame callbacks stall", async ({ page }) => {
+  await freshLibrary(page);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
+  await chooser.setFiles("tests/fixtures/clip.mp4");
+  const canvas = page.locator(".vid-canvas");
+  await expect(canvas).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(1000);
+  // Some browsers stop delivering requestVideoFrameCallback; the player must not freeze.
+  await page.locator("video").first().evaluate((v) => Object.assign(v, { requestVideoFrameCallback: () => 0 }));
+  await page.keyboard.press("Space");
+  const seen = new Set<string>();
+  const start = Date.now();
+  while (Date.now() - start < 1200) seen.add(createHash("md5").update(await canvas.screenshot()).digest("hex"));
+  expect(seen.size).toBeGreaterThanOrEqual(3);
+});
+
+test("text: bundled fonts and animated text export as a GIF", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
+  await page.locator(".cell").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Apply an Effect…" }).click();
+  await page.getByRole("dialog", { name: "Effects" }).getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "+ Layer" }).click();
+  await page.getByRole("menuitem", { name: "Text" }).click();
+  await page.getByLabel("Text", { exact: true }).fill("HELLO");
+  await page.getByLabel("Font").selectOption({ label: "Bebas Neue" });
+  await page.getByLabel("Animation").selectOption("wave");
+  await expect(page.getByRole("button", { name: /Animating/ })).toBeVisible();
+  // The bundled font is actually loaded and used.
+  await expect.poll(() => page.evaluate(() => document.fonts.check("700 40px 'Bebas Neue'")), { timeout: 15_000 }).toBe(true);
+  await page.getByRole("button", { name: "Export…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Format").selectOption("gif");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+  const { readFileSync } = await import("node:fs");
+  const gif = readFileSync((await download.path())!);
+  expect(gifFrames(gif)).toBe(45);
 });

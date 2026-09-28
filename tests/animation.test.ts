@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ANIMATION, docAnimation, hasAnimatedLayers, isAnimated, loopFrames } from "@/core/document/animation";
 import type { Layer } from "@/core/document/model";
-import { createDocument, effectLayer, groupLayer, sanitizeAnimation, sanitizeDocument } from "@/core/document/operations";
+import { createDocument, effectLayer, groupLayer, sanitizeAnimation, sanitizeDocument, textLayer } from "@/core/document/operations";
+import { drawText } from "@/core/text/draw";
+import { FONTS, fontLabel } from "@/core/text/fonts";
 import { EFFECTS } from "@/core/effects/registry";
 import { buildPalette, gifDelay, GifWriter, indexPixels, PaletteMatcher } from "@/core/export/gif";
 
@@ -44,6 +46,61 @@ describe("document animation", () => {
       const speed = def.params.find((p) => p.key === "speed");
       if (speed?.type === "number") expect(Number.isInteger(speed.step ?? 1)).toBe(true);
     }
+  });
+});
+
+describe("animated text", () => {
+  const doc = createDocument(800, 600);
+  const text = textLayer(doc, { text: "Hi there" });
+
+  it("sanitizes motion and counts moving text as animation", () => {
+    expect(hasAnimatedLayers([text])).toBe(false);
+    const wave = sanitizeDocument(JSON.parse(JSON.stringify({ ...doc, layers: [{ ...text, style: { ...(text as { style: object }).style, motion: { kind: "wave", speed: 9.4, amount: 3 } } }] })));
+    const style = (wave.layers[0] as Extract<Layer, { kind: "text" }>).style;
+    expect(style.motion).toEqual({ kind: "wave", speed: 4, amount: 1 });
+    expect(isAnimated(wave)).toBe(true);
+    const bogus = sanitizeDocument(JSON.parse(JSON.stringify({ ...doc, layers: [{ ...text, style: { ...(text as { style: object }).style, motion: { kind: "explode" } } }] })));
+    expect((bogus.layers[0] as Extract<Layer, { kind: "text" }>).style.motion).toBeUndefined();
+  });
+
+  it("types letters in over the loop and moves waving letters", () => {
+    const calls: { ch: string; y: number }[] = [];
+    let ty = 0;
+    const ctx = {
+      font: "",
+      fillStyle: "",
+      textAlign: "left",
+      textBaseline: "middle",
+      globalAlpha: 1,
+      shadowBlur: 0,
+      shadowColor: "",
+      measureText: (t: string) => ({ width: t.length * 10 }),
+      fillText: (ch: string, _x: number, y: number) => calls.push({ ch, y: y + ty }),
+      fillRect: () => {},
+      save: () => {},
+      restore: () => {
+        ty = 0;
+      },
+      translate: (_x: number, y: number) => {
+        ty += y;
+      },
+      scale: () => {},
+    } as unknown as OffscreenCanvasRenderingContext2D;
+    const style = { ...(text as Extract<Layer, { kind: "text" }>).style, text: "abcd" };
+    drawText(ctx, { ...style, motion: { kind: "typewriter", speed: 1, amount: 0.5 } }, 200, 100, 0.35, 3);
+    expect(calls.map((c) => c.ch).join("")).toBe("ab");
+    calls.length = 0;
+    drawText(ctx, { ...style, motion: { kind: "typewriter", speed: 1, amount: 0.5 } }, 200, 100, 0.9, 3);
+    expect(calls.map((c) => c.ch).join("")).toBe("abcd");
+    calls.length = 0;
+    drawText(ctx, { ...style, motion: { kind: "wave", speed: 1, amount: 1 } }, 200, 100, 0.25, 3);
+    expect(new Set(calls.map((c) => Math.round(c.y))).size).toBeGreaterThan(1);
+  });
+
+  it("lists every bundled font once with a readable label", () => {
+    expect(new Set(FONTS.map((f) => f.css)).size).toBe(FONTS.length);
+    expect(fontLabel("'Bebas Neue', Impact, sans-serif")).toBe("Bebas Neue");
+    expect(fontLabel("'Old Font', serif")).toBe("Old Font");
   });
 });
 

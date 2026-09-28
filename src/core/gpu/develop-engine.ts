@@ -1,6 +1,6 @@
 import { beginActivity } from "@/lib/activity";
 import { similarImages } from "./verify";
-import { drawWatermark, type Watermark } from "@/core/export/watermark";
+import { drawWatermark, type Watermark, watermarkFont } from "@/core/export/watermark";
 import { getRaster, getSetting, getThumb, putSetting, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
@@ -15,6 +15,7 @@ import { EffectRunner } from "@/core/effects/runtime";
 import type { EffectInstance } from "@/core/effects/types";
 import { docAnimation, isAnimated } from "@/core/document/animation";
 import { flatten } from "@/core/document/operations";
+import { fontLoads, loadFonts } from "@/core/text/fonts";
 import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
 import { Compositor } from "./compositor";
@@ -92,6 +93,14 @@ export class DevelopEngine {
         if (s.playing) this.animationStart = performance.now() - this.pausedTime * 1000;
       }
       if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view || s.playing !== prev.playing)) this.requestRender();
+    });
+    // Text rasters wait for their font; redraw when one arrives.
+    fontLoads.subscribe(() => {
+      if (this.mode === "composite") {
+        this.pipeline.release(this.compositeResult?.target);
+        this.compositeResult = null;
+        this.requestRender();
+      }
     });
     // Recipe edits in Develop change image layers that follow them.
     catalog.subscribe(() => {
@@ -816,7 +825,10 @@ export async function encodePixels(pixels: ImageData, type: string, quality: num
     fctx.drawImage(canvas, 0, 0);
     out = flat;
   }
-  if (watermark?.enabled) drawWatermark(out.getContext("2d")!, out.width, out.height, watermark);
+  if (watermark?.enabled) {
+    await loadFonts([watermarkFont(watermark)]);
+    drawWatermark(out.getContext("2d")!, out.width, out.height, watermark);
+  }
   return out.convertToBlob({ type, quality });
 }
 

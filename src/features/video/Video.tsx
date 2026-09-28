@@ -14,6 +14,7 @@ import {
   type FrameRate,
   outputFrameRate,
   outputSize,
+  MAX_BITRATE,
   QUALITIES,
   type Quality,
   sanitizeEdit,
@@ -50,7 +51,7 @@ import { Player } from "./Player";
 type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
 
 /** Facts about the open clip that only the file itself knows (read once when it opens). */
-type ClipInfo = { fps: number; codec: string; hasAudio: boolean; audioNote: string | null; decodable: boolean | null };
+type ClipInfo = { fps: number; bitsPerPixel: number; codec: string; hasAudio: boolean; audioNote: string | null; decodable: boolean | null };
 /** The open clip's info, for keyboard frame stepping. */
 const info = { current: null as ClipInfo | null };
 
@@ -85,9 +86,9 @@ function useClipInfo(openId: string | null) {
           if (!file) return;
           const d = await demux(file);
           const decodable = typeof VideoDecoder === "undefined" ? false : ((await VideoDecoder.isConfigSupported(d.video.config)).supported ?? false);
-          if (live) setValue({ fps: d.video.fps, codec: d.video.config.codec, hasAudio: !!d.audio, audioNote: d.audioNote, decodable });
+          if (live) setValue({ fps: d.video.fps, bitsPerPixel: d.video.bitsPerPixel, codec: d.video.config.codec, hasAudio: !!d.audio, audioNote: d.audioNote, decodable });
         } catch (error) {
-          if (live) setValue({ fps: 30, codec: "unknown", hasAudio: false, audioNote: error instanceof Error ? error.message : String(error), decodable: false });
+          if (live) setValue({ fps: 30, bitsPerPixel: 0, codec: "unknown", hasAudio: false, audioNote: error instanceof Error ? error.message : String(error), decodable: false });
         }
       })(),
     );
@@ -250,7 +251,9 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
   const fps = clipInfo?.fps ?? 30;
   const size = outputSize(clip.width, clip.height, o.resolution);
   const outFps = outputFrameRate(o, fps);
-  const bytes = estimateBytes(edit, clip.width, clip.height, fps, clipInfo?.hasAudio ?? true);
+  const sourceBpp = clipInfo?.bitsPerPixel ?? 0;
+  const bytes = estimateBytes(edit, clip.width, clip.height, fps, clipInfo?.hasAudio ?? true, sourceBpp);
+  const mbps = videoBitrate(o, size.width, size.height, outFps, sourceBpp) / 1e6;
   return (
     <Panel id="vid-output" title="Output">
       <label className="field" style={{ marginBottom: 6 }}>
@@ -268,8 +271,10 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
         </select>
       </label>
       <label className="field" style={{ marginBottom: 6 }}>
-        <span>Quality</span>
-        <select className="input" value={o.quality} onChange={(e) => set("Quality", { quality: e.target.value as Quality, bitrate: Math.round((videoBitrate(o, size.width, size.height, outFps) / 1e6) * 10) / 10 })}>
+        <span>
+          Quality <span className="faint num">· {mbps >= 10 ? Math.round(mbps) : mbps.toFixed(1)} Mb/s</span>
+        </span>
+        <select className="input" value={o.quality} onChange={(e) => set("Quality", { quality: e.target.value as Quality, bitrate: Math.round(mbps * 10) / 10 })}>
           {QUALITIES.map((q) => (
             <option key={q.id} value={q.id}>
               {q.label}
@@ -282,9 +287,9 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
           label="Bitrate"
           value={o.bitrate}
           min={0.2}
-          max={50}
+          max={MAX_BITRATE / 1e6}
           step={0.1}
-          defaultValue={8}
+          defaultValue={20}
           origin={0.2}
           format={(v) => `${v.toFixed(1)} Mb/s`}
           onGestureStart={() => beginVideoGesture("Bitrate")}

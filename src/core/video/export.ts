@@ -3,16 +3,32 @@ import { track } from "@/lib/activity";
 import { type Demuxed, demux } from "./demux";
 import { outputFrameRate, outputSize, type VideoEdit, videoBitrate } from "./model";
 import { VideoRenderer } from "./renderer";
-import { drawWatermark, type Watermark } from "@/core/export/watermark";
+import { drawWatermark, type Watermark, watermarkFont } from "@/core/export/watermark";
+import { loadFonts } from "@/core/text/fonts";
 
 export type ExportProgress = { readonly done: number; readonly total: number; readonly stage: string };
 
 const MICRO = 1e6;
 
-/** The first encoder this browser supports, best compatibility first (H.264 plays everywhere). */
+/**
+ * The first encoder this browser supports, best compatibility first (H.264 plays
+ * everywhere). Hardware encoders can refuse very high bitrates; the bitrate then
+ * steps down before the codec changes.
+ */
 export async function chooseEncoder(width: number, height: number, bitrate: number, framerate: number) {
+  for (const factor of [1, 0.6, 0.35]) {
+    const found = await findEncoder(width, height, Math.round(bitrate * factor), framerate);
+    if (found) return found;
+  }
+  throw new Error("This browser can't encode video. Use a recent Chrome, Edge or Safari.");
+}
+
+async function findEncoder(width: number, height: number, bitrate: number, framerate: number) {
   const area = width * height;
-  const avcLevel = area <= 921_600 ? "1f" : area <= 2_228_224 ? "2a" : area <= 8_912_896 ? "33" : "34";
+  // H.264 level: enough for the frame size and for the bitrate (High profile limits: 3.1 ≈ 17.5, 4.2 ≈ 62.5, 5.1 ≈ 300 Mb/s).
+  const byArea = area <= 921_600 ? 0 : area <= 2_228_224 ? 1 : area <= 8_912_896 ? 2 : 3;
+  const byRate = bitrate <= 17.5e6 ? 0 : bitrate <= 62.5e6 ? 1 : 2;
+  const avcLevel = ["1f", "2a", "33", "34"][Math.max(byArea, byRate)];
   const candidates: { codec: string; mux: "avc" | "hevc" | "vp9" | "av1"; extra?: Partial<VideoEncoderConfig> }[] = [
     { codec: `avc1.6400${avcLevel}`, mux: "avc", extra: { avc: { format: "avc" } } as Partial<VideoEncoderConfig> },
     { codec: `avc1.4d00${avcLevel}`, mux: "avc", extra: { avc: { format: "avc" } } as Partial<VideoEncoderConfig> },
@@ -29,7 +45,7 @@ export async function chooseEncoder(width: number, height: number, bitrate: numb
       // Try the next codec.
     }
   }
-  throw new Error("This browser can't encode video. Use a recent Chrome, Edge or Safari.");
+  return null;
 }
 
 /**
@@ -55,7 +71,7 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
   const srcH = v.config.codedHeight!;
   const size = outputSize(rotated ? srcH : srcW, rotated ? srcW : srcH, edit.output.resolution);
   const fps = outputFrameRate(edit.output, v.fps);
-  const bitrate = videoBitrate(edit.output, size.width, size.height, fps);
+  const bitrate = videoBitrate(edit.output, size.width, size.height, fps, v.bitsPerPixel);
   const encoder = await chooseEncoder(size.width, size.height, bitrate, fps);
   const audio = edit.output.audio ? media.audio : null;
 
@@ -83,6 +99,7 @@ async function run(file: Blob, edit: VideoEdit, onProgress: (p: ExportProgress) 
   const canvas = new OffscreenCanvas(size.width, size.height);
   const renderer = new VideoRenderer(canvas);
   if (watermark?.enabled) {
+    await loadFonts([watermarkFont(watermark)]);
     const stamp = new OffscreenCanvas(size.width, size.height);
     drawWatermark(stamp.getContext("2d")!, size.width, size.height, watermark);
     renderer.setOverlay(stamp);

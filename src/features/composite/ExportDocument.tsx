@@ -178,7 +178,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       )}
       {moving && animated && (
         <p className="dim">
-          One seamless {animation.duration} s loop at {animation.fps} fps (change it in an animated effect's Loop settings).
+          One seamless {animation.duration} s loop at {animation.fps} fps (change it in the Loop settings of an animated effect or text layer).
           {o.format === "gif" && size.scale < o.scale ? " GIFs are limited to 1600 px on the long side." : ""}
         </p>
       )}

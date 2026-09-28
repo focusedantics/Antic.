@@ -417,8 +417,9 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 /* ─── Video ────────────────────────────────────────────────────────────── */
 .vid-player { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0d0d0d; }
 .vid-stage { position: relative; flex: 1; min-height: 120px; overflow: hidden; }
-.vid-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
-.vid-source { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.vid-canvas { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; display: block; cursor: pointer; background: #0d0d0d; }
+/* The source video sits, fully visible, under the canvas: browsers may stop presenting new frames of an invisible or 1 px video. */
+.vid-source { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .vid-transport { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .vid-time { min-width: 110px; }
 .vid-timeline {

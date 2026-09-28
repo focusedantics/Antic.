@@ -5,6 +5,8 @@ import { canvasToContent } from "@/core/document/operations";
 import { DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
 import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, ShapeLayer, TextLayer } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
+import { drawText, fontShorthand } from "@/core/text/draw";
+import { ensureFont, fontLoads } from "@/core/text/fonts";
 import { BLEND_MODES } from "@/core/document/model";
 import { type Mat3, mul3, toGlMat3 } from "@/lib/math";
 import type { Gpu, Target, Texture } from "./gl";
@@ -250,14 +252,24 @@ export class Compositor {
 
   private rasterContent(layer: TextLayer | ShapeLayer, scale: number): Texture {
     const size = this.contentSize(layer, scale);
-    const key = `${JSON.stringify(layer.kind === "text" ? layer.style : layer.style)}:${layer.transform.width}x${layer.transform.height}:${size.width}x${size.height}`;
+    let key = `${JSON.stringify(layer.style)}:${layer.transform.width}x${layer.transform.height}:${size.width}x${size.height}`;
+    let phase = 0;
+    if (layer.kind === "text") {
+      // Redraw once a font finishes loading, and every frame while the text moves.
+      ensureFont(fontShorthand(layer.style));
+      key += `:f${fontLoads.getState().generation}`;
+      if (layer.style.motion && layer.style.motion.kind !== "none") {
+        phase = (((this.time / this.loop) % 1) + 1) % 1;
+        key += `:t${phase.toFixed(4)}`;
+      }
+    }
     return this.cache(key, layer.id, () => {
       const canvas = new OffscreenCanvas(size.width, size.height);
       const ctx = canvas.getContext("2d")!;
       const sx = size.width / layer.transform.width;
       const sy = size.height / layer.transform.height;
       ctx.scale(sx, sy);
-      if (layer.kind === "text") drawText(ctx, layer, layer.transform.width, layer.transform.height);
+      if (layer.kind === "text") drawText(ctx, layer.style, layer.transform.width, layer.transform.height, phase, this.loop);
       else drawShape(ctx, layer, layer.transform.width, layer.transform.height);
       const texture = this.gpu.texture(size.width, size.height, "rgba8", canvas, { mipmaps: true });
       this.gpu.generateMipmaps(texture);
@@ -369,20 +381,6 @@ function gradientUniforms(layer: GradientLayer) {
     uStopOffsets: offsets,
     uStopColors: colors,
   };
-}
-
-function drawText(ctx: OffscreenCanvasRenderingContext2D, layer: TextLayer, w: number, h: number) {
-  const s = layer.style;
-  ctx.fillStyle = s.color;
-  ctx.font = `${s.italic ? "italic " : ""}${s.weight} ${s.size}px ${s.font}`;
-  ctx.textBaseline = "middle";
-  ctx.textAlign = s.align;
-  (ctx as OffscreenCanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${s.letterSpacing * s.size}px`;
-  const lines = s.text.split("\n");
-  const lineHeight = s.size * s.lineHeight;
-  const top = h / 2 - ((lines.length - 1) * lineHeight) / 2;
-  const x = s.align === "left" ? 0 : s.align === "right" ? w : w / 2;
-  lines.forEach((line, i) => ctx.fillText(line, x, top + i * lineHeight));
 }
 
 function drawShape(ctx: OffscreenCanvasRenderingContext2D, layer: ShapeLayer, w: number, h: number) {

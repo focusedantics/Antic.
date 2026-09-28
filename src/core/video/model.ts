@@ -7,7 +7,7 @@ import type { EffectInstance } from "@/core/effects/types";
  * modified; exporting renders a new MP4.
  */
 export type Resolution = "original" | "2160" | "1440" | "1080" | "720" | "480" | "360";
-export type Quality = "high" | "medium" | "low" | "custom";
+export type Quality = "maximum" | "high" | "medium" | "low" | "custom";
 export type FrameRate = "original" | "60" | "30" | "24" | "15";
 
 export type VideoOutput = {
@@ -40,12 +40,20 @@ export const RESOLUTIONS: { id: Resolution; label: string; lines: number }[] = [
   { id: "360", label: "360p", lines: 360 },
 ];
 
+/**
+ * Browser encoders have no lossless mode, so "Maximum" is the closest thing:
+ * at least the source's own bits per pixel with 50 % headroom for the
+ * re-encode, and never below a visually lossless floor.
+ */
 export const QUALITIES: { id: Quality; label: string; bitsPerPixel: number }[] = [
-  { id: "high", label: "High", bitsPerPixel: 0.12 },
-  { id: "medium", label: "Medium", bitsPerPixel: 0.06 },
-  { id: "low", label: "Low (small file)", bitsPerPixel: 0.025 },
+  { id: "maximum", label: "Maximum (matches the original)", bitsPerPixel: 0.3 },
+  { id: "high", label: "High", bitsPerPixel: 0.2 },
+  { id: "medium", label: "Medium", bitsPerPixel: 0.1 },
+  { id: "low", label: "Low (small file)", bitsPerPixel: 0.035 },
   { id: "custom", label: "Custom bitrate", bitsPerPixel: 0 },
 ];
+
+export const MAX_BITRATE = 200e6;
 
 export const FRAME_RATES: { id: FrameRate; label: string }[] = [
   { id: "original", label: "Original" },
@@ -55,7 +63,7 @@ export const FRAME_RATES: { id: FrameRate; label: string }[] = [
   { id: "15", label: "15 fps" },
 ];
 
-export const defaultOutput: VideoOutput = { resolution: "original", quality: "medium", bitrate: 8, frameRate: "original", audio: true };
+export const defaultOutput: VideoOutput = { resolution: "original", quality: "maximum", bitrate: 20, frameRate: "original", audio: true };
 
 export function defaultEdit(duration: number): VideoEdit {
   return { version: 1, trimStart: 0, trimEnd: Math.max(0, duration), effect: null, effectMix: 1, output: defaultOutput };
@@ -80,7 +88,7 @@ export function sanitizeEdit(v: unknown, duration: number): VideoEdit {
     output: {
       resolution: oneOf(o.resolution, RESOLUTIONS, defaultOutput.resolution),
       quality: oneOf(o.quality, QUALITIES, defaultOutput.quality),
-      bitrate: num(o.bitrate, defaultOutput.bitrate, 0.2, 80),
+      bitrate: num(o.bitrate, defaultOutput.bitrate, 0.2, MAX_BITRATE / 1e6),
       frameRate: oneOf(o.frameRate, FRAME_RATES, defaultOutput.frameRate),
       audio: o.audio !== false,
     },
@@ -97,11 +105,17 @@ export function outputSize(width: number, height: number, resolution: Resolution
   return { width: even(width * scale), height: even(height * scale) };
 }
 
-/** Target video bitrate in bits per second. */
-export function videoBitrate(output: VideoOutput, width: number, height: number, fps: number) {
+/** Bits per pixel per frame of a source track (its size over its duration). */
+export function sourceBitsPerPixel(bytes: number, seconds: number, width: number, height: number, fps: number) {
+  return seconds > 0 && width * height * fps > 0 ? (bytes * 8) / seconds / (width * height * fps) : 0;
+}
+
+/** Target video bitrate in bits per second; `sourceBpp` is the original's bits per pixel (0 = unknown). */
+export function videoBitrate(output: VideoOutput, width: number, height: number, fps: number, sourceBpp = 0) {
   if (output.quality === "custom") return Math.round(output.bitrate * 1e6);
   const q = QUALITIES.find((x) => x.id === output.quality)!;
-  return Math.round(Math.min(80e6, Math.max(250e3, width * height * Math.min(fps, 60) * q.bitsPerPixel)));
+  const bpp = output.quality === "maximum" ? Math.max(q.bitsPerPixel, sourceBpp * 1.5) : q.bitsPerPixel;
+  return Math.round(Math.min(MAX_BITRATE, Math.max(250e3, width * height * Math.min(fps, 60) * bpp)));
 }
 
 export function outputFrameRate(output: VideoOutput, sourceFps: number) {
@@ -109,11 +123,11 @@ export function outputFrameRate(output: VideoOutput, sourceFps: number) {
 }
 
 /** Rough size of the exported file: video bitrate plus ~128 kb/s of audio. */
-export function estimateBytes(edit: VideoEdit, width: number, height: number, sourceFps: number, hasAudio: boolean) {
+export function estimateBytes(edit: VideoEdit, width: number, height: number, sourceFps: number, hasAudio: boolean, sourceBpp = 0) {
   const size = outputSize(width, height, edit.output.resolution);
   const fps = outputFrameRate(edit.output, sourceFps);
   const seconds = Math.max(0, edit.trimEnd - edit.trimStart);
-  const bits = videoBitrate(edit.output, size.width, size.height, fps) * seconds + (hasAudio && edit.output.audio ? 128e3 * seconds : 0);
+  const bits = videoBitrate(edit.output, size.width, size.height, fps, sourceBpp) * seconds + (hasAudio && edit.output.audio ? 128e3 * seconds : 0);
   return bits / 8;
 }
 

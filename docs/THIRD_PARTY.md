@@ -17,6 +17,7 @@
 | ↳ onnxruntime-web | 1.31 (lazy) | MIT | Inference runtime (WebGPU / WASM); WASM served from our own origin |
 | mp4box | 2.4.1 (lazy) | BSD-3-Clause | Demuxing MP4/MOV files for video export (tracks, samples, codec configuration) |
 | mp4-muxer | 5.2.2 (lazy) | MIT | Writing the exported MP4 (video from WebCodecs, audio copied through) |
+| @fontsource/* (18 families: Inter, Montserrat, Oswald, Playfair Display, DM Serif Display, Bebas Neue, Anton, Righteous, Monoton, Bungee Shade, Nabla, Lobster, Pacifico, Caveat, Permanent Marker, Space Mono, VT323, Press Start 2P) | 5.3.0 | SIL OFL 1.1 (Permanent Marker: Apache-2.0) | Fonts for text layers and watermarks (Latin subset, loaded on first use). OFL permits bundling with any software; the fonts are not sold on their own or renamed |
 | gifenc | 1.0.3 | MIT | LZW compression and GIF block writing for animated GIF export (palette building uses its quantizer; palette mapping and dithering are ours). Typings in `src/types/gifenc.d.ts` |
 
 LibRaw is used under its CDDL-1.0 option. It is loaded as an unmodified, separately

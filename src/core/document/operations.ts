@@ -16,6 +16,7 @@ import {
   type LayerCrop,
   type LayerMask,
   type ShapeStyle,
+  type TextMotionKind,
   type TextStyle,
   type Transform,
 } from "./model";
@@ -87,6 +88,18 @@ export const gradientLayer = (doc: CompositeDocument, gradient = defaultGradient
   kind: "gradient",
   gradient,
 });
+
+export const TEXT_MOTIONS: readonly { id: TextMotionKind; label: string; repeats: boolean }[] = [
+  { id: "none", label: "None (still)", repeats: false },
+  { id: "typewriter", label: "Typewriter", repeats: false },
+  { id: "pop-in", label: "Pop in, letter by letter", repeats: false },
+  { id: "wave", label: "Wave", repeats: true },
+  { id: "bounce", label: "Bounce", repeats: true },
+  { id: "rainbow", label: "Rainbow", repeats: true },
+  { id: "pulse", label: "Pulse", repeats: true },
+  { id: "flicker", label: "Neon flicker", repeats: false },
+  { id: "glitch", label: "Glitch", repeats: false },
+];
 
 export const defaultText: TextStyle = {
   text: "Your text",
@@ -488,6 +501,9 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
           align: s?.align === "left" || s?.align === "right" ? s.align : "center",
           lineHeight: num(s?.lineHeight, 1.15, 0.5, 4),
           letterSpacing: num(s?.letterSpacing, 0, -0.5, 2),
+          ...(obj(s?.motion) && TEXT_MOTIONS.some((m) => m.id === obj(s?.motion)?.kind) && obj(s?.motion)?.kind !== "none"
+            ? { motion: { kind: obj(s?.motion)!.kind as TextMotionKind, speed: Math.round(num(obj(s?.motion)!.speed, 1, 1, 4)), amount: num(obj(s?.motion)!.amount, 0.5, 0, 1) } }
+            : {}),
         },
       };
     }

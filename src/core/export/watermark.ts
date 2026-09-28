@@ -29,7 +29,19 @@ export const WATERMARK_FONTS: { id: string; label: string; css: string }[] = [
   { id: "display", label: "Display", css: 'Impact, "Arial Black", "Helvetica Neue", sans-serif' },
   { id: "script", label: "Script", css: '"Brush Script MT", "Segoe Script", "Snell Roundhand", cursive' },
   { id: "rounded", label: "Rounded", css: '"Arial Rounded MT Bold", "Nunito", "Varela Round", system-ui, sans-serif' },
+  { id: "montserrat", label: "Montserrat", css: "Montserrat, sans-serif" },
+  { id: "playfair", label: "Playfair Display", css: "'Playfair Display', Georgia, serif" },
+  { id: "bebas", label: "Bebas Neue", css: "'Bebas Neue', Impact, sans-serif" },
+  { id: "caveat", label: "Caveat (handwritten)", css: "Caveat, cursive" },
+  { id: "pacifico", label: "Pacifico", css: "Pacifico, cursive" },
+  { id: "space-mono", label: "Space Mono", css: "'Space Mono', monospace" },
 ];
+
+/** The CSS font shorthand a watermark draws with at `px` size (also used to preload it). */
+export function watermarkFont(w: Pick<Watermark, "font" | "bold" | "italic">, px = 32) {
+  const css = WATERMARK_FONTS.find((f) => f.id === w.font)?.css ?? WATERMARK_FONTS[0].css;
+  return `${w.italic ? "italic " : ""}${w.bold ? "700" : "400"} ${px}px ${css}`;
+}
 
 export const WATERMARK_POSITIONS: WatermarkPosition[] = ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"];
 
@@ -74,11 +86,10 @@ export function drawWatermark(ctx: Ctx, width: number, height: number, w: Waterm
   const short = Math.min(width, height);
   const px = Math.max(6, (w.size / 100) * short);
   const margin = (w.margin / 100) * short;
-  const css = WATERMARK_FONTS.find((f) => f.id === w.font)?.css ?? WATERMARK_FONTS[0].css;
   ctx.save();
   ctx.globalAlpha = w.opacity;
   ctx.fillStyle = w.color;
-  ctx.font = `${w.italic ? "italic " : ""}${w.bold ? "700" : "400"} ${px}px ${css}`;
+  ctx.font = watermarkFont(w, px);
   if (w.shadow) {
     ctx.shadowColor = "rgba(0,0,0,0.55)";
     ctx.shadowBlur = px * 0.25;

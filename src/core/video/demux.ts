@@ -1,3 +1,4 @@
+import { sourceBitsPerPixel } from "./model";
 import { createFile, DataStream, Endianness, MP4BoxBuffer, type Sample, type Track } from "mp4box";
 
 /**
@@ -12,6 +13,8 @@ export type DemuxedVideo = {
   /** Clockwise rotation from the track matrix (phones record sideways and flag it). */
   readonly rotation: 0 | 90 | 180 | 270;
   readonly fps: number;
+  /** Bits per pixel per frame of the original encoding (drives "Maximum" export quality). */
+  readonly bitsPerPixel: number;
 };
 
 export type DemuxedAudio = {
@@ -110,6 +113,7 @@ export async function demux(file: Blob): Promise<Demuxed> {
   const config: VideoDecoderConfig = { codec: vt.codec.startsWith("vp08") ? "vp8" : vt.codec, codedWidth: width, codedHeight: height, description: videoDescription(entry) };
   const seconds = vt.duration / vt.timescale || vSamples.length / 30;
   const fps = Math.max(1, Math.min(240, Math.round((vSamples.length / seconds) * 100) / 100));
+  const bitsPerPixel = sourceBitsPerPixel(vSamples.reduce((n, s) => n + s.size, 0), seconds, width, height, fps);
 
   let audio: DemuxedAudio | null = null;
   let audioNote: string | null = null;
@@ -133,5 +137,5 @@ export async function demux(file: Blob): Promise<Demuxed> {
       audioNote = `The ${at.codec} audio track can't be carried over; the export will be silent.`;
     }
   }
-  return { duration: movie.duration / movie.timescale || seconds, video: { track: vt, samples: vSamples, config, rotation: rotationOf(vt), fps }, audio, audioNote };
+  return { duration: movie.duration / movie.timescale || seconds, video: { track: vt, samples: vSamples, config, rotation: rotationOf(vt), fps, bitsPerPixel }, audio, audioNote };
 }

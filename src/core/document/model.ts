@@ -107,6 +107,16 @@ export type Gradient = {
   readonly stops: readonly GradientStop[];
 };
 
+/** Animated text: how the letters move over the composition's loop. */
+export type TextMotionKind = "none" | "typewriter" | "pop-in" | "wave" | "bounce" | "rainbow" | "pulse" | "flicker" | "glitch";
+export type TextMotion = {
+  readonly kind: TextMotionKind;
+  /** Whole cycles per loop (1–4), so repeating motions loop seamlessly. */
+  readonly speed: number;
+  /** 0..1: how far letters travel / how strong the effect is. */
+  readonly amount: number;
+};
+
 export type TextStyle = {
   readonly text: string;
   readonly font: string;
@@ -118,6 +128,8 @@ export type TextStyle = {
   readonly align: "left" | "center" | "right";
   readonly lineHeight: number;
   readonly letterSpacing: number;
+  /** Absent = still text. */
+  readonly motion?: TextMotion;
 };
 
 export type ShapeStyle = {

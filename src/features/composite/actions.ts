@@ -9,6 +9,8 @@ import { createDocument, flatten, imageLayer, insertLayer } from "@/core/documen
 import { composite, editDocument, openDocument, setDocumentThumbnailer } from "@/core/document/session";
 import { docAnimation, isAnimated, loopFrames } from "@/core/document/animation";
 import { encodeGif, encodeLoopVideo } from "@/core/export/animated";
+import { fontShorthand } from "@/core/text/draw";
+import { loadFonts } from "@/core/text/fonts";
 import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
 
 /** Developed pixel size of a photo, from its recipe crop and the catalog dimensions. */
@@ -116,6 +118,8 @@ async function renderDocumentExport(doc: CompositeDocument, options: DocExport, 
     for (const id of usedAssets(doc)) engine.ensureSource(id);
     await new Promise((r) => setTimeout(r, 100));
   }
+  // Text layers draw with bundled fonts that download on first use.
+  await loadFonts(flatten(doc.layers).flatMap((l) => (l.kind === "text" && l.visible ? [fontShorthand(l.style)] : [])));
   signal.throwIfAborted();
   const { scale, width, height } = exportSize(doc, options);
   const animation = docAnimation(doc);
@@ -151,7 +155,8 @@ async function renderDocumentExport(doc: CompositeDocument, options: DocExport, 
       onProgress: (done: number, total: number, stage: string) => onProgress(done / total, stage),
     };
     if (options.format === "gif") return await encodeGif(render, { ...common, dither: options.dither });
-    const bitrate = Math.round(Math.min(40e6, Math.max(2e6, width * height * animation.fps * (0.08 + options.quality * 0.12))));
+    // Quality 92 (the default) ≈ 0.33 bits per pixel: visually lossless H.264.
+    const bitrate = Math.round(Math.min(100e6, Math.max(2e6, width * height * animation.fps * (0.1 + options.quality * 0.25))));
     return await encodeLoopVideo(render, { ...common, repeats: Math.max(1, Math.round(options.repeats)), bitrate });
   } finally {
     release();
