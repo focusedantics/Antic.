@@ -231,6 +231,16 @@ uses the first supported codec (H.264 → HEVC → VP9 → AV1), and `mp4-muxer`
 file. Audio packets inside the range are copied, not re-encoded. Queues are bounded by
 awaiting `decodeQueueSize` / `encodeQueueSize`, so memory stays flat during long clips.
 
+## GPU memory and export verification
+
+`DevelopPipeline` pools render targets by size and format, but keeps idle targets only
+within a 320 MB budget; anything beyond is freed on release. Before and after an export,
+`DevelopEngine.freeMemory()` also drops layer, effect and preview caches.
+`exportDocument` / `exportPixels` check the full-size result against a 512 px reference
+(`gpu/verify.ts`) and check `gl.getError()` for out-of-memory and context loss. They
+retry once, then fail with a clear message. Drivers that run out of memory can otherwise
+return blank or stale pixels without any error.
+
 ## Activity (`lib/activity.ts`)
 
 A counter of running work, plus "pulses" for instant changes. The engine's frame

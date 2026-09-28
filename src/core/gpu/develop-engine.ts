@@ -1,4 +1,5 @@
 import { beginActivity } from "@/lib/activity";
+import { similarImages } from "./verify";
 import { getRaster, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
@@ -560,6 +561,68 @@ export class DevelopEngine {
     this.previewGeneration++;
   }
 
+  /** Releases cached GPU memory (idle targets, layer and effect caches); it is rebuilt on demand. */
+  freeMemory() {
+    this.pipeline.release(this.compositeResult?.target);
+    this.compositeResult = null;
+    this.compositor.dispose();
+    this.previewEffects?.dispose();
+    this.previewEffects = null;
+    this.pipeline.trim();
+  }
+
+  /**
+   * Renders a full-size export and checks it: the result must look like a small
+   * reference render of the same thing. Drivers that run out of memory can fail
+   * silently and return blank or stale pixels; in that case caches are freed and
+   * the render is retried once before giving up with a clear error.
+   */
+  private verifiedRender(full: () => ImageData, reference: () => ImageData): ImageData {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      this.freeMemory();
+      this.gpu.drainErrors();
+      let pixels: ImageData | null = null;
+      try {
+        pixels = full();
+      } catch (error) {
+        console.warn("Export render failed", error);
+      }
+      const failed = this.gpu.failed() || !pixels;
+      this.freeMemory();
+      if (!failed && pixels) {
+        const ref = reference();
+        if (similarImages(pixels, ref)) {
+          this.requestRender();
+          return pixels;
+        }
+        console.warn("Export render did not match its reference; retrying after freeing GPU memory.");
+      }
+      if (this.lost) break;
+    }
+    this.freeMemory();
+    this.requestRender();
+    throw new Error("The graphics card couldn't render this export correctly (it may be out of memory). Try a smaller size, or close other tabs and try again.");
+  }
+
+  /** Export of a composition, verified (see `verifiedRender`). */
+  exportDocument(doc: CompositeDocument, scale: number): ImageData {
+    const long = Math.max(doc.width, doc.height) * scale;
+    if (long <= 640) return this.renderDocument(doc, scale);
+    return this.verifiedRender(
+      () => this.renderDocument(doc, scale),
+      () => this.renderDocument(doc, (512 / long) * scale),
+    );
+  }
+
+  /** Export of a developed photo, verified (see `verifiedRender`). */
+  exportPixels(source: GpuSource, recipe: DevelopRecipe, longSide: number): ImageData {
+    if (longSide <= 640) return this.renderPixels(source, recipe, longSide);
+    return this.verifiedRender(
+      () => this.renderPixels(source, recipe, longSide),
+      () => this.renderPixels(source, recipe, 512),
+    );
+  }
+
   /** True while any photo of the composition is still decoding. */
   get compositeLoading() {
     return this.loadingSources.size > 0;
@@ -695,3 +758,4 @@ void main() {
   vec4 c = texture(uInput, vUv);
   outColor = vec4(c.rgb * c.a, c.a);
 }`;
+

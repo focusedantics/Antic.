@@ -199,6 +199,25 @@ export class Gpu {
     this.live.delete(texture.texture);
   }
 
+  /** Clears pending GL errors so a later `failed()` only reports new ones. */
+  drainErrors() {
+    const { gl } = this;
+    for (let i = 0; i < 32 && gl.getError() !== gl.NO_ERROR; i++);
+  }
+
+  /** True when the context was lost or the driver ran out of memory since `drainErrors`. */
+  failed(): boolean {
+    const { gl } = this;
+    if (gl.isContextLost()) return true;
+    let oom = false;
+    for (let i = 0; i < 32; i++) {
+      const e = gl.getError();
+      if (e === gl.NO_ERROR) break;
+      if (e === gl.OUT_OF_MEMORY || e === gl.CONTEXT_LOST_WEBGL) oom = true;
+    }
+    return oom;
+  }
+
   /** Number of textures currently allocated, for leak checks. */
   get textureCount() {
     return this.live.size;

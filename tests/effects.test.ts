@@ -80,3 +80,22 @@ describe("effect layers", () => {
     expect(layersBelow(doc, null)).toBe(doc);
   });
 });
+
+describe("export verification", () => {
+  const image = (w: number, h: number, f: (x: number, y: number) => [number, number, number, number]) => {
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set(f(x / w, y / h), (y * w + x) * 4);
+    return { width: w, height: h, data };
+  };
+  const scene = (u: number, v: number): [number, number, number, number] => [u * 255, v * 255, (1 - v) * 200, 255];
+
+  it("accepts the same picture at another size and rejects blank, flipped or shrunken renders", async () => {
+    const { similarImages } = await import("@/core/gpu/verify");
+    const big = image(640, 480, scene);
+    const small = image(128, 96, scene);
+    expect(similarImages(big, small)).toBe(true);
+    expect(similarImages(image(640, 480, () => [0, 0, 0, 0]), small)).toBe(false);
+    expect(similarImages(image(640, 480, (u, v) => scene(u, 1 - v)), small)).toBe(false);
+    expect(similarImages(image(640, 480, (u, v) => (u < 0.1 && v > 0.3 && v < 0.4 ? scene(u * 10, 1 - (v - 0.3) * 10) : [0, 0, 0, 0])), small)).toBe(false);
+  });
+});

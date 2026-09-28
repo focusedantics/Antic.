@@ -88,7 +88,7 @@ async function renderDocumentExport(doc: CompositeDocument, options: DocExport):
     for (const id of usedAssets(doc)) engine.ensureSource(id);
     await new Promise((r) => setTimeout(r, 100));
   }
-  const pixels = engine.renderDocument(doc, options.scale);
+  const pixels = engine.exportDocument(doc, options.scale);
   const type = options.format === "png" ? "image/png" : options.format === "webp" ? "image/webp" : "image/jpeg";
   return encodePixels(pixels, type, options.quality, options.background);
 }

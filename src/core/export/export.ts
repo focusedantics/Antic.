@@ -75,7 +75,7 @@ async function renderExport(id: AssetId, settings: ExportSettings): Promise<Expo
   const source = engine.sourceFor(id)!;
   const full = outputSize(source.size, recipe.geometry);
   const size = exportSize(full, settings);
-  const pixels = engine.renderPixels(source, recipe, Math.max(size.width, size.height));
+  const pixels = engine.exportPixels(source, recipe, Math.max(size.width, size.height));
   let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background);
   if (settings.format === "jpeg" && settings.metadata !== "none") {
     const exif =

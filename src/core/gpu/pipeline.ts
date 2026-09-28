@@ -47,12 +47,18 @@ export type MaskContext = {
   readonly height: number;
 };
 
+/** Most GPU memory idle pooled targets may hold (about three 4K float targets). */
+const POOL_BUDGET = 320 * 1024 * 1024;
+const BYTES: Record<string, number> = { rgba16f: 8, rgba8: 4, srgba8: 4, r16f: 2, r8: 1, rgb16ui: 6, rgba16ui: 8 };
+const bytesOf = (t: Target) => t.width * t.height * (BYTES[t.format] ?? 8) * (t.mipmaps ? 1.34 : 1);
+
 /**
  * Develops a photo according to a recipe. Stateless apart from caches: the same
  * source and recipe always produce the same pixels at a given size.
  */
 export class DevelopPipeline {
   private pool = new Map<string, Target[]>();
+  private pooledBytes = 0;
   private leased = new Set<Target>();
   private curveCache: { key: DevelopRecipe["toneCurve"]; texture: Texture } | null = null;
   private atmosphereCache = new Map<string, [number, number, number]>();
@@ -66,7 +72,9 @@ export class DevelopPipeline {
   acquire(width: number, height: number, format: TextureFormat = "rgba16f"): Target {
     const key = `${Math.round(width)}x${Math.round(height)}:${format}`;
     const list = this.pool.get(key);
-    const target = list?.pop() ?? this.gpu.target(width, height, format);
+    const pooled = list?.pop();
+    if (pooled) this.pooledBytes -= bytesOf(pooled);
+    const target = pooled ?? this.gpu.target(width, height, format);
     this.leased.add(target);
     return target;
   }
@@ -74,16 +82,26 @@ export class DevelopPipeline {
   release(target: Target | null | undefined) {
     if (!target || !this.leased.has(target)) return;
     this.leased.delete(target);
+    // Idle targets are kept for reuse only within a memory budget: full-resolution
+    // exports would otherwise pin gigabytes of GPU memory, and drivers that run out
+    // fail silently (renders come back blank or with stale pixels).
+    const bytes = bytesOf(target);
+    if (this.pooledBytes + bytes > POOL_BUDGET) {
+      this.gpu.dispose(target);
+      return;
+    }
     const key = `${target.width}x${target.height}:${target.format}`;
     const list = this.pool.get(key) ?? [];
     list.push(target);
     this.pool.set(key, list);
+    this.pooledBytes += bytes;
   }
 
-  /** Frees pooled targets of sizes no longer in use. */
+  /** Frees every idle pooled target. */
   trim() {
     for (const list of this.pool.values()) for (const t of list) this.gpu.dispose(t);
     this.pool.clear();
+    this.pooledBytes = 0;
   }
 
   // ─── Sources ─────────────────────────────────────────────────────────────

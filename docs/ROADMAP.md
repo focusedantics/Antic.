@@ -200,6 +200,12 @@ Known limitations:
 - Every dialog keeps its action buttons pinned and visible, and scrolls its content in
   short windows. Library has an **Export…** button, a context-menu item and
   **Ctrl+Shift+E**. They open the shared export dialog, which also serves Develop.
+- Exports are checked. A full-size photo or composition export is compared, on a coarse
+  grid of block averages, with a 512 px reference render (`core/gpu/verify.ts`). If the
+  GPU ran out of memory or returned stale pixels, the result differs. GPU caches are then
+  freed and the render retried once; a second failure shows an error instead of saving a
+  broken file. Idle render targets are kept only within a 320 MB budget, so large exports
+  no longer pin GPU memory.
 - A 2 px activity line along the top edge shows whenever work runs: renders, decoding,
   AI, imports, exports, previews and library changes. It completes and fades out after
   at least about 0.3 s, so instant changes still register.
