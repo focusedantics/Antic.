@@ -1,11 +1,11 @@
-import { type ComponentType, type ReactNode, useEffect, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
-import { toast, ui } from "@/app/state";
+import { ui } from "@/app/state";
 import { catalog } from "@/core/catalog/store";
 import { currentHistory, develop, type DevelopTool, flushDevelop } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
-import { ExportDialog } from "@/features/export/ExportDialog";
+import { openExport } from "@/features/export/host";
 import { showInDevelop } from "./loader";
 import { autoWhiteBalance, BasicPanel } from "./panels/Basic";
 import { ColorGradingPanel, ColorMixerPanel } from "./panels/Color";
@@ -227,7 +227,11 @@ export default function Develop({ Shell }: { Shell: ComponentType<ShellProps> })
   const activeId = useStore(ui, (s) => s.activeId);
   const firstId = useStore(catalog, (s) => (s.assets.size ? s.assets.keys().next().value : null));
   const assetId = useStore(develop, (s) => s.assetId);
-  const [exporting, setExporting] = useState(false);
+  const exportCurrent = () => {
+    const sel = ui.getState().selection;
+    const id = develop.getState().assetId ?? target;
+    openExport(sel.size > 1 ? [...sel] : id ? [id] : []);
+  };
   const target = activeId ?? firstId ?? null;
 
   useEffect(() => {
@@ -236,7 +240,7 @@ export default function Develop({ Shell }: { Shell: ComponentType<ShellProps> })
     if (develop.getState().assetId !== target || develop.getState().error) void showInDevelop(target);
   }, [target]);
 
-  useEffect(() => registerShortcuts("develop", (e) => developShortcuts(e, () => setExporting(true))), []);
+  useEffect(() => registerShortcuts("develop", (e) => developShortcuts(e, exportCurrent)), []);
   useEffect(
     () => () => {
       flushDevelop();
@@ -264,19 +268,12 @@ export default function Develop({ Shell }: { Shell: ComponentType<ShellProps> })
         left={<DevelopLeftPanel />}
         center={
           <>
-            <Toolbar onExport={() => setExporting(true)} />
+            <Toolbar onExport={exportCurrent} />
             <DevelopView />
           </>
         }
         right={assetId ? <RightPanel /> : null}
       />
-      {exporting && (
-        <ExportDialog
-          ids={ui.getState().selection.size > 1 ? [...ui.getState().selection] : [assetId ?? target]}
-          onClose={() => setExporting(false)}
-          onDone={(n) => toast(`Exported ${n} photo${n === 1 ? "" : "s"}.`)}
-        />
-      )}
     </>
   );
 }

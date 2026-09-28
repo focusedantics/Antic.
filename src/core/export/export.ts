@@ -1,3 +1,4 @@
+import { track } from "@/lib/activity";
 import { getAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { outputSize } from "@/core/develop/geometry";
@@ -58,7 +59,11 @@ export function exportSize(full: { width: number; height: number }, s: ExportSet
 export type ExportResult = { name: string; blob: Blob; width: number; height: number };
 
 /** Develops and encodes one photo from its original and recipe. */
-export async function exportAsset(id: AssetId, settings: ExportSettings): Promise<ExportResult> {
+export function exportAsset(id: AssetId, settings: ExportSettings): Promise<ExportResult> {
+  return track(renderExport(id, settings));
+}
+
+async function renderExport(id: AssetId, settings: ExportSettings): Promise<ExportResult> {
   const asset = getAsset(id);
   const recipe = recipeFor(id);
   if (!asset || !recipe) throw new Error("Photo not found");

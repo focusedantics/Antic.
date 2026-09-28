@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import { emptyFilter, type LibraryQuery } from "@/core/catalog/query";
 import type { AssetId } from "@/core/catalog/types";
 
-export type Workspace = "library" | "develop" | "composite";
+export type Workspace = "library" | "develop" | "composite" | "video";
 export type LibraryView = "grid" | "loupe" | "compare" | "survey";
 
 export type UiState = {

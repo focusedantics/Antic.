@@ -2,6 +2,7 @@ import { flush } from "@/core/catalog/store";
 import { compare, flag, label, rate, removeSelected, selectAll, step } from "@/features/library/commands";
 import { currentOrder } from "@/features/library/results";
 import { stackAssets } from "@/core/catalog/store";
+import { openExport } from "@/features/export/host";
 import { setWorkspace, targetIds, ui } from "./state";
 
 /**
@@ -35,6 +36,7 @@ export function handleKey(e: KeyboardEvent) {
   if (mod && key === "a") selectAll();
   else if (mod && key === "s") void flush();
   else if (mod && key === "g") stackAssets(targetIds());
+  else if (mod && e.shiftKey && key === "e") openExport(targetIds());
   else if (mod) handled = false;
   else if (key === "g" && !e.shiftKey) {
     setWorkspace("library");

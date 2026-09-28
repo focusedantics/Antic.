@@ -156,6 +156,18 @@ export class Gpu {
     return { texture, width, height, format, mipmaps: !!options.mipmaps };
   }
 
+  /** Replaces a texture's pixels with an image of the same size (video frames, canvases). */
+  upload(texture: Texture, source: TexImageSource) {
+    const { gl } = this;
+    const info = this.formats[texture.format];
+    gl.bindTexture(gl.TEXTURE_2D, texture.texture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, info.format, info.type, source);
+    if (texture.mipmaps) gl.generateMipmap(gl.TEXTURE_2D);
+  }
+
   generateMipmaps(texture: Texture) {
     const { gl } = this;
     gl.bindTexture(gl.TEXTURE_2D, texture.texture);

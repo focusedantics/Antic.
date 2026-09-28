@@ -94,6 +94,8 @@ function scheduleSave(doc: CompositeDocument) {
     } catch {
       // A thumbnail is optional.
     }
+    // Keep the last good thumbnail when a new one couldn't be made (photos still loading).
+    thumb ??= (await getDocument(doc.id))?.thumb;
     await putDocument({ id: doc.id, name: doc.name, updatedAt: Date.now(), data: doc, thumb });
     await refreshDocumentList();
   }, 800);

@@ -102,7 +102,7 @@ export function Dialog({
       <div className="dialog" role="dialog" aria-modal="true">
         <header>{title}</header>
         <div className="dialog-body">{children}</div>
-        {footer && <footer>{footer}</footer>}
+        {footer && <div className="dialog-actions">{footer}</div>}
       </div>
     </div>,
     document.body,

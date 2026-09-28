@@ -8,7 +8,14 @@ import { EFFECT_CATEGORIES, type EffectDef, OUR_PICKS } from "@/core/effects/typ
 import { developEngine } from "@/core/gpu/develop-engine";
 import { createStore } from "zustand/vanilla";
 
-type Target = { mode: "add" } | { mode: "replace"; layerId: string };
+/**
+ * What the chosen effect is for: a new effect layer, the effect of an existing
+ * layer, or any other owner (a video edit) that previews on its own image.
+ */
+export type Target =
+  | { mode: "add" }
+  | { mode: "replace"; layerId: string }
+  | { mode: "custom"; current: string | null; image: () => Promise<ImageBitmap | null>; onPick: (id: string) => void };
 
 /** Which layer the browser is choosing an effect for; null when closed. */
 export const effectsBrowser = createStore<{ target: Target | null }>(() => ({ target: null }));
@@ -23,6 +30,10 @@ let lastView: "grid" | "list" = "grid";
 
 /** Adds an effect layer above the selection (or swaps the effect of an existing layer). */
 export function applyEffect(id: string, target: Target) {
+  if (target.mode === "custom") {
+    target.onPick(id);
+    return;
+  }
   const def = effectById(id);
   const doc = composite.getState().doc;
   if (!def || !doc) return;
@@ -57,7 +68,7 @@ function EffectsBrowser({ target }: { target: Target }) {
   const [focusId, setFocusId] = useState<string | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const current = target.mode === "replace" ? locate(composite.getState().doc?.layers ?? [], target.layerId)?.layer : null;
-  const currentId = current?.kind === "effect" ? current.effect.id : null;
+  const currentId = target.mode === "custom" ? target.current : current?.kind === "effect" ? current.effect.id : null;
 
   useEffect(() => {
     lastSection = section;
@@ -79,21 +90,25 @@ function EffectsBrowser({ target }: { target: Target }) {
   // Live previews: every effect, with its defaults, on the layers it would receive.
   useEffect(() => {
     const doc = composite.getState().doc;
-    if (!doc) return;
+    if (target.mode !== "custom" && !doc) return;
     const anchor = target.mode === "replace" ? target.layerId : (composite.getState().selection.at(-1) ?? null);
-    const base = layersBelow(doc, anchor, target.mode === "replace");
     const urls: string[] = [];
     const order = [...PICKS.map((id) => effectById(id)!), ...EFFECTS.filter((e) => !PICKS.includes(e.id))];
     const engine = developEngine();
     let cancelled = false;
     // Give the dialog a frame to paint before the GPU work starts.
-    const timer = setTimeout(() => {
-      void engine
-        .effectPreviews(base, 360, order.map((e) => newEffect(e.id)!), (i, url) => {
+    const timer = setTimeout(async () => {
+      try {
+        const source = target.mode === "custom" ? await target.image() : layersBelow(doc!, anchor, target.mode === "replace");
+        if (!source || cancelled) return;
+        await engine.effectPreviews(source, 360, order.map((e) => newEffect(e.id)!), (i, url) => {
           urls.push(url);
-          if (!cancelled) setPreviews((p) => ({ ...p, [order[i].id]: url }));
-        })
-        .catch((error) => console.warn("Effect previews failed", error));
+          if (cancelled) URL.revokeObjectURL(url);
+          else setPreviews((p) => ({ ...p, [order[i].id]: url }));
+        });
+      } catch (error) {
+        console.warn("Effect previews failed", error);
+      }
     }, 30);
     return () => {
       cancelled = true;
@@ -197,7 +212,7 @@ function EffectsBrowser({ target }: { target: Target }) {
             ))}
             {!list.length && <p className="faint">No effects match “{query}”.</p>}
           </div>
-          <footer className="fx-foot">
+          <div className="fx-foot">
             {focused ? (
               <span>
                 <strong>{focused.name}</strong> <span className="dim">— {focused.description}</span>
@@ -205,8 +220,8 @@ function EffectsBrowser({ target }: { target: Target }) {
             ) : (
               <span className="dim">Choose an effect to apply and edit.</span>
             )}
-            <span className="faint">Effects are layers: change, mask, blend or remove them any time.</span>
-          </footer>
+            <span className="faint">{target.mode === "custom" ? "Effects stay editable: change or remove them any time." : "Effects are layers: change, mask, blend or remove them any time."}</span>
+          </div>
         </section>
       </div>
     </div>,

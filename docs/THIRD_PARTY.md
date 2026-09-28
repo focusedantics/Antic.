@@ -15,6 +15,8 @@
 | fflate | 0.8.3 | MIT | ZIP containers for `.focused` project files |
 | @huggingface/transformers | 4.3.0 (lazy) | Apache-2.0 | Local AI segmentation (loaded only when an AI tool is used) |
 | ↳ onnxruntime-web | 1.31 (lazy) | MIT | Inference runtime (WebGPU / WASM); WASM served from our own origin |
+| mp4box | 2.4.1 (lazy) | BSD-3-Clause | Demuxing MP4/MOV files for video export (tracks, samples, codec configuration) |
+| mp4-muxer | 5.2.2 (lazy) | MIT | Writing the exported MP4 (video from WebCodecs, audio copied through) |
 
 LibRaw is used under its CDDL-1.0 option. It is loaded as an unmodified, separately
 distributed WebAssembly module, so application code is not affected by its terms. Its

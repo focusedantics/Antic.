@@ -1,3 +1,4 @@
+import { beginActivity } from "@/lib/activity";
 import { getRaster, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
@@ -207,6 +208,7 @@ export class DevelopEngine {
   requestRender() {
     if (this.frameRequested) return;
     this.frameRequested = true;
+    const end = beginActivity();
     requestAnimationFrame(() => {
       this.frameRequested = false;
       try {
@@ -214,6 +216,8 @@ export class DevelopEngine {
       } catch (error) {
         console.error(error);
         develop.setState({ error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        end();
       }
     });
   }
@@ -489,8 +493,30 @@ export class DevelopEngine {
    * would sit on), one at a time so the UI stays responsive. A newer call
    * cancels an older one. Returns object URLs the caller revokes.
    */
-  async effectPreviews(doc: CompositeDocument, longSide: number, effects: readonly EffectInstance[], onPreview: (index: number, url: string) => void): Promise<void> {
+  async effectPreviews(source: CompositeDocument | ImageBitmap, longSide: number, effects: readonly EffectInstance[], onPreview: (index: number, url: string) => void): Promise<void> {
     const generation = ++this.previewGeneration;
+    const end = beginActivity();
+    try {
+      if (source instanceof ImageBitmap) {
+        const scale = Math.min(1, longSide / Math.max(source.width, source.height));
+        const w = Math.max(1, Math.round(source.width * scale));
+        const h = Math.max(1, Math.round(source.height * scale));
+        const canvas = new OffscreenCanvas(w, h);
+        canvas.getContext("2d")!.drawImage(source, 0, 0, w, h);
+        const texture = this.gpu.texture(w, h, "rgba8", canvas);
+        const base = this.pipeline.acquire(w, h);
+        this.gpu.pass("preview-premultiply", premultiply, { target: base, textures: { uInput: texture } });
+        this.gpu.dispose(texture);
+        await this.runPreviews(generation, base, Math.max(w, h) / 1000, effects, onPreview);
+      } else {
+        await this.renderPreviews(generation, source, longSide, effects, onPreview);
+      }
+    } finally {
+      end();
+    }
+  }
+
+  private async renderPreviews(generation: number, doc: CompositeDocument, longSide: number, effects: readonly EffectInstance[], onPreview: (index: number, url: string) => void) {
     // Previews need the photos: wait (up to a minute) for every image layer to decode.
     const ids = [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" && l.visible ? [l.assetId] : [])))];
     for (let i = 0; i < 600 && ids.some((id) => !this.hasSource(id)); i++) {
@@ -501,9 +527,13 @@ export class DevelopEngine {
     if (this.lost || generation !== this.previewGeneration) return;
     const scale = Math.min(1, longSide / Math.max(doc.width, doc.height));
     const base = this.compositor.render(doc, scale);
+    await this.runPreviews(generation, base, (Math.max(doc.width, doc.height) * scale) / 1000, effects, onPreview);
+  }
+
+  /** Runs each effect on `base` (released at the end) and reports encoded previews. */
+  private async runPreviews(generation: number, base: Target, unit: number, effects: readonly EffectInstance[], onPreview: (index: number, url: string) => void) {
     this.previewEffects ??= new EffectRunner(this.gpu, this.pipeline);
     const runner = this.previewEffects;
-    const unit = (Math.max(doc.width, doc.height) * scale) / 1000;
     const canvas = new OffscreenCanvas(base.width, base.height);
     const ctx = canvas.getContext("2d")!;
     try {
@@ -655,3 +685,13 @@ export function developEngine() {
   engine ??= new DevelopEngine();
   return engine;
 }
+
+const premultiply = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uInput;
+void main() {
+  vec4 c = texture(uInput, vUv);
+  outColor = vec4(c.rgb * c.a, c.a);
+}`;

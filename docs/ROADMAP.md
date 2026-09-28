@@ -17,6 +17,8 @@ the result survives a reload.
 | 8 | Presets, sync, snapshots, `.focused` project files | Done |
 | 9 | Performance: WebGPU backend, tiled export, region-of-interest rendering | Planned |
 | 10 | PSD interoperability, advanced export | Planned |
+| — | Effects (38 GPU stylizations, effect layers, browser) | Done (see below) |
+| — | Video: MP4 trim, quality, frame rate, effects, export | Done (see below) |
 
 ## Stage 1 — Library
 
@@ -165,6 +167,42 @@ Known limitations:
 - Effects are still images; animated or video output is not implemented.
 - Text effects use the platform's monospace font. Katakana in Code Rain needs a font that
   has those glyphs; otherwise the browser falls back.
+
+## Video
+
+Done:
+- Video workspace with a clip list stored locally (IndexedDB `videos` and `videoFiles`).
+  MP4, M4V and MOV files dropped anywhere, or picked through Import, are routed there.
+- Player: a GPU preview with the effect applied, play/pause, frame stepping, a frame strip
+  timeline with draggable, keyboard-accessible trim handles, and a playhead that loops
+  inside the trim range.
+- An edit is data (`core/video/model.ts`): trim, effect and strength, and output settings
+  (resolution 360p–4K or the original size, High/Medium/Low/custom bitrate, frame rate,
+  keep audio). It has undo/redo, is saved automatically and survives a reload.
+- Export (`core/video/export.ts`) demuxes the file with mp4box.js and decodes it with
+  WebCodecs from the keyframe before the trim start. Each frame is re-rendered on the GPU
+  (rotation, scaling, effect) and re-encoded as H.264, falling back to HEVC, VP9 or AV1
+  when the browser has no H.264 encoder. mp4-muxer writes the MP4. AAC and Opus audio
+  inside the trim range are copied without re-encoding. A progress dialog shows frames
+  done and has Cancel. The file size is estimated before export.
+
+Known limitations:
+- Needs WebCodecs: current Chrome, Edge and Safari; Firefox 130+ for most codecs.
+  HEVC (the iPhone default) decodes only where the browser and OS support it.
+- The file is read into memory for export. Clips of a few hundred MB are fine; very
+  long 4K recordings may run out of memory.
+- Audio other than AAC or Opus (for example, PCM in some camera MOVs) is dropped with a
+  notice. There is no audio re-encoding or volume control.
+- One clip at a time: there is no multi-clip timeline, no transitions and no speed change.
+
+## Export and feedback
+
+- Every dialog keeps its action buttons pinned and visible, and scrolls its content in
+  short windows. Library has an **Export…** button, a context-menu item and
+  **Ctrl+Shift+E**. They open the shared export dialog, which also serves Develop.
+- A 2 px activity line along the top edge shows whenever work runs: renders, decoding,
+  AI, imports, exports, previews and library changes. It completes and fades out after
+  at least about 0.3 s, so instant changes still register.
 
 ## Stage 7 — Retouching
 

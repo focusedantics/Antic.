@@ -1,3 +1,5 @@
+import { isVideoFile } from "@/core/video/model";
+import { openExport } from "@/features/export/host";
 import { selectAsset, setWorkspace, targetIds, toast, ui } from "@/app/state";
 import {
   canReferenceFiles,
@@ -26,7 +28,7 @@ export function pickFiles(options: { directory?: boolean } = {}) {
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
-  input.accept = acceptAttribute;
+  input.accept = `${acceptAttribute},video/mp4,video/quicktime,.mp4,.mov,.m4v`;
   if (options.directory) (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
   input.onchange = () => {
     if (input.files?.length) void runImport(itemsFromFileList(input.files));
@@ -49,8 +51,17 @@ export async function importFolderInPlace() {
 }
 
 export async function runImport(items: Parameters<typeof importItems>[0]) {
+  // Videos go to the Video workspace; everything else into the photo library.
+  const videos = items.filter((i) => isVideoFile(i.file)).map((i) => i.file);
+  const photos = items.filter((i) => !isVideoFile(i.file));
+  if (videos.length) {
+    const { importVideos } = await import("@/core/video/session");
+    setWorkspace("video");
+    importVideos(videos).catch((error) => toast(error instanceof Error ? error.message : String(error), "error"));
+  }
+  if (!photos.length) return;
   const source = ui.getState().query.source;
-  await importItems(items, { collectionId: source.kind === "collection" ? source.id : undefined });
+  await importItems(photos, { collectionId: source.kind === "collection" ? source.id : undefined });
 }
 
 export function rate(rating: number) {
@@ -108,6 +119,7 @@ export function assetMenu(x: number, y: number) {
   const inStack = ids.some((id) => catalog.getState().assets.get(id)?.stackId);
   openMenu(x, y, [
     { label: "Open in Develop", shortcut: "D", onSelect: () => setWorkspace("develop") },
+    { label: ids.length > 1 ? `Export ${ids.length} photos…` : "Export…", shortcut: "Ctrl+Shift+E", onSelect: () => openExport(ids) },
     { label: "Add to Composite", onSelect: () => void addToComposite(ids) },
     ...(ids.length === 1 ? [{ label: "Apply an Effect…", onSelect: () => void startEffectsFor(ids[0]) }] : []),
     "separator",

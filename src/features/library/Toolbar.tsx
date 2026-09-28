@@ -1,5 +1,6 @@
 import { useStore } from "@/app/hooks";
-import { type LibraryView, setFilter, setQuery, ui } from "@/app/state";
+import { type LibraryView, setFilter, setQuery, targetIds, ui } from "@/app/state";
+import { openExport } from "@/features/export/host";
 import type { SortKey } from "@/core/catalog/query";
 import type { ColorLabel, FileKind } from "@/core/catalog/types";
 
@@ -148,6 +149,9 @@ export function LibraryToolbar({ count, total }: { count: number; total: number 
         <input type="checkbox" checked={query.collapseStacks} onChange={(e) => setQuery({ collapseStacks: e.target.checked })} />
         Stacks
       </label>
+      <button type="button" className="btn small primary" title="Export the selected photos (Ctrl+Shift+E)" onClick={() => openExport(targetIds())}>
+        Export…
+      </button>
       {view === "grid" && (
         <input
           type="range"

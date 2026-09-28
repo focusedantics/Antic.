@@ -135,3 +135,32 @@ test("effects: browse, apply, edit, swap and export an effect layer", async ({ p
   const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), page.getByRole("button", { name: "Export", exact: true }).click()]);
   expect(download.suggestedFilename()).toMatch(/effects\.png$/);
 });
+
+test("video: import an MP4, trim, add an effect, lower quality and export", async ({ page }) => {
+  await freshLibrary(page);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
+  await chooser.setFiles("tests/fixtures/clip.mp4");
+  // Videos open in the Video workspace.
+  await expect(page.locator(".vid-canvas")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".doc-card")).toContainText("clip");
+  const start = page.getByRole("slider", { name: "Trim start" });
+  await start.focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight");
+  await expect(start).toHaveAttribute("aria-valuenow", "0.5");
+  await page.getByRole("button", { name: "✦ Add effect…" }).click();
+  await expect(page.locator(".fx-thumb img").first()).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel("Search effects").fill("halftone");
+  await page.locator(".fx-card", { hasText: "CMYK Print" }).click();
+  await expect(page.locator(".side.right")).toContainText("CMYK Print");
+  await page.getByLabel("Quality").selectOption("low");
+  await page.getByLabel("Frame rate").selectOption("15");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("button", { name: "Export MP4…" }).first().click()]);
+  expect(download.suggestedFilename()).toBe("clip-edit.mp4");
+  await expect(page.getByRole("dialog")).toContainText("Saved");
+  // The edit survives a reload.
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.reload();
+  await page.getByRole("button", { name: /^Video/ }).click();
+  await expect(page.getByRole("slider", { name: "Trim start" })).toHaveAttribute("aria-valuenow", "0.5", { timeout: 30_000 });
+  await expect(page.locator(".side.right")).toContainText("CMYK Print");
+});

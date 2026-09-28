@@ -1,7 +1,10 @@
 import { type DragEvent, lazy, Suspense, useEffect, useState } from "react";
+import { ActivityBar } from "./ActivityBar";
 import { MenuHost } from "@/components/Menu";
+import { ExportHost } from "@/features/export/host";
 import { importProgress, itemsFromDataTransfer } from "@/core/catalog/import";
-import { loadCatalogIntoStore } from "@/core/catalog/store";
+import { catalog, loadCatalogIntoStore } from "@/core/catalog/store";
+import { pulseActivity } from "@/lib/activity";
 import { Filmstrip } from "@/features/library/Filmstrip";
 import { LibraryCenter } from "@/features/library/Library";
 import { LibraryLeftPanel } from "@/features/library/LeftPanel";
@@ -13,11 +16,13 @@ import { setWorkspace, toast, ui, type Workspace } from "./state";
 
 const DevelopWorkspace = lazy(() => import("@/features/develop/Develop"));
 const CompositeWorkspace = lazy(() => import("@/features/composite/Composite"));
+const VideoWorkspace = lazy(() => import("@/features/video/Video"));
 
 const modules: { id: Workspace; label: string; key: string }[] = [
   { id: "library", label: "Library", key: "G" },
   { id: "develop", label: "Develop", key: "D" },
   { id: "composite", label: "Composite", key: "C" },
+  { id: "video", label: "Video", key: "" },
 ];
 
 function ImportStatus() {
@@ -73,7 +78,14 @@ export function App() {
   useEffect(() => {
     loadCatalogIntoStore().catch((error) => toast(`Could not open the library: ${error}`, "error"));
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    // Library edits (ratings, flags, keywords…) save instantly; give them a visible beat.
+    const unsubscribe = catalog.subscribe((s, prev) => {
+      if (s.assets !== prev.assets || s.collections !== prev.collections) pulseActivity();
+    });
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      unsubscribe();
+    };
   }, []);
 
   const isFileDrag = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -114,7 +126,7 @@ export function App() {
           {modules.map((m) => (
             <button key={m.id} type="button" className="module" aria-current={workspace === m.id ? "page" : undefined} onClick={() => setWorkspace(m.id)}>
               {m.label}
-              <kbd>{m.key}</kbd>
+              {m.key && <kbd>{m.key}</kbd>}
             </button>
           ))}
         </nav>
@@ -130,9 +142,16 @@ export function App() {
           <CompositeWorkspace Shell={Shell} />
         </Suspense>
       )}
-      {showFilmstrip ? <Filmstrip /> : <div />}
-      {dragging && <div className="drop-overlay">Drop photos or folders to import</div>}
+      {workspace === "video" && (
+        <Suspense fallback={<div className="empty-state">Loading Video…</div>}>
+          <VideoWorkspace Shell={Shell} />
+        </Suspense>
+      )}
+      {showFilmstrip && workspace !== "video" ? <Filmstrip /> : <div />}
+      {dragging && <div className="drop-overlay">Drop photos, videos or folders to import</div>}
       <Toast />
+      <ActivityBar />
+      <ExportHost />
       <MenuHost />
     </div>
   );

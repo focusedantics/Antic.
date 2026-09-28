@@ -1,7 +1,7 @@
 # Focused architecture
 
-Focused is one application with three workspaces — **Library**, **Develop**,
-**Composite** — built on one asset system and one rendering engine. This file is the
+Focused is one application with four workspaces — **Library**, **Develop**,
+**Composite** and **Video** — built on one asset system and one rendering engine. This file is the
 contract: when a change moves a responsibility, update it in the same change.
 
 ```
@@ -29,7 +29,7 @@ contract: when a change moves a responsibility, update it in the same change.
 | 0 | `src/lib` | Pure utilities (math, colorimetry, ids) | nothing app-specific |
 | 1 | `src/core/*` | Data models, persistence, decoding, rendering. No React. | `lib`, other `core` |
 | 1 | `src/components` | UI primitives (Slider, Panel, Menu, Dialog) | `lib` |
-| 2 | `src/features/*` | Workspace UIs: library, develop, composite | `core`, `components`, `app/state` |
+| 2 | `src/features/*` | Workspace UIs: library, develop, composite, video; shared `effects` (browser, parameter editor) and `export` (photo export dialog host) | `core`, `components`, `app/state` |
 | 3 | `src/app` | Shell, global UI state, shortcuts, composition | everything |
 
 Rules: core never imports React; features do not import each other except through
@@ -207,6 +207,35 @@ shift the AI edge) and flows into Library thumbnails, exports and compositions.
 `.focused` files (`core/document/project.ts`) are ZIPs holding the document, each
 referenced photo's recipe and metadata, the AI rasters the recipes reference and,
 optionally, the original files. Photos are relinked by content fingerprint.
+
+## Video (`core/video`, `features/video`)
+
+A clip is a record in IndexedDB (`videos`, holding metadata, a poster frame and the
+serialized edit) plus its file (`videoFiles`). The file is copied on import and never
+modified. `session.ts` opens a clip with an undo history over its `VideoEdit`
+(`model.ts`, sanitized on load) and saves changes after a short delay.
+
+Preview: the player plays the file in a hidden `<video>`. On each presented frame
+(`requestVideoFrameCallback`), it draws the frame into a 2D canvas at the working size,
+which applies rotation, and `VideoRenderer` (`renderer.ts`) runs it through its own
+WebGL context. That context has the same `EffectRunner` as Composite, and the effect
+strength mixes the result with the original frame. Preview and export use output-relative
+effect units, so they match.
+
+Export (`export.ts`): mp4box.js demuxes the file (`demux.ts`, which also rebuilds decoder
+descriptions: avcC/hvcC/vpcC/av1C, AAC AudioSpecificConfig, OpusHead). `VideoDecoder`
+starts at the keyframe before the trim start. Frames outside the range, or above the
+target frame rate, are dropped. The rest are rotated, scaled and stylized by a
+`VideoRenderer` on an `OffscreenCanvas` and wrapped as `VideoFrame`s. `VideoEncoder`
+uses the first supported codec (H.264 → HEVC → VP9 → AV1), and `mp4-muxer` writes the
+file. Audio packets inside the range are copied, not re-encoded. Queues are bounded by
+awaiting `decodeQueueSize` / `encodeQueueSize`, so memory stays flat during long clips.
+
+## Activity (`lib/activity.ts`)
+
+A counter of running work, plus "pulses" for instant changes. The engine's frame
+requests, source decoding, AI calls, exports, effect previews and video work register
+with it. `app/ActivityBar.tsx` turns it into the thin line at the top of the window.
 
 ## Workers
 

@@ -1,3 +1,4 @@
+import { track } from "@/lib/activity";
 import { setWorkspace, toast } from "@/app/state";
 import { getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
@@ -76,7 +77,11 @@ export function usedAssets(doc: CompositeDocument) {
 
 export type DocExport = { format: "png" | "jpeg" | "webp"; scale: number; quality: number; background: string };
 
-export async function exportDocument(doc: CompositeDocument, options: DocExport): Promise<Blob> {
+export function exportDocument(doc: CompositeDocument, options: DocExport): Promise<Blob> {
+  return track(renderDocumentExport(doc, options));
+}
+
+async function renderDocumentExport(doc: CompositeDocument, options: DocExport): Promise<Blob> {
   const engine = developEngine();
   // Wait for every photo in the composition to be decoded at full quality.
   for (let i = 0; i < 600 && usedAssets(doc).some((id) => !engine.hasSource(id) || engine.hasSource(id, "preview")); i++) {
@@ -92,6 +97,12 @@ export async function exportDocument(doc: CompositeDocument, options: DocExport)
 setDocumentThumbnailer(async (doc) => {
   const engine = developEngine();
   if (engine.mode !== "composite") return undefined;
+  // Wait for the photos, or the thumbnail would show an empty canvas.
+  for (let i = 0; i < 100 && usedAssets(doc).some((id) => !engine.hasSource(id)); i++) {
+    for (const id of usedAssets(doc)) engine.ensureSource(id);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (usedAssets(doc).some((id) => !engine.hasSource(id))) return undefined;
   const scale = Math.min(1, 320 / Math.max(doc.width, doc.height));
   return encodePixels(engine.renderDocument(doc, scale), "image/webp", 0.8);
 });

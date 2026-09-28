@@ -1,3 +1,4 @@
+import { beginActivity } from "@/lib/activity";
 import { createStore } from "zustand/vanilla";
 import { putRaster, type RasterRecord } from "@/core/catalog/db";
 import { createDefaultRecipe } from "@/core/develop/defaults";
@@ -72,6 +73,7 @@ type Request = AiRequest extends infer R ? (R extends { id: number } ? Omit<R, "
 
 async function call<T>(label: string, request: Request, transfer: Transferable[] = []): Promise<T> {
   aiStatus.setState({ busy: label, progress: 0 });
+  const end = beginActivity();
   try {
     return await new Promise<T>((resolve, reject) => {
       const id = nextId++;
@@ -79,6 +81,7 @@ async function call<T>(label: string, request: Request, transfer: Transferable[]
       getWorker().postMessage({ ...request, id } as AiRequest, transfer);
     });
   } finally {
+    end();
     aiStatus.setState({ busy: null, model: null });
   }
 }

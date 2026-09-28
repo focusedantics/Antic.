@@ -42,6 +42,22 @@ export type SnapshotRecord = {
   readonly recipe: DevelopRecipe;
 };
 
+/** A video clip and its (non-destructive) edit. The file itself lives in `videoFiles`. */
+export type VideoRecord = {
+  readonly id: string;
+  readonly name: string;
+  readonly type: string;
+  readonly byteSize: number;
+  readonly duration: number;
+  readonly width: number;
+  readonly height: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly poster?: Blob;
+  /** Serialized edit (see core/video/model); sanitized on load. */
+  readonly edit: unknown;
+};
+
 export type DocumentRecord = {
   readonly id: string;
   readonly name: string;
@@ -61,27 +77,22 @@ interface FocusedDB extends DBSchema {
   snapshots: { key: string; value: SnapshotRecord; indexes: { assetId: string } };
   documents: { key: string; value: DocumentRecord };
   settings: { key: string; value: unknown };
+  videos: { key: string; value: VideoRecord };
+  videoFiles: { key: string; value: Blob };
 }
 
 const DB_NAME = "focused-catalog";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise: Promise<IDBPDatabase<FocusedDB>> | null = null;
 
 export function catalogDb() {
   dbPromise ??= openDB<FocusedDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const assets = db.createObjectStore("assets", { keyPath: "id" });
-      assets.createIndex("fingerprint", "fingerprint");
-      db.createObjectStore("collections", { keyPath: "id" });
-      db.createObjectStore("originals");
-      db.createObjectStore("thumbs");
-      const rasters = db.createObjectStore("rasters", { keyPath: "id" });
-      rasters.createIndex("assetId", "assetId");
-      db.createObjectStore("presets", { keyPath: "id" });
-      const snapshots = db.createObjectStore("snapshots", { keyPath: "id" });
-      snapshots.createIndex("assetId", "assetId");
-      db.createObjectStore("documents", { keyPath: "id" });
-      db.createObjectStore("settings");
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) createCatalogStores(db);
+      if (oldVersion < 2) {
+        db.createObjectStore("videos", { keyPath: "id" });
+        db.createObjectStore("videoFiles");
+      }
     },
     blocking() {
       // Another tab upgraded the schema: release the connection so it can proceed.
@@ -90,6 +101,21 @@ export function catalogDb() {
     },
   });
   return dbPromise;
+}
+
+function createCatalogStores(db: IDBPDatabase<FocusedDB>) {
+  const assets = db.createObjectStore("assets", { keyPath: "id" });
+  assets.createIndex("fingerprint", "fingerprint");
+  db.createObjectStore("collections", { keyPath: "id" });
+  db.createObjectStore("originals");
+  db.createObjectStore("thumbs");
+  const rasters = db.createObjectStore("rasters", { keyPath: "id" });
+  rasters.createIndex("assetId", "assetId");
+  db.createObjectStore("presets", { keyPath: "id" });
+  const snapshots = db.createObjectStore("snapshots", { keyPath: "id" });
+  snapshots.createIndex("assetId", "assetId");
+  db.createObjectStore("documents", { keyPath: "id" });
+  db.createObjectStore("settings");
 }
 
 export async function loadCatalog() {
@@ -194,4 +220,28 @@ export async function getSetting<T>(key: string): Promise<T | undefined> {
 }
 export async function putSetting(key: string, value: unknown) {
   await (await catalogDb()).put("settings", value, key);
+}
+
+export async function listVideos() {
+  return (await catalogDb()).getAll("videos");
+}
+export async function getVideo(id: string) {
+  return (await catalogDb()).get("videos", id);
+}
+export async function putVideo(record: VideoRecord, file?: Blob) {
+  const db = await catalogDb();
+  const tx = db.transaction(["videos", "videoFiles"], "readwrite");
+  await tx.objectStore("videos").put(record);
+  if (file) await tx.objectStore("videoFiles").put(file, record.id);
+  await tx.done;
+}
+export async function getVideoFile(id: string) {
+  return (await catalogDb()).get("videoFiles", id);
+}
+export async function deleteVideo(id: string) {
+  const db = await catalogDb();
+  const tx = db.transaction(["videos", "videoFiles"], "readwrite");
+  await tx.objectStore("videos").delete(id);
+  await tx.objectStore("videoFiles").delete(id);
+  await tx.done;
 }

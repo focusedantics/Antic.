@@ -1,7 +1,7 @@
 # Focused
 
-A local-first photography workstation in the browser, with three workspaces that share
-one asset system:
+A local-first photography workstation in the browser, with four workspaces that share
+one asset system and one effects library:
 
 - **Library**: import (files, folders, drag and drop), camera RAW, ratings, flags,
   color labels, keywords, collections, smart collections, search, filters, stacks, and
@@ -22,6 +22,10 @@ one asset system:
   kaleidoscope, liquid warp, a tracking HUD, thermal and night vision. You pick them from
   a browser with live previews of your own image. Every effect is editable and can be
   masked, blended and exported.
+- **Video**: import MP4/MOV clips; trim with handles on a frame strip; lower the
+  resolution, quality (bitrate) and frame rate; drop or keep the audio; apply any effect
+  with a strength control; and export a new MP4 with a size estimate. Decoding, effects
+  and encoding all run on your device with WebCodecs and the GPU.
 
 A photo flows through all three without being flattened. Import a RAW, develop it,
 remove its background with the local AI, place it over another photo, add a gradient,
@@ -60,6 +64,8 @@ with import-by-copy and download-based export.
 | Everywhere | **G** Library grid · **E** Loupe · **N** Survey · **Shift+C** Compare · **D** Develop · **C** Composite · **←/→** previous/next photo · **P/X/U** pick/reject/unflag · **6–9** color labels · **Tab** hide panels · **Shift+F** filmstrip |
 | Library | **0–5** rating · **Ctrl+A** select all · **Ctrl+G** stack · **Delete** remove |
 | Develop | **1** fit · **2** 100 % · **3** 200 % · **5 / Y** cycle before/after · **\\** toggle before · **J** clipping · **R** crop · **M** masks · **B** brush mask · **Q** heal · **W** white balance selector · **Shift+U** auto white balance · **[ ]** brush size · **O** mask overlay · **Space** pan · **Ctrl+Z / Ctrl+Shift+Z** undo/redo · **Ctrl+Shift+C / V** copy/paste settings · **Ctrl+Shift+E** export |
+| Video | **Space** play/pause · **I / O** set trim start/end at the playhead · **← / →** step a frame (Shift ×10) · **Home / End** jump to trim start/end · **Ctrl+Z** undo · **Ctrl+Shift+E** export |
+| Library | **Ctrl+Shift+E** export the selected photos |
 | Composite | **Shift+E** effects browser · **V** move · **1** fit · **2** 100 % · **arrows** nudge (Shift ×10) · **Ctrl+J** duplicate · **Ctrl+G / Ctrl+Shift+G** group/ungroup · **Ctrl+Alt+G** clipping mask · **Ctrl+[ ]** arrange · **Ctrl+;** guides · **Delete** delete layer · **Ctrl+Z** undo |
 
 ## Documentation

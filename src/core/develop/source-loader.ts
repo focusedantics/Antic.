@@ -1,3 +1,4 @@
+import { track } from "@/lib/activity";
 import { readOriginal } from "@/core/catalog/originals";
 import type { Asset } from "@/core/catalog/types";
 import type { SourceData } from "@/core/gpu/pipeline";
@@ -19,7 +20,12 @@ export type LoadedSource = {
  * LibRaw as linear 16-bit Rec.2020; rendered files decode with their EXIF
  * orientation applied. The original is only ever read.
  */
-export async function loadSource(asset: Asset, signal?: AbortSignal): Promise<LoadedSource> {
+/** Decodes a photo for rendering (shown by the activity line while it runs). */
+export function loadSource(asset: Asset, signal?: AbortSignal): Promise<LoadedSource> {
+  return track(decodeSource(asset, signal));
+}
+
+async function decodeSource(asset: Asset, signal?: AbortSignal): Promise<LoadedSource> {
   const blob = await readOriginal(asset);
   signal?.throwIfAborted();
   if (asset.kind === "raw") {
