@@ -293,15 +293,24 @@ test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still f
   expect(png.subarray(1, 4).toString("latin1")).toBe("PNG");
 });
 
-test("video: playback keeps drawing new frames, even when frame callbacks stall", async ({ page }) => {
+test("video: playback shows new frames even when the <video> only hands back a stale frame", async ({ page }) => {
   await freshLibrary(page);
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
   await chooser.setFiles("tests/fixtures/clip.mp4");
   const canvas = page.locator(".vid-canvas");
   await expect(canvas).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(1000);
-  // Some browsers stop delivering requestVideoFrameCallback; the player must not freeze.
-  await page.locator("video").first().evaluate((v) => Object.assign(v, { requestVideoFrameCallback: () => 0 }));
+  // Reproduce browsers where frame callbacks stall and a playing <video> keeps
+  // handing back the same frame to drawImage: playback must still move.
+  await page.evaluate(() => {
+    const original = OffscreenCanvasRenderingContext2D.prototype.drawImage;
+    OffscreenCanvasRenderingContext2D.prototype.drawImage = function (this: OffscreenCanvasRenderingContext2D, ...args: unknown[]) {
+      const source = args[0];
+      if (source instanceof HTMLVideoElement && !source.paused) return;
+      return (original as (...a: unknown[]) => void).apply(this, args);
+    } as typeof original;
+    for (const v of document.querySelectorAll("video")) Object.assign(v, { requestVideoFrameCallback: () => 0 });
+  });
   await page.keyboard.press("Space");
   const seen = new Set<string>();
   const start = Date.now();

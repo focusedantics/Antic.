@@ -251,12 +251,16 @@ serialized edit) plus its file (`videoFiles`). The file is copied on import and 
 modified. `session.ts` opens a clip with an undo history over its `VideoEdit`
 (`model.ts`, sanitized on load) and saves changes after a short delay.
 
-Preview: the player plays the file in a `<video>` that sits, fully visible, under the
-output canvas. Browsers may stop presenting new frames for an invisible or 1 px video, so
-it is never hidden. On each presented frame (`requestVideoFrameCallback`), or on an
-animation-frame loop when those callbacks stall or are missing, it draws the frame into a
-2D canvas at the working size,
-which applies rotation, and `VideoRenderer` (`renderer.ts`) runs it through its own
+Preview: the player plays the file in a `<video>` (under the output canvas, inside the
+stage), which provides the audio and the clock. During playback, frames come from
+`PreviewDecoder` (`preview.ts`): it demuxes the clip and decodes it with WebCodecs about a
+second ahead of `currentTime`, restarting from a keyframe after seeks and loops. Reading
+frames back from a playing `<video>` returns a stale frame on some browsers and GPUs, so
+it is only used while paused or seeking, and for playback when WebCodecs is missing. On
+that path, frames are drawn on each presented frame (`requestVideoFrameCallback`), or on
+an animation-frame loop when those callbacks stall. A `<video>` frame is drawn into a 2D
+canvas at the working size, which applies rotation; a decoded frame goes straight to the
+GPU with the track's rotation. `VideoRenderer` (`renderer.ts`) runs either through its own
 WebGL context. That context has the same `EffectRunner` as Composite, and the effect
 strength mixes the result with the original frame. Preview and export use output-relative
 effect units, so they match.
