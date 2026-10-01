@@ -41,7 +41,12 @@ describe("timeline", () => {
     expect(frames(cut)).toEqual(Array.from({ length: 60 }, (_, i) => i));
   });
 
-  it("reverses, stutters, ping-pongs, holds and changes speed frame-exactly", () => {
+  it("keeps the last frame when the stored duration is a little short, but honours a real one-frame trim", () => {
+    expect(frames(edit([newSegment(null, 0, 1.98)]))).toHaveLength(60);
+    expect(frames(edit([newSegment(null, 0, 59 / 30)]))).toHaveLength(59);
+  });
+
+    it("reverses, stutters, ping-pongs, holds and changes speed frame-exactly", () => {
     const base = newSegment(null, 0, 0.2); // frames 0..5
     expect(frames(edit([{ ...base, reverse: true }]))).toEqual([5, 4, 3, 2, 1, 0]);
     expect(frames(edit([{ ...base, stutter: 3, stutterLength: 2 / 30 }]))).toEqual([0, 1, 0, 1, 0, 1, 2, 3, 4, 5]);
@@ -158,5 +163,16 @@ describe("exact YUV shuffles", () => {
     expect([r.width, r.height]).toEqual([2, 4]);
     // Four quarter turns are the identity.
     expect(rotatePlane(rotatePlane(rotatePlane(rotatePlane(p, 90), 90), 90), 90)).toEqual(p);
+  });
+});
+
+describe("mp4 timescale", () => {
+  it("is a whole number that makes non-integer frame rates exact", async () => {
+    const { mp4Timescale } = await import("@/core/video/export");
+    expect(mp4Timescale(30)).toBe(30);
+    expect(mp4Timescale(28.96)).toBe(2896);
+    expect(mp4Timescale(29.97)).toBe(2997);
+    expect(mp4Timescale(23.976)).toBe(23976);
+    expect(Number.isInteger(mp4Timescale(Math.PI))).toBe(true);
   });
 });

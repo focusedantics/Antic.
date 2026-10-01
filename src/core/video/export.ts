@@ -19,6 +19,19 @@ export type ExportResult = { readonly blob: Blob; readonly extension: "mkv" | "m
 
 const MICRO = 1e6;
 
+/**
+ * An MP4 track timescale (ticks per second) in which a frame at `fps` lasts a
+ * whole number of ticks. mp4-muxer takes it as `frameRate`, which must be an
+ * integer: 30 fps → 30, 29.97 → 2997 (100 ticks a frame), 28.96 → 2896.
+ */
+export function mp4Timescale(fps: number): number {
+  for (const m of [1, 10, 100, 1000]) {
+    const t = fps * m;
+    if (Math.abs(t - Math.round(t)) < 1e-6 && Math.round(t) > 0) return Math.round(t);
+  }
+  return 90000;
+}
+
 /** VP9 level for a frame size (luma samples per frame). */
 function vp9Level(width: number, height: number) {
   const area = width * height;
@@ -167,7 +180,8 @@ async function run(own: ClipMedia, edit: VideoEdit, loadClip: (id: string) => Pr
           target: mp4Target,
           fastStart: "in-memory",
           firstTimestampBehavior: "offset",
-          video: { codec: encoder.mux, width: size.width, height: size.height, frameRate: fps },
+          // The MP4 time base must be a whole number: one that makes every frame duration exact.
+          video: { codec: encoder.mux, width: size.width, height: size.height, frameRate: mp4Timescale(fps) },
           ...(audioCodec && audioCodec.kind !== "pcm" ? { audio: { codec: audioCodec.kind, numberOfChannels: 2, sampleRate: SAMPLE_RATE } } : {}),
         })
       : null;

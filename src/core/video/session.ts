@@ -3,7 +3,7 @@ import { deleteVideo, getVideo, getVideoFile, listVideos, putVideo, type VideoRe
 import { createHistory, type History } from "@/core/history/history";
 import { track } from "@/lib/activity";
 import { createId } from "@/lib/id";
-import { forgetClipMedia } from "./media";
+import { forgetClipMedia, mediaFromFile } from "./media";
 import { defaultEdit, sanitizeEdit, type VideoEdit } from "./model";
 
 export type Clip = {
@@ -93,6 +93,9 @@ export async function importVideos(files: readonly File[]): Promise<string[]> {
       for (const file of files) {
         try {
           const meta = await probe(file);
+          // The video track's own length (frames / fps) wins when the browser reports less.
+          const media = await mediaFromFile("probe", file).catch(() => null);
+          if (media) meta.duration = Math.max(meta.duration, media.info.duration);
           const id = createId("vid");
           const now = Date.now();
           await putVideo(

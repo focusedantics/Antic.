@@ -433,3 +433,33 @@ test("video: reversed and stuttered playback moves on screen", async ({ page }) 
   expect(seen.size).toBeGreaterThanOrEqual(3);
 });
 
+
+test("video: a 28.96 fps clip exports to both MP4 formats with every frame; timeline zoom buttons", async ({ page }) => {
+  await freshLibrary(page);
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
+  await chooser.setFiles("tests/fixtures/clip-28.96fps.mp4");
+  await expect(page.getByTestId("viewer")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("frame 1 of 60")).toBeVisible({ timeout: 30_000 });
+  // Zoom buttons: in, in, out, fit.
+  const zoom = page.getByTestId("timeline-zoom");
+  await expect(zoom).toHaveText("Fit");
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(zoom).toHaveText("150%");
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(zoom).toHaveText("225%");
+  await page.getByRole("button", { name: "Zoom out" }).click();
+  await expect(zoom).toHaveText("150%");
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  await expect(zoom).toHaveText("Fit");
+  // A cut, so the file is re-encoded rather than copied.
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("s");
+  await expect(page.getByTestId("segment")).toHaveCount(2);
+  for (const format of ["mp4-lossless", "mp4-h264"]) {
+    await page.getByLabel("Format").selectOption(format);
+    const out = await exportVideo(page);
+    expect(out.name).toBe("clip-28.96fps-edit.mp4");
+    expect(out.result).toContain("60 frames, none dropped");
+    expect(mp4Samples(out.bytes).frames).toBe(60);
+  }
+});

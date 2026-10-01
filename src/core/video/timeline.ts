@@ -60,7 +60,10 @@ export type Plan = {
 export function segmentFrames(s: Segment, info: ClipInfo): { first: number; end: number } {
   const last = Math.max(1, info.frames);
   const first = Math.min(last - 1, Math.max(0, Math.round(s.in * info.fps)));
-  const end = Math.max(first + 1, Math.min(last, Math.round(s.out * info.fps)));
+  // An end within a frame of the clip's last frame means "to the end": the stored duration
+  // (from the browser's <video>) can be a little shorter than frames / fps.
+  const out = s.out * info.fps;
+  const end = Math.max(first + 1, Math.min(last, out > last - 0.99 ? last : Math.round(out)));
   return { first, end };
 }
 

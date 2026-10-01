@@ -15,6 +15,9 @@
 
 /* Timeline */
 .vt { flex: none; border-top: 1px solid var(--line); background: var(--panel); }
+.vt-bar { display: flex; align-items: center; gap: 8px; padding: 3px 12px; border-bottom: 1px solid var(--line); }
+.vt-bar .segmented button { min-width: 28px; }
+.vt-zoom { min-width: 40px; font-size: 11px; text-align: right; }
 .vt-scroll { overflow-x: auto; overflow-y: hidden; position: relative; padding-bottom: 2px; }
 .vt-content { position: relative; user-select: none; touch-action: none; }
 .vt-ruler { position: relative; border-bottom: 1px solid var(--line); cursor: ew-resize; background: var(--panel-2); }

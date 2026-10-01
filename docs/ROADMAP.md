@@ -192,7 +192,8 @@ Done:
   MP4, M4V and MOV files dropped anywhere, or picked through Import, are routed there.
 - Editor with a frame-accurate viewer and a zoomable timeline: thumbnails, a soundtrack
   waveform, and a ruler and waveform you can scrub, with sound. It has play, pause and
-  loop, frame stepping, J/K/L, and Home/End.
+  loop, frame stepping, J/K/L, and Home/End. Zoom with the − / Fit / + buttons, +/−/0 or
+  Ctrl+scroll (around the playhead, down to about 24 px per frame).
 - Segments: split at the playhead (S), delete, duplicate, copy/cut/paste, drag to
   reorder, trim either edge, and insert any other imported clip at the playhead. This
   makes sentence mixing across sources possible.
@@ -220,6 +221,8 @@ Known limitations:
   OS support it.
 - Lossless files are large (around 0.6 bytes per pixel per frame). The Compatible format
   is for sharing.
+- Non-integer frame rates (29.97, 28.96…) are kept exactly: the MP4 time base is chosen
+  so each frame lasts a whole number of ticks.
 - The output frame rate is the clip's average rate. Variable-frame-rate phone clips play
   each frame for an equal time (none are dropped), so their timing can shift by a few
   milliseconds.

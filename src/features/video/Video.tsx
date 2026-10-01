@@ -21,7 +21,6 @@ import {
   cutSelected,
   deleteSelected,
   duplicateSelected,
-  editor,
   insertClip,
   pasteAtPlayhead,
   POOPISMS,
@@ -32,7 +31,7 @@ import {
 import { engine, player } from "./engine";
 import { formatClock } from "./format";
 import { PoopPanel, SegmentPanel, VideoEffectPanel } from "./Inspector";
-import { Timeline } from "./Timeline";
+import { Timeline, zoomTimeline } from "./Timeline";
 import { Viewer } from "./Viewer";
 
 type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
@@ -420,10 +419,13 @@ function videoShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
       return true;
     case "=":
     case "+":
-      editor.setState((s) => ({ zoom: (s.zoom ?? 40) * 1.5 }));
+      zoomTimeline(1.5);
       return true;
     case "-":
-      editor.setState((s) => ({ zoom: s.zoom ? s.zoom / 1.5 : null }));
+      zoomTimeline(1 / 1.5);
+      return true;
+    case "0":
+      zoomTimeline("fit");
       return true;
   }
   return false;

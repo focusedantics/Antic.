@@ -11,6 +11,10 @@ const RULER = 22;
 const TRACK = 64;
 const WAVE = 44;
 const THUMB_W = 72;
+/** Zooms the mounted timeline (keyboard shortcuts). */
+let timelineZoom: ((factor: number | "fit") => void) | null = null;
+export const zoomTimeline = (factor: number | "fit") => timelineZoom?.(factor);
+
 const CLIP_COLORS = ["#5b7cfa", "#e0794a", "#3fae7c", "#c25bd6", "#d6b43f", "#4fb3c9"];
 
 /** Short labels for a segment's treatments. */
@@ -57,10 +61,13 @@ export function Timeline() {
   const [scroll, setScroll] = useState(0);
   const [drop, setDrop] = useState<number | null>(null);
   const [, redraw] = useState(0);
+  const zoomRef = useRef<((factor: number | "fit", anchorX?: number) => void) | null>(null);
   const duration = frames / fps;
   // Pixels per second: "fit" fills the view.
   const fit = Math.max(4, (viewWidth - 24) / Math.max(0.5, duration));
-  const pps = zoom ?? fit;
+  // Most zoomed in: about 24 px per frame, and always at least 4× past "fit".
+  const maxPps = Math.max(fit * 4, 24 * fps);
+  const pps = Math.min(zoom ?? fit, maxPps);
   const width = Math.max(viewWidth, duration * pps + 24);
   const plan = engine.plan;
   const selected = new Set(selection);
@@ -239,15 +246,46 @@ export function Timeline() {
     window.addEventListener("pointerup", up);
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    const el = scrollRef.current!;
-    const anchor = (e.clientX - el.getBoundingClientRect().left + el.scrollLeft) / pps;
-    const next = Math.max(fit, Math.min(2000, pps * (e.deltaY < 0 ? 1.25 : 0.8)));
+  /**
+   * Zooms by `factor` ("fit" shows the whole timeline), keeping the time at
+   * `anchorX` (px from the view's left edge; default: the playhead, or the
+   * middle when the playhead is off screen) where it is.
+   */
+  const zoomBy = (factor: number | "fit", anchorX?: number) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (factor === "fit") {
+      editor.setState({ zoom: null });
+      requestAnimationFrame(() => (el.scrollLeft = 0));
+      return;
+    }
+    const head = (player.getState().frame / fps) * pps - el.scrollLeft;
+    const x = anchorX ?? (head >= 0 && head <= el.clientWidth ? head : el.clientWidth / 2);
+    const anchor = (x + el.scrollLeft) / pps;
+    const next = Math.max(fit, Math.min(maxPps, pps * factor));
     editor.setState({ zoom: next <= fit * 1.001 ? null : next });
-    requestAnimationFrame(() => (el.scrollLeft = anchor * next - (e.clientX - el.getBoundingClientRect().left)));
+    requestAnimationFrame(() => (el.scrollLeft = Math.max(0, anchor * next - x)));
   };
+  zoomRef.current = zoomBy;
+
+  // Ctrl/⌘ + wheel (or trackpad pinch) zooms. A native, non-passive listener so the page itself doesn't zoom.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      zoomRef.current?.(e.deltaY < 0 ? 1.25 : 0.8, e.clientX - el.getBoundingClientRect().left);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+  useEffect(() => {
+    timelineZoom = (f) => zoomRef.current?.(f);
+    return () => {
+      timelineZoom = null;
+    };
+  }, []);
 
   // Ruler ticks: a readable step for the zoom.
   const steps = [1 / fps, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
@@ -257,7 +295,27 @@ export function Timeline() {
 
   return (
     <div className="vt">
-      <div className="vt-scroll" ref={scrollRef} onScroll={(e) => setScroll(e.currentTarget.scrollLeft)} onWheel={onWheel}>
+      <div className="vt-bar">
+        <span className="faint" style={{ fontSize: 11 }}>
+          Timeline
+        </span>
+        <span className="spacer" />
+        <div className="segmented" role="group" aria-label="Timeline zoom">
+          <button type="button" title="Zoom out (−)" aria-label="Zoom out" disabled={zoom === null} onClick={() => zoomBy(1 / 1.5)}>
+            −
+          </button>
+          <button type="button" title="Fit the whole timeline (0)" aria-pressed={zoom === null} onClick={() => zoomBy("fit")}>
+            Fit
+          </button>
+          <button type="button" title="Zoom in (+ or Ctrl+scroll)" aria-label="Zoom in" disabled={pps >= maxPps * 0.999} onClick={() => zoomBy(1.5)}>
+            +
+          </button>
+        </div>
+        <span className="faint num vt-zoom" data-testid="timeline-zoom">
+          {zoom === null ? "Fit" : `${Math.round((pps / fit) * 100)}%`}
+        </span>
+      </div>
+      <div className="vt-scroll" ref={scrollRef} onScroll={(e) => setScroll(e.currentTarget.scrollLeft)}>
         <div className="vt-content" style={{ width }}>
           <div className="vt-ruler" style={{ height: RULER }} onPointerDown={scrub} role="slider" aria-label="Playhead" aria-valuemin={0} aria-valuemax={Math.max(0, frames - 1)} aria-valuenow={player.getState().frame} tabIndex={0}>
             {ticks.map((t) => (
