@@ -248,38 +248,56 @@ optionally, the original files. Photos are relinked by content fingerprint.
 
 A clip is a record in IndexedDB (`videos`, holding metadata, a poster frame and the
 serialized edit) plus its file (`videoFiles`). The file is copied on import and never
-modified. `session.ts` opens a clip with an undo history over its `VideoEdit`
-(`model.ts`, sanitized on load) and saves changes after a short delay.
+modified. `session.ts` opens a clip with an undo history over its `VideoEdit` and saves
+changes after a short delay.
 
-Preview: the player plays the file in a `<video>` inside the stage, which provides the
-audio and the clock. Without an effect, that `<video>` is what you see: playback is
-exactly the browser's own. With an effect, the output canvas on top renders every frame.
-During playback those frames come from `PreviewDecoder` (`preview.ts`). It demuxes the
-clip and decodes it with WebCodecs about a second ahead of `currentTime`, restarting from
-a keyframe after seeks and loops. Reading frames back from a playing `<video>` returns a
-stale frame on some browsers and GPUs, so it is only used while paused or seeking, and for
-playback when WebCodecs is missing. A `<video>` frame is drawn into a 2D canvas at the
-working size, which applies rotation. A decoded frame goes straight to the GPU with the
-track's rotation. `VideoRenderer` (`renderer.ts`) runs either one through its own WebGL
-context. That context has the same `EffectRunner` as Composite, and the effect strength
-mixes the result with the original frame. Preview and export use output-relative effect
-units, so they match.
+**The edit** (`model.ts`, version 3, sanitized on load; version 1–2 trims migrate to one
+segment) is a list of segments. Each segment is a source range of this clip or another
+clip, with its own treatment: speed (tape-style or pitch-preserving), pitch, reverse,
+stutter, ping-pong ("dance"), hold ("stare down"), volume and mute, audio effects (ear
+rape, sus harmonizer, echo, reverb, chorus, vibrato, bitcrush), picture treatments
+(mirror, flip, invert, hue and rainbow, zoom, shake, deep fry) and an optional library
+effect. A whole-video effect sits on top (Looks save and apply it).
 
-Export (`export.ts`) loses as little as possible. At Maximum quality, with nothing to
-render (no effect, watermark, resize or frame-rate change) and a trim that starts on a
-keyframe, it copies the original compressed samples, bit for bit (VP9/AV1 need the colour
-description the file states). With nothing to render otherwise, decoded frames go to the
-encoder in their native YUV, skipping the RGB round trip. Presets encode at constant
-quality (a per-frame quantizer, `encoder.ts`) where the browser supports it. This avoids
-the frame drops and smeared detail of a starved bitrate. Otherwise they use a bitrate
-relative to the original's bits per pixel. When rendering, mp4box.js demuxes the file (`demux.ts`, which also rebuilds decoder
-descriptions: avcC/hvcC/vpcC/av1C, AAC AudioSpecificConfig, OpusHead). `VideoDecoder`
-starts at the keyframe before the trim start. Frames outside the range, or above the
-target frame rate, are dropped. The rest are rotated, scaled and stylized by a
-`VideoRenderer` on an `OffscreenCanvas` and wrapped as `VideoFrame`s. `VideoEncoder`
-uses the first supported codec (H.264 → HEVC → VP9 → AV1), and `mp4-muxer` writes the
-file. Audio packets inside the range are copied, not re-encoded. Queues are bounded by
-awaiting `decodeQueueSize` / `encodeQueueSize`, so memory stays flat during long clips.
+**The timeline compiler** (`timeline.ts`) turns segments into pieces: contiguous plays of
+a source frame range at a rate, forwards or backwards, or a held frame. It maps every
+output frame to exactly one source frame. Frames are counted with cumulative rounding,
+so at speed 1 a segment emits each source frame once: nothing dropped, nothing doubled.
+Splits, moves, duplicates and inserts are pure functions over the edit. Output is
+constant frame rate at the clip's average rate.
+
+**Audio** (`dsp.ts`, run in `soundtrack.worker.ts` via `soundtrack.ts`): each clip's audio
+is decoded once at 48 kHz. Each segment is rendered from the same pieces as its pictures:
+sliced and reversed, resampled for tape-style speed or time-stretched (WSOLA) to keep
+pitch, pitch-shifted, then treated. The worker caches rendered segments by their job, so
+an edit re-renders only what changed. Preview and export use the same soundtrack.
+
+**Frames** (`frames.ts`): `FrameSource` decodes a clip with WebCodecs by presentation
+index. It continues a running decode for the next frames, and restarts from the keyframe
+before a wanted frame otherwise. That gives frame-accurate random access for scrubbing,
+reverse play and stutters. Decoded frames go through a store (scaled bitmaps for the
+viewer, exact plane copies for export) into a byte-bounded LRU.
+
+**Editor** (`features/video`): `engine.ts` owns playback. The rendered soundtrack plays
+through Web Audio, and its clock drives the frame on screen. Scrubbing plays short
+grains of the soundtrack. The viewer draws the frame through `VideoRenderer`
+(`renderer.ts`: rotation and letterboxing, the picture treatments, then library effects
+through the shared `EffectRunner`). The timeline (`Timeline.tsx`) draws thumbnails and
+the waveform of the visible range only. `actions.ts` holds the editing commands, the
+one-click YTP treatments and the random generators.
+
+**Export** (`export.ts`):
+- An MP4 of an untouched clip copies the original compressed samples bit for bit (VP9/AV1
+  need the colour description the file states, read from vpcC or colr).
+- The lossless formats encode VP9 at quantizer 0. That is VP9's lossless mode: decoding
+  returns exactly the YUV that went in. Frames shown as they are go to the encoder in the
+  decoder's own YUV, cropped, converted from NV12 and rotated exactly (`yuv.ts`), so they
+  come out bit-identical to the source. Treated frames are rendered on the GPU first.
+- The MKV (webm-muxer, Matroska) carries uncompressed float PCM audio. The MP4 carries
+  AAC 320k or Opus 510k.
+- The Compatible format is near-lossless H.264 (`encoder.ts`).
+- Every timeline frame is encoded exactly once, in order, with bounded queues. The export
+  fails, rather than saving, if the encoder returns a different number of frames.
 
 ## Looks (`core/looks`, `features/looks`)
 

@@ -3,6 +3,7 @@ import { deleteVideo, getVideo, getVideoFile, listVideos, putVideo, type VideoRe
 import { createHistory, type History } from "@/core/history/history";
 import { track } from "@/lib/activity";
 import { createId } from "@/lib/id";
+import { forgetClipMedia } from "./media";
 import { defaultEdit, sanitizeEdit, type VideoEdit } from "./model";
 
 export type Clip = {
@@ -20,13 +21,11 @@ export type Clip = {
 export type VideoState = {
   readonly clips: readonly Clip[];
   readonly openId: string | null;
-  /** Object URL of the open clip's file, for the <video> element. */
-  readonly url: string | null;
   readonly edit: VideoEdit | null;
   readonly loading: boolean;
 };
 
-export const video = createStore<VideoState>(() => ({ clips: [], openId: null, url: null, edit: null, loading: false }));
+export const video = createStore<VideoState>(() => ({ clips: [], openId: null, edit: null, loading: false }));
 
 let history: History<VideoEdit> | null = null;
 let unsubscribe: (() => void) | null = null;
@@ -128,19 +127,17 @@ export async function importVideos(files: readonly File[]): Promise<string[]> {
 export async function openClip(id: string) {
   flushVideo();
   const record = await getVideo(id);
-  const file = await getVideoFile(id);
-  if (!record || !file) return;
-  const previous = video.getState().url;
-  if (previous) URL.revokeObjectURL(previous);
+  if (!record) return;
   unsubscribe?.();
-  const edit = sanitizeEdit(record.edit, record.duration);
+  const durations = new Map(video.getState().clips.map((c) => [c.id, c.duration]));
+  const edit = sanitizeEdit(record.edit, record.duration, (clip) => durations.get(clip) ?? Infinity);
   history = createHistory(edit, { label: "Open" });
   const h = history;
   unsubscribe = h.subscribe(() => {
     video.setState({ edit: h.get() });
     scheduleSave();
   });
-  video.setState({ openId: id, url: URL.createObjectURL(file), edit });
+  video.setState({ openId: id, edit });
 }
 
 export async function openClipFile(id: string) {
@@ -149,16 +146,15 @@ export async function openClipFile(id: string) {
 
 export function closeClip() {
   flushVideo();
-  const { url } = video.getState();
-  if (url) URL.revokeObjectURL(url);
   unsubscribe?.();
   history = null;
-  video.setState({ openId: null, url: null, edit: null });
+  video.setState({ openId: null, edit: null });
 }
 
 export async function removeClip(id: string) {
   if (video.getState().openId === id) closeClip();
   await deleteVideo(id);
+  forgetClipMedia(id);
   const poster = posterUrls.get(id);
   if (poster) URL.revokeObjectURL(poster);
   posterUrls.delete(id);

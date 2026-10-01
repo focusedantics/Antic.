@@ -4,58 +4,40 @@ import { registerShortcuts } from "@/app/shortcuts";
 import { toast } from "@/app/state";
 import { Dialog } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
-import { Slider } from "@/components/Slider";
-import { effectById, newEffect } from "@/core/effects/registry";
-import { demux } from "@/core/video/demux";
-import { exportVideo } from "@/core/video/export";
-import {
-  estimateBytes,
-  FRAME_RATES,
-  type FrameRate,
-  outputFrameRate,
-  outputSize,
-  MAX_BITRATE,
-  QUALITIES,
-  type Quality,
-  sanitizeEdit,
-  type Resolution,
-  RESOLUTIONS,
-  type VideoOutput,
-  videoBitrate,
-} from "@/core/video/model";
-import {
-  beginVideoGesture,
-  editVideo,
-  endVideoGesture,
-  flushVideo,
-  importVideos,
-  openClip,
-  openClipFile,
-  refreshClips,
-  removeClip,
-  video,
-  videoHistory,
-} from "@/core/video/session";
-import { track } from "@/lib/activity";
 import { getVideo } from "@/core/catalog/db";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
+import { exportEdit, losslessEncoder } from "@/core/video/export";
+import { loadClipMedia } from "@/core/video/media";
+import { type ExportFormat, FORMATS, outputSize, type Resolution, RESOLUTIONS, sanitizeEdit } from "@/core/video/model";
+import { editVideo, flushVideo, importVideos, openClip, refreshClips, removeClip, video, videoHistory } from "@/core/video/session";
 import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
-import { EffectParams } from "@/features/effects/EffectParams";
-import { openLooks } from "@/features/looks/LooksDialog";
-import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/EffectsBrowser";
+import { EffectsBrowserHost } from "@/features/effects/EffectsBrowser";
 import { formatBytes } from "@/features/library/format";
-import { formatTime, grabFrame, playback, seek, stepFrames, togglePlay } from "./playback";
-import { Player } from "./Player";
+import { openLooks } from "@/features/looks/LooksDialog";
+import "@/styles/video.css";
+import {
+  copySelected,
+  cutSelected,
+  deleteSelected,
+  duplicateSelected,
+  editor,
+  insertClip,
+  pasteAtPlayhead,
+  POOPISMS,
+  select,
+  splitAtPlayhead,
+  togglePoopism,
+} from "./actions";
+import { engine, player } from "./engine";
+import { formatClock } from "./format";
+import { PoopPanel, SegmentPanel, VideoEffectPanel } from "./Inspector";
+import { Timeline } from "./Timeline";
+import { Viewer } from "./Viewer";
 
 type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
 
-/** Facts about the open clip that only the file itself knows (read once when it opens). */
-type ClipInfo = { fps: number; bitsPerPixel: number; codec: string; hasAudio: boolean; audioNote: string | null; decodable: boolean | null };
-/** The open clip's info, for keyboard frame stepping. */
-const info = { current: null as ClipInfo | null };
-
-const canEncode = typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined";
+const canCodec = typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined";
 
 export function pickVideos() {
   const input = document.createElement("input");
@@ -73,35 +55,6 @@ export function pickVideos() {
   input.click();
 }
 
-function useClipInfo(openId: string | null) {
-  const [value, setValue] = useState<ClipInfo | null>(null);
-  useEffect(() => {
-    setValue(null);
-    if (!openId) return;
-    let live = true;
-    void track(
-      (async () => {
-        try {
-          const file = await openClipFile(openId);
-          if (!file) return;
-          const d = await demux(file);
-          const decodable = typeof VideoDecoder === "undefined" ? false : ((await VideoDecoder.isConfigSupported(d.video.config)).supported ?? false);
-          if (live) setValue({ fps: d.video.fps, bitsPerPixel: d.video.bitsPerPixel, codec: d.video.config.codec, hasAudio: !!d.audio, audioNote: d.audioNote, decodable });
-        } catch (error) {
-          if (live) setValue({ fps: 30, bitsPerPixel: 0, codec: "unknown", hasAudio: false, audioNote: error instanceof Error ? error.message : String(error), decodable: false });
-        }
-      })(),
-    );
-    return () => {
-      live = false;
-    };
-  }, [openId]);
-  useEffect(() => {
-    info.current = value;
-  }, [value]);
-  return value;
-}
-
 function ClipsPanel() {
   const clips = useStore(video, (s) => s.clips);
   const openId = useStore(video, (s) => s.openId);
@@ -115,18 +68,23 @@ function ClipsPanel() {
         </button>
       }
     >
-      {!clips.length && <p className="faint">Import MP4 or MOV clips to trim them, make them smaller and add effects. Your originals are never changed.</p>}
+      {!clips.length && <p className="faint">Import MP4 or MOV clips to cut, mix and poop them. Your originals are never changed.</p>}
       {clips.map((c) => (
-        <div key={c.id} className="row">
-          <button type="button" className="doc-card" aria-current={c.id === openId} onClick={() => void openClip(c.id)}>
+        <div key={c.id} className="row vid-clip">
+          <button type="button" className="doc-card" aria-current={c.id === openId} onClick={() => void openClip(c.id)} title="Open this clip's timeline">
             {c.poster ? <img src={c.poster} alt="" /> : <span className="ph" />}
             <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
               <span className="faint num" style={{ fontSize: 10 }}>
-                {formatTime(c.duration)} · {c.width}×{c.height} · {formatBytes(c.byteSize)}
+                {formatClock(c.duration)} · {c.width}×{c.height} · {formatBytes(c.byteSize)}
               </span>
             </span>
           </button>
+          {openId && (
+            <button type="button" className="btn ghost small" title="Insert this whole clip at the playhead (sentence mixing across sources)" aria-label={`Insert ${c.name} at the playhead`} onClick={() => insertClip(c.id, c.duration)}>
+              ＋
+            </button>
+          )}
           <button
             type="button"
             className="btn ghost small"
@@ -143,121 +101,46 @@ function ClipsPanel() {
   );
 }
 
-function TrimPanel() {
+/** Whether this browser can encode lossless VP9 (checked once). */
+let losslessSupport: Promise<boolean> | null = null;
+function useLosslessSupport() {
+  const [ok, setOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    losslessSupport ??= losslessEncoder(1280, 720, 30).then((e) => !!e);
+    void losslessSupport.then(setOk);
+  }, []);
+  return ok;
+}
+
+function OutputPanel({ onExport }: { onExport: () => void }) {
   const edit = useStore(video, (s) => s.edit)!;
   const clip = useStore(video, (s) => s.clips.find((c) => c.id === s.openId));
-  const time = useStore(playback, (s) => s.time);
-  const duration = clip?.duration ?? edit.trimEnd;
-  const set = (which: "start" | "end", t: number) =>
-    editVideo(which === "start" ? "Trim start" : "Trim end", (e) =>
-      which === "start" ? { ...e, trimStart: Math.max(0, Math.min(t, e.trimEnd - 0.1)) } : { ...e, trimEnd: Math.min(duration, Math.max(t, e.trimStart + 0.1)) },
-    );
-  return (
-    <Panel id="vid-trim" title="Trim">
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-        {(["start", "end"] as const).map((w) => (
-          <label key={w} className="field">
-            <span>{w === "start" ? "Start (s)" : "End (s)"}</span>
-            <input
-              className="input num"
-              type="number"
-              step={0.1}
-              min={0}
-              max={duration}
-              value={Number((w === "start" ? edit.trimStart : edit.trimEnd).toFixed(2))}
-              onKeyDown={(e) => e.stopPropagation()}
-              onChange={(e) => Number.isFinite(Number(e.target.value)) && set(w, Number(e.target.value))}
-            />
-          </label>
-        ))}
-      </div>
-      <div className="row wrap" style={{ marginTop: 6 }}>
-        <button type="button" className="btn small" title="Set the start to the playhead (I)" onClick={() => set("start", time)}>
-          Start at playhead
-        </button>
-        <button type="button" className="btn small" title="Set the end to the playhead (O)" onClick={() => set("end", time)}>
-          End at playhead
-        </button>
-        <button type="button" className="btn small ghost" onClick={() => editVideo("Reset trim", (e) => ({ ...e, trimStart: 0, trimEnd: duration }))}>
-          Reset
-        </button>
-      </div>
-      <p className="faint" style={{ fontSize: 10 }}>
-        Keeps {(edit.trimEnd - edit.trimStart).toFixed(1)} s of {duration.toFixed(1)} s. Drag the yellow handles on the timeline, or use I and O.
-      </p>
-    </Panel>
-  );
-}
-
-function chooseEffect(current: string | null) {
-  openEffectsBrowser({
-    mode: "custom",
-    current,
-    image: grabFrame,
-    onPick: (id) => editVideo(`Effect: ${effectById(id)?.name ?? id}`, (e) => ({ ...e, effect: newEffect(id), effectMix: e.effectMix || 1 })),
-  });
-}
-
-function EffectPanel() {
-  const edit = useStore(video, (s) => s.edit)!;
-  return (
-    <Panel id="vid-effect" title="Effect">
-      {!edit.effect ? (
-        <>
-          <p className="faint" style={{ marginTop: 0 }}>
-            Stylize every frame: ASCII, halftone, VHS, glitch, neon edges and 30+ more.
-          </p>
-          <button type="button" className="btn small" onClick={() => chooseEffect(null)}>
-            ✦ Add effect…
-          </button>
-        </>
-      ) : (
-        <>
-          <Slider
-            label="Strength"
-            value={Math.round(edit.effectMix * 100)}
-            min={0}
-            max={100}
-            defaultValue={100}
-            origin={0}
-            format={(v) => `${v}%`}
-            onGestureStart={() => beginVideoGesture("Effect strength")}
-            onGestureEnd={endVideoGesture}
-            onChange={(v) => editVideo("Effect strength", (e) => ({ ...e, effectMix: v / 100 }))}
-          />
-          <EffectParams
-            effect={edit.effect}
-            onParam={(key, label, value) => editVideo(label, (e) => (e.effect ? { ...e, effect: { ...e.effect, params: { ...e.effect.params, [key]: value } } } : e))}
-            onGestureStart={beginVideoGesture}
-            onGestureEnd={endVideoGesture}
-            onReset={(fresh) => editVideo("Reset effect", (e) => ({ ...e, effect: fresh }))}
-            onChangeEffect={() => chooseEffect(edit.effect?.id ?? null)}
-          />
-          <button type="button" className="btn small ghost danger" style={{ marginTop: 4 }} onClick={() => editVideo("Remove effect", (e) => ({ ...e, effect: null }))}>
-            Remove effect
-          </button>
-        </>
-      )}
-    </Panel>
-  );
-}
-
-function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExport: () => void }) {
-  const edit = useStore(video, (s) => s.edit)!;
-  const clip = useStore(video, (s) => s.clips.find((c) => c.id === s.openId));
+  const frames = useStore(player, (s) => s.frames);
+  const fps = useStore(player, (s) => s.fps);
+  const lossless = useLosslessSupport();
   if (!clip) return null;
   const o = edit.output;
-  const set = (label: string, patch: Partial<VideoOutput>) => editVideo(label, (e) => ({ ...e, output: { ...e.output, ...patch } }));
-  const fps = clipInfo?.fps ?? 30;
+  const format = FORMATS.find((f) => f.id === o.format)!;
   const size = outputSize(clip.width, clip.height, o.resolution);
-  const outFps = outputFrameRate(o, fps);
-  const sourceBpp = clipInfo?.bitsPerPixel ?? 0;
-  // Maximum quality with nothing to render and a trim from the start copies the original frames (see core/video/export.ts).
-  const copies = o.quality === "maximum" && !(edit.effect && edit.effectMix > 0) && size.width === clip.width && size.height === clip.height && outFps >= fps - 0.01 && edit.trimStart < 0.01;
-  const bytes = copies ? (clip.byteSize * (edit.trimEnd - edit.trimStart)) / Math.max(0.01, clip.duration) : estimateBytes(edit, clip.width, clip.height, fps, clipInfo?.hasAudio ?? true, sourceBpp);
-  const mbps = videoBitrate(o, size.width, size.height, outFps, sourceBpp) / 1e6;
+  const set = (label: string, patch: Partial<typeof o>) => editVideo(label, (e) => ({ ...e, output: { ...e.output, ...patch } }));
+  // Lossless VP9 of typical footage: roughly 0.6 bytes per pixel per frame.
+  const estimate = format.id === "mp4-h264" ? size.width * size.height * frames * 0.06 : size.width * size.height * frames * 0.6;
+  const unsupported = format.id !== "mp4-h264" && lossless === false;
   return (
     <Panel id="vid-output" title="Output">
+      <label className="field" style={{ marginBottom: 6 }}>
+        <span>Format</span>
+        <select className="input" value={o.format} onChange={(e) => set("Format", { format: e.target.value as ExportFormat })}>
+          {FORMATS.map((f) => (
+            <option key={f.id} value={f.id} disabled={f.id !== "mp4-h264" && lossless === false}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="faint" style={{ fontSize: 11, marginTop: 0 }}>
+        {format.detail}
+      </p>
       <label className="field" style={{ marginBottom: 6 }}>
         <span>Resolution</span>
         <select className="input" value={o.resolution} onChange={(e) => set("Resolution", { resolution: e.target.value as Resolution })}>
@@ -272,60 +155,21 @@ function OutputPanel({ clipInfo, onExport }: { clipInfo: ClipInfo | null; onExpo
           })}
         </select>
       </label>
-      <label className="field" style={{ marginBottom: 6 }}>
-        <span>
-          Quality <span className="faint num">· {mbps >= 10 ? Math.round(mbps) : mbps.toFixed(1)} Mb/s</span>
-        </span>
-        <select className="input" value={o.quality} onChange={(e) => set("Quality", { quality: e.target.value as Quality, bitrate: Math.round(mbps * 10) / 10 })}>
-          {QUALITIES.map((q) => (
-            <option key={q.id} value={q.id}>
-              {q.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {o.quality === "custom" && (
-        <Slider
-          label="Bitrate"
-          value={o.bitrate}
-          min={0.2}
-          max={MAX_BITRATE / 1e6}
-          step={0.1}
-          defaultValue={20}
-          origin={0.2}
-          format={(v) => `${v.toFixed(1)} Mb/s`}
-          onGestureStart={() => beginVideoGesture("Bitrate")}
-          onGestureEnd={endVideoGesture}
-          onChange={(v) => set("Bitrate", { bitrate: v })}
-        />
-      )}
-      <label className="field" style={{ marginBottom: 6 }}>
-        <span>Frame rate</span>
-        <select className="input" value={o.frameRate} onChange={(e) => set("Frame rate", { frameRate: e.target.value as FrameRate })}>
-          {FRAME_RATES.map((f) => (
-            <option key={f.id} value={f.id} disabled={f.id !== "original" && Number(f.id) > Math.round(fps)}>
-              {f.id === "original" ? `Original (${Math.round(fps * 100) / 100} fps)` : f.label}
-            </option>
-          ))}
-        </select>
-      </label>
       <label className="check" style={{ marginBottom: 6 }}>
-        <input type="checkbox" checked={o.audio} disabled={clipInfo ? !clipInfo.hasAudio : false} onChange={(e) => set(e.target.checked ? "Keep audio" : "Remove audio", { audio: e.target.checked })} /> Keep audio
+        <input type="checkbox" checked={o.audio} onChange={(e) => set(e.target.checked ? "Keep audio" : "Remove audio", { audio: e.target.checked })} /> Audio
       </label>
-      {clipInfo?.audioNote && <p className="faint" style={{ fontSize: 10 }}>{clipInfo.audioNote}</p>}
       <p className="dim num" style={{ margin: "6px 0" }}>
-        {size.width}×{size.height} · {Math.round(outFps * 100) / 100} fps · ≈ {formatBytes(bytes)}
-        <span className="faint"> (was {formatBytes(clip.byteSize)})</span>
+        {size.width}×{size.height} · {Math.round(fps * 100) / 100} fps · {frames} frames · {formatClock(frames / fps)} · ≈ {formatBytes(estimate)}
       </p>
-      {copies && (
-        <p className="faint" style={{ fontSize: 10 }}>
-          Lossless: the original frames are copied without re-encoding (unless you add a watermark).
+      {format.id !== "mp4-h264" && o.resolution === "original" && (
+        <p className="faint" style={{ fontSize: 11 }}>
+          Lossless: every frame you didn't treat comes out bit-identical to the original, and none are dropped.
         </p>
       )}
-      {!canEncode && <p className="faint">This browser can't encode video (WebCodecs). Use a recent Chrome, Edge or Safari to export.</p>}
-      {clipInfo?.decodable === false && canEncode && <p className="faint">This browser can't decode {clipInfo.codec} video, so it can't be exported here.</p>}
-      <button type="button" className="btn primary" style={{ width: "100%" }} disabled={!canEncode} onClick={onExport}>
-        Export MP4…
+      {unsupported && <p style={{ color: "var(--danger)", fontSize: 11 }}>This browser can't encode lossless VP9. Use Chrome, Edge or Firefox, or the Compatible format.</p>}
+      {!canCodec && <p className="faint">This browser can't encode video (WebCodecs). Use a recent Chrome, Edge or Firefox.</p>}
+      <button type="button" className="btn primary" style={{ width: "100%" }} disabled={!canCodec || unsupported || !frames} onClick={onExport}>
+        Export {format.extension.toUpperCase()}…
       </button>
     </Panel>
   );
@@ -338,7 +182,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
-  const [result, setResult] = useState<{ count: number; bytes: number } | null>(null);
+  const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => () => controllerRef.current?.abort(), []);
@@ -348,29 +192,37 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const run = async () => {
     rememberWatermark(watermark);
     flushVideo();
+    engine.pause();
     const controller = new AbortController();
     controllerRef.current = controller;
     const sink = new ExportSink(destination, `Focused videos (${chosen.length}).zip`);
     let count = 0;
     let bytes = 0;
+    let frames = 0;
+    let lossless = true;
+    let copied = true;
     setError(null);
     try {
+      const durations = new Map(clips.map((c) => [c.id, c.duration]));
       for (const [i, clip] of chosen.entries()) {
         const prefix = chosen.length > 1 ? `${i + 1}/${chosen.length} · ${clip.name} · ` : "";
         setProgress({ done: 0, total: 1, label: `${prefix}Reading video…` });
-        const file = await openClipFile(clip.id);
-        if (!file) throw new Error(`${clip.name}: the video file is missing.`);
+        const own = await loadClipMedia(clip.id);
+        if (!own) throw new Error(`${clip.name}: the video file is missing or can't be read.`);
         const state = video.getState();
-        const edit = clip.id === state.openId && state.edit ? state.edit : sanitizeEdit((await getVideo(clip.id))?.edit, clip.duration);
-        const blob = await exportVideo(file, edit, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark);
+        const edit = clip.id === state.openId && state.edit ? state.edit : sanitizeEdit((await getVideo(clip.id))?.edit, clip.duration, (id) => durations.get(id) ?? Infinity);
+        const out = await exportEdit(own, edit, loadClipMedia, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark);
         setProgress({ done: 1, total: 1, label: `${prefix}Saving…` });
-        await sink.add(`${clip.name}-edit.mp4`, blob);
+        await sink.add(`${clip.name}-edit.${out.extension}`, out.blob);
         count++;
-        bytes += blob.size;
+        bytes += out.blob.size;
+        frames += out.frames;
+        lossless &&= out.lossless;
+        copied &&= out.copied;
       }
       setProgress({ done: 1, total: 1, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
       await sink.finish();
-      setResult({ count, bytes });
+      setResult({ count, bytes, frames, lossless, copied });
       toast(`Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
     } catch (err) {
       if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
@@ -404,8 +256,8 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
             >
               {busy ? "Stop" : "Cancel"}
             </button>
-            <button type="button" className="btn primary" disabled={busy || !chosen.length || !canEncode} onClick={() => void run()}>
-              Export MP4{chosen.length > 1 ? ` × ${chosen.length}` : ""}
+            <button type="button" className="btn primary" disabled={busy || !chosen.length || !canCodec} onClick={() => void run()}>
+              Export{chosen.length > 1 ? ` × ${chosen.length}` : ""}
             </button>
           </>
         )
@@ -415,21 +267,22 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         <>
           <ProgressBar {...progress} />
           <p className="faint" style={{ fontSize: 10, margin: 0 }}>
-            Rendering happens on this device. Keep this tab open until it finishes.
+            Rendering happens on this device, every frame in order. Keep this tab open until it finishes.
           </p>
         </>
       )}
       {error && <p style={{ color: "var(--danger)", margin: 0 }}>{error}</p>}
       {result ? (
-        <p>
-          Saved {result.count} video{result.count === 1 ? "" : "s"} · {formatBytes(result.bytes)} · {describeDestination(destination)}
+        <p data-testid="export-result">
+          Saved {result.count} video{result.count === 1 ? "" : "s"} · {result.frames} frames, none dropped · {formatBytes(result.bytes)} · {describeDestination(destination)}
+          {result.copied ? " · original frames copied bit for bit" : result.lossless ? " · lossless" : ""}
         </p>
       ) : (
         !busy && (
           <>
             {clips.length > 1 && (
               <div className="field">
-                <span>Videos · {chosen.length} of {clips.length} (each with its own trim, effect and output settings)</span>
+                <span>Videos · {chosen.length} of {clips.length} (each with its own timeline and output settings)</span>
                 <div className="export-list">
                   {clips.map((c) => (
                     <label key={c.id}>
@@ -450,7 +303,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
                         {c.name}
                         {c.id === openId ? " (open)" : ""}
                       </span>
-                      <span className="faint num">{formatTime(c.duration)}</span>
+                      <span className="faint num">{formatClock(c.duration)}</span>
                     </label>
                   ))}
                 </div>
@@ -458,6 +311,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
             )}
             <DestinationPicker count={chosen.length} value={destination} onChange={setDestination} />
             <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={chosen[0]?.poster ?? null} />
+            {watermark.enabled && <p className="faint" style={{ fontSize: 11 }}>A watermark is drawn on every frame, so frames are no longer bit-identical to the original.</p>}
           </>
         )
       )}
@@ -478,8 +332,14 @@ function Toolbar({ onExport }: { onExport: () => void }) {
   }, [history]);
   return (
     <div className="toolbar" role="toolbar" aria-label="Video tools">
-      <button type="button" className="btn small" disabled={!edit} onClick={togglePlay} title="Play / pause (Space)">
-        Play / Pause
+      <button type="button" className="btn small" disabled={!edit} onClick={splitAtPlayhead} title="Cut the segment at the playhead (S)">
+        ✂ Split
+      </button>
+      <button type="button" className="btn small" disabled={!edit} onClick={duplicateSelected} title="Duplicate (Ctrl+D)">
+        Duplicate
+      </button>
+      <button type="button" className="btn small" disabled={!edit} onClick={deleteSelected} title="Delete (Delete)">
+        Delete
       </button>
       <span className="spacer" />
       <button type="button" className="btn small" disabled={!history?.status().canUndo} onClick={() => history?.undo()} title="Undo (Ctrl+Z)">
@@ -488,14 +348,11 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       <button type="button" className="btn small" disabled={!history?.status().canRedo} onClick={() => history?.redo()} title="Redo (Ctrl+Shift+Z)">
         Redo
       </button>
-      <button type="button" className="btn small" disabled={!edit} onClick={() => chooseEffect(edit?.effect?.id ?? null)}>
-        ✦ Effects
-      </button>
       <button type="button" className="btn small" disabled={!edit} onClick={() => openLooks({ kind: "video" })}>
         Looks…
       </button>
-      <button type="button" className="btn small primary" disabled={!edit || !canEncode} onClick={onExport} title="Export MP4 (Ctrl+Shift+E)">
-        Export MP4…
+      <button type="button" className="btn small primary" disabled={!edit || !canCodec} onClick={onExport} title="Export (Ctrl+Shift+E)">
+        Export…
       </button>
     </div>
   );
@@ -516,51 +373,91 @@ function videoShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
     openExport();
     return true;
   }
+  if (mod && key === "d") return duplicateSelected(), true;
+  if (mod && key === "c") return copySelected(), true;
+  if (mod && key === "x") return cutSelected(), true;
+  if (mod && key === "v") return pasteAtPlayhead(), true;
+  if (mod && key === "a") return select(edit.segments.map((s) => s.id)), true;
   if (mod) return false;
-  const t = playback.getState().time;
-  if (key === " ") {
-    togglePlay();
-    return true;
-  }
-  if (key === "i") {
-    editVideo("Trim start", (ed) => ({ ...ed, trimStart: Math.min(t, ed.trimEnd - 0.1) }));
-    return true;
-  }
-  if (key === "o") {
-    editVideo("Trim end", (ed) => ({ ...ed, trimEnd: Math.max(t, ed.trimStart + 0.1) }));
-    return true;
-  }
-  if (key === "arrowleft" || key === "arrowright") {
-    stepFrames((key === "arrowleft" ? -1 : 1) * (e.shiftKey ? 10 : 1), info.current?.fps ?? 30);
-    return true;
-  }
-  if (key === "home") {
-    seek(edit.trimStart);
-    return true;
-  }
-  if (key === "end") {
-    seek(edit.trimEnd);
-    return true;
+  const fps = player.getState().fps;
+  switch (key) {
+    case " ":
+    case "k":
+      if (key === "k") engine.pause();
+      else engine.toggle();
+      return true;
+    case "l":
+      engine.play();
+      return true;
+    case "arrowleft":
+    case "j":
+      engine.step(e.shiftKey || key === "j" ? -Math.round(fps) : -1);
+      return true;
+    case "arrowright":
+      engine.step(e.shiftKey ? Math.round(fps) : 1);
+      return true;
+    case "home":
+      engine.seek(0);
+      return true;
+    case "end":
+      engine.seek(player.getState().frames - 1);
+      return true;
+    case "s":
+      splitAtPlayhead();
+      return true;
+    case "delete":
+    case "backspace":
+      deleteSelected();
+      return true;
+    case "escape":
+      select([]);
+      return true;
+    case "r":
+      togglePoopism(POOPISMS.find((p) => p.id === "reverse")!);
+      return true;
+    case "t":
+      togglePoopism(POOPISMS.find((p) => p.id === "stutter")!);
+      return true;
+    case "=":
+    case "+":
+      editor.setState((s) => ({ zoom: (s.zoom ?? 40) * 1.5 }));
+      return true;
+    case "-":
+      editor.setState((s) => ({ zoom: s.zoom ? s.zoom / 1.5 : null }));
+      return true;
   }
   return false;
 }
 
 export default function VideoWorkspace({ Shell }: { Shell: ComponentType<ShellProps> }) {
   const openId = useStore(video, (s) => s.openId);
-  const url = useStore(video, (s) => s.url);
   const edit = useStore(video, (s) => s.edit);
-  const clip = useStore(video, (s) => s.clips.find((c) => c.id === s.openId));
   const clips = useStore(video, (s) => s.clips);
   const [exporting, setExporting] = useState(false);
-  const clipInfo = useClipInfo(openId);
+  const openedRef = useRef<string | null>(null);
+
   useEffect(() => {
     void refreshClips().then(() => {
       const { clips: list, openId: current } = video.getState();
       if (!current && list[0]) void openClip(list[0].id);
     });
-    return () => flushVideo();
+    return () => {
+      flushVideo();
+      engine.close();
+      openedRef.current = null;
+    };
   }, []);
+  // Keep the engine on the open clip's timeline.
+  useEffect(() => {
+    if (!openId || !edit) return;
+    if (openedRef.current !== openId) {
+      openedRef.current = openId;
+      select([]);
+      void engine.open(openId, edit);
+    } else void engine.setEdit(edit);
+  }, [openId, edit]);
   useEffect(() => registerShortcuts("video", (e) => videoShortcuts(e, () => setExporting(true))), []);
+
   return (
     <>
       <Shell
@@ -568,12 +465,15 @@ export default function VideoWorkspace({ Shell }: { Shell: ComponentType<ShellPr
         center={
           <>
             <Toolbar onExport={() => setExporting(true)} />
-            {url && edit && clip ? (
-              <Player key={url} url={url} edit={edit} duration={clip.duration} />
+            {openId && edit ? (
+              <div className="vid-editor">
+                <Viewer />
+                <Timeline />
+              </div>
             ) : (
               <div className="empty-state">
                 <h2>Video</h2>
-                <p>Trim clips, lower their resolution and file size, and add any of the effects. Everything runs on this device.</p>
+                <p>Cut, rearrange and poop your clips: stutter, reverse, stare-downs, pitch, ear rape, sus and more, with lossless export. Everything runs on this device.</p>
                 <div className="row" style={{ justifyContent: "center" }}>
                   <button type="button" className="btn primary" onClick={pickVideos}>
                     Import Video…
@@ -587,11 +487,12 @@ export default function VideoWorkspace({ Shell }: { Shell: ComponentType<ShellPr
           </>
         }
         right={
-          edit && clip ? (
+          edit ? (
             <>
-              <TrimPanel />
-              <EffectPanel />
-              <OutputPanel clipInfo={clipInfo} onExport={() => setExporting(true)} />
+              <PoopPanel />
+              <SegmentPanel />
+              <VideoEffectPanel />
+              <OutputPanel onExport={() => setExporting(true)} />
             </>
           ) : null
         }

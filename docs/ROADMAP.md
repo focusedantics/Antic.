@@ -19,7 +19,7 @@ the result survives a reload.
 | 10 | PSD interoperability, advanced export | Planned |
 | — | Effects (48 GPU stylizations, 19 animated, effect layers, browser) | Done (see below) |
 | — | Animated export: GIF, MP4 loop, still frame at a chosen time | Done (see below) |
-| — | Video: MP4 trim, quality, frame rate, effects, export | Done (see below) |
+| — | Video: YTP editor (segments, scrubbing, audio treatments), lossless export | Done (see below) |
 
 ## Stage 1 — Library
 
@@ -190,34 +190,44 @@ Known limitations:
 Done:
 - Video workspace with a clip list stored locally (IndexedDB `videos` and `videoFiles`).
   MP4, M4V and MOV files dropped anywhere, or picked through Import, are routed there.
-- Player: a GPU preview with the effect applied, play/pause, frame stepping, a frame strip
-  timeline with draggable, keyboard-accessible trim handles, and a playhead that loops
-  inside the trim range.
-- An edit is data (`core/video/model.ts`): trim, effect and strength, and output settings
-  (resolution 360p–4K or the original size, quality, frame rate, keep audio). Quality
-  defaults to **Maximum**. An untrimmed clip (or one trimmed from a keyframe) with nothing
-  to render is copied losslessly. Otherwise frames are encoded at near-lossless constant
-  quality where the browser supports it, without an RGB round trip when there is nothing to
-  draw. High, Medium and Low trade quality for size, following the original's bitrate, and
-  a custom bitrate goes up to 200 Mb/s. Edits saved on the old default (Medium) move to
-  Maximum.
-- Preview without an effect is the browser's own playback. With an effect, frames are
-  decoded with WebCodecs and rendered on the GPU. It has undo/redo, is saved automatically and survives a reload.
-- Export (`core/video/export.ts`) demuxes the file with mp4box.js and decodes it with
-  WebCodecs from the keyframe before the trim start. Each frame is re-rendered on the GPU
-  (rotation, scaling, effect) and re-encoded as H.264, falling back to HEVC, VP9 or AV1
-  when the browser has no H.264 encoder. mp4-muxer writes the MP4. AAC and Opus audio
-  inside the trim range are copied without re-encoding. A progress dialog shows frames
-  done and has Cancel. The file size is estimated before export.
+- Editor with a frame-accurate viewer and a zoomable timeline: thumbnails, a soundtrack
+  waveform, and a ruler and waveform you can scrub, with sound. It has play, pause and
+  loop, frame stepping, J/K/L, and Home/End.
+- Segments: split at the playhead (S), delete, duplicate, copy/cut/paste, drag to
+  reorder, trim either edge, and insert any other imported clip at the playhead. This
+  makes sentence mixing across sources possible.
+- Per-segment YTP treatments, each one click ("poopisms") or a fine slider:
+  - Timing: stutter, reverse, dance (ping-pong), stare down (freeze and zoom), speed
+    (chipmunk / slow-mo, or pitch-preserving).
+  - Sound: pitch up/down, ear rape, sus (harmonizer), echo, reverb, chorus, vibrato,
+    bitcrush, volume and mute.
+  - Picture: mirror, flip, invert, hue and rainbow, zoom, shake, deep fry, and any
+    library effect.
+  - Generators: random poop (YTP+ style random treatments) and chop & shuffle (random
+    sentence mixing).
+- A whole-video effect from the library, also saved and applied by Looks.
+- Export with no dropped frames, checked at the end:
+  - Lossless master (MKV): lossless VP9 plus uncompressed audio.
+  - Lossless video (MP4): lossless VP9 plus AAC 320k / Opus 510k.
+  - Compatible (MP4, H.264, near-lossless).
+  - Untreated frames come out bit-identical to the source. An untouched clip exported as
+    MP4 is copied sample for sample.
+- Edits have undo/redo, save automatically, survive a reload, and older trims migrate.
 
 Known limitations:
-- Needs WebCodecs: current Chrome, Edge and Safari; Firefox 130+ for most codecs.
-  HEVC (the iPhone default) decodes only where the browser and OS support it.
-- The file is read into memory for export. Clips of a few hundred MB are fine; very
-  long 4K recordings may run out of memory.
-- Audio other than AAC or Opus (for example, PCM in some camera MOVs) is dropped with a
-  notice. There is no audio re-encoding or volume control.
-- One clip at a time: there is no multi-clip timeline, no transitions and no speed change.
+- Needs WebCodecs: current Chrome, Edge and Firefox (lossless VP9 encoding), and Safari
+  for the Compatible format. HEVC (the iPhone default) decodes only where the browser and
+  OS support it.
+- Lossless files are large (around 0.6 bytes per pixel per frame). The Compatible format
+  is for sharing.
+- The output frame rate is the clip's average rate. Variable-frame-rate phone clips play
+  each frame for an equal time (none are dropped), so their timing can shift by a few
+  milliseconds.
+- The preview shows the last decoded frame if decoding falls behind on a slow machine.
+  Exports always render every frame.
+- One video track: there are no overlays, picture-in-picture or transitions yet. Sound
+  is one track rendered from the segments, so there is no separate music track yet.
+- The file is read into memory for export. Very long 4K recordings may run out of memory.
 
 ## Looks
 

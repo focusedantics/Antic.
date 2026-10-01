@@ -45,6 +45,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "utif2": "4.1.0",
+    "webm-muxer": "5.1.4",
     "zustand": "5.0.15"
   },
   "devDependencies": {

@@ -1,0 +1,46 @@
+/* Video workspace (loaded with the Video tab only). */
+.vid-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0d0d0d; }
+
+/* Viewer */
+.vv { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
+.vv-stage { position: relative; flex: 1; min-height: 120px; overflow: hidden; }
+.vv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+.vv-status {
+  position: absolute; top: 8px; right: 10px; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+  color: var(--text); background: rgb(0 0 0 / 0.6); pointer-events: none;
+}
+.vv-transport { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel); }
+.vv-transport .icon { min-width: 30px; }
+.vv-time { min-width: 140px; margin-left: 6px; }
+
+/* Timeline */
+.vt { flex: none; border-top: 1px solid var(--line); background: var(--panel); }
+.vt-scroll { overflow-x: auto; overflow-y: hidden; position: relative; padding-bottom: 2px; }
+.vt-content { position: relative; user-select: none; touch-action: none; }
+.vt-ruler { position: relative; border-bottom: 1px solid var(--line); cursor: ew-resize; background: var(--panel-2); }
+.vt-tick { position: absolute; top: 0; bottom: 0; padding-left: 4px; border-left: 1px solid var(--line); font-size: 10px; line-height: 22px; color: var(--text-dim); font-variant-numeric: tabular-nums; pointer-events: none; }
+.vt-track { position: relative; background: #111; }
+.vt-canvas { position: absolute; top: 0; pointer-events: none; }
+.vt-wave { position: relative; background: #0b0f0d; border-top: 1px solid var(--line); cursor: ew-resize; }
+.vt-seg {
+  position: absolute; top: 2px; bottom: 2px; box-sizing: border-box; border: 2px solid; border-radius: 5px;
+  background: rgb(255 255 255 / 0.04); overflow: hidden; cursor: grab;
+}
+.vt-seg[aria-selected="true"] { background: rgb(255 214 102 / 0.18); box-shadow: inset 0 0 0 2px var(--accent); }
+.vt-seg-label { position: absolute; left: 0; top: 0; padding: 0 5px; font-size: 10px; font-weight: 700; color: #fff; border-bottom-right-radius: 4px; }
+.vt-badges {
+  position: absolute; left: 22px; right: 8px; top: 1px; font-size: 9px; font-weight: 600; letter-spacing: 0.02em;
+  color: #ffe7a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px #000;
+}
+.vt-handle { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; background: transparent; }
+.vt-handle:hover { background: rgb(255 214 102 / 0.55); }
+.vt-handle.start { left: 0; }
+.vt-handle.end { right: 0; }
+.vt-drop { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.vt-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ff4d4d; box-shadow: 0 0 4px #000; pointer-events: none; }
+.vt-playhead::before { content: ""; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: #ff4d4d; }
+
+/* Inspector */
+.poop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.poop-grid .btn { justify-content: center; }
+.vid-clip { gap: 2px; }

@@ -33,10 +33,13 @@ one asset system and one effects library:
 - **Export**: progress bars; pick several photos, compositions or videos; save to
   Downloads, one ZIP or a folder on your computer (Chrome/Edge); add a text watermark with font, size, opacity, color, shadow and
   one of nine positions, or tile it across the image.
-- **Video**: import MP4/MOV clips; trim with handles on a frame strip; export at the
-  original's quality by default, or lower the resolution, quality (bitrate) and frame rate; drop or keep the audio; apply any effect
-  with a strength control; and export a new MP4 with a size estimate. Decoding, effects
-  and encoding all run on your device with WebCodecs and the GPU.
+- **Video**: a YouTube Poop editor. Scrub frame by frame with sound, then cut, rearrange
+  and mix clips. Treat each piece with stutter, reverse, dance, stare-down, speed and
+  pitch, ear rape, sus, echo, reverb, chorus, vibrato, bitcrush, mirror, invert, rainbow,
+  zoom, shake, deep fry or any effect, or let random poop and chop & shuffle do it. Export
+  a truly lossless MKV or MP4 (untreated frames bit-identical to the source) or a
+  compatible H.264 MP4, with no dropped frames. Everything runs on your device with
+  WebCodecs, Web Audio and the GPU.
 
 A photo flows through all three without being flattened. Import a RAW, develop it,
 remove its background with the local AI, place it over another photo, add a gradient,
@@ -75,7 +78,7 @@ with import-by-copy and download-based export.
 | Everywhere | **G** Library grid · **E** Loupe · **N** Survey · **Shift+C** Compare · **D** Develop · **C** Composite · **←/→** previous/next photo · **P/X/U** pick/reject/unflag · **6–9** color labels · **Tab** hide panels · **Shift+F** filmstrip |
 | Library | **0–5** rating · **Ctrl+A** select all · **Ctrl+G** stack · **Delete** remove |
 | Develop | **1** fit · **2** 100 % · **3** 200 % · **5 / Y** cycle before/after · **\\** toggle before · **J** clipping · **R** crop · **M** masks · **B** brush mask · **Q** heal · **W** white balance selector · **Shift+U** auto white balance · **[ ]** brush size · **O** mask overlay · **Space** pan · **Ctrl+Z / Ctrl+Shift+Z** undo/redo · **Ctrl+Shift+C / V** copy/paste settings · **Ctrl+Shift+E** export |
-| Video | **Space** play/pause · **I / O** set trim start/end at the playhead · **← / →** step a frame (Shift ×10) · **Home / End** jump to trim start/end · **Ctrl+Z** undo · **Ctrl+Shift+E** export |
+| Video | **Space** play/pause · **J / K / L** back 1 s / stop / play · **← / →** step a frame (Shift: 1 s) · **Home / End** start/end · **S** split · **R** reverse · **T** stutter · **Delete** delete segment · **Ctrl+D** duplicate · **Ctrl+C / X / V** copy, cut, paste at the playhead · **Ctrl+A** select all · **+ / −** zoom timeline (or Ctrl+scroll) · **Ctrl+Z** undo · **Ctrl+Shift+E** export |
 | Library | **Ctrl+Shift+E** export the selected photos |
 | Composite | **Shift+E** effects browser · **V** move · **1** fit · **2** 100 % · **arrows** nudge (Shift ×10) · **Ctrl+J** duplicate · **Ctrl+G / Ctrl+Shift+G** group/ungroup · **Ctrl+Alt+G** clipping mask · **Ctrl+[ ]** arrange · **Ctrl+;** guides · **Delete** delete layer · **Ctrl+Z** undo |
 

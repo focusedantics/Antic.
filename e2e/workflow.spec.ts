@@ -140,46 +140,6 @@ test("effects: browse, apply, edit, swap and export an effect layer", async ({ p
   expect(download.suggestedFilename()).toMatch(/effects\.png$/);
 });
 
-test("video: import an MP4, trim, add an effect, lower quality and export", async ({ page }) => {
-  await freshLibrary(page);
-  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
-  await chooser.setFiles("tests/fixtures/clip.mp4");
-  // Videos open in the Video workspace.
-  await expect(page.locator(".vid-canvas")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".doc-card")).toContainText("clip");
-  const start = page.getByRole("slider", { name: "Trim start" });
-  await start.focus();
-  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight");
-  await expect(start).toHaveAttribute("aria-valuenow", "0.5");
-  await page.getByRole("button", { name: "✦ Add effect…" }).click();
-  await expect(page.locator(".fx-thumb img").first()).toBeVisible({ timeout: 60_000 });
-  await page.getByLabel("Search effects").fill("halftone");
-  await page.locator(".fx-card", { hasText: "CMYK Print" }).click();
-  await expect(page.locator(".side.right")).toContainText("CMYK Print");
-  await page.getByLabel("Quality").selectOption("low");
-  await page.getByLabel("Frame rate").selectOption("15");
-  await page.getByRole("button", { name: "Export MP4…" }).first().click();
-  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
-  expect(download.suggestedFilename()).toBe("clip-edit.mp4");
-  await expect(page.getByRole("dialog")).toContainText("Saved");
-  // 1.5 s kept at 15 fps: every frame is there (encoders starved of bits drop frames).
-  expect(mp4Frames(readFileSync((await download.path())!))).toBeGreaterThanOrEqual(22);
-  await page.getByRole("button", { name: "Done" }).click();
-  // Maximum quality at the original frame rate keeps all 45 frames of the 30 fps source.
-  await page.getByLabel("Quality").selectOption("maximum");
-  await page.getByLabel("Frame rate").selectOption("original");
-  await page.getByRole("button", { name: "Export MP4…" }).first().click();
-  const [full] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
-  expect(mp4Frames(readFileSync((await full.path())!))).toBe(45);
-  await page.getByRole("button", { name: "Done" }).click();
-  await page.getByLabel("Quality").selectOption("low");
-  // The edit survives a reload.
-  await page.reload();
-  await page.getByRole("button", { name: /^Video/ }).click();
-  await expect(page.getByRole("slider", { name: "Trim start" })).toHaveAttribute("aria-valuenow", "0.5", { timeout: 30_000 });
-  await expect(page.locator(".side.right")).toContainText("CMYK Print");
-});
-
 test("looks: save a composition's effects as a look, apply it to other photos, batch export with a watermark", async ({ page }) => {
   await freshLibrary(page);
   await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape"), await makeImage(page, "subject.jpg", "subject")]);
@@ -216,18 +176,6 @@ test("looks: save a composition's effects as a look, apply it to other photos, b
   const [zipFile] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export 2" }).click()]);
   expect(zipFile.suggestedFilename()).toBe("Focused export (2 photos).zip");
 });
-
-/** Number of video frames (samples) in an MP4. */
-function mp4Frames(bytes: Buffer): number {
-  const file = createFile();
-  let frames = -1;
-  file.onReady = (info) => {
-    frames = info.videoTracks[0]?.nb_samples ?? 0;
-  };
-  file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 0));
-  file.flush();
-  return frames;
-}
 
 /** Frame count and a digest of every video sample's bytes (equal digests = identical frames). */
 function mp4Samples(bytes: Buffer): { frames: number; digest: number } {
@@ -334,43 +282,6 @@ test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still f
   expect(png.subarray(1, 4).toString("latin1")).toBe("PNG");
 });
 
-test("video: playback moves, natively without an effect and rendered with one (even when the <video> hands back stale frames)", async ({ page }) => {
-  await freshLibrary(page);
-  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
-  await chooser.setFiles("tests/fixtures/clip.mp4");
-  const stage = page.locator(".vid-stage");
-  await expect(page.locator(".vid-canvas")).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(1000);
-  const distinctWhilePlaying = async () => {
-    await page.keyboard.press("Space");
-    const seen = new Set<string>();
-    const start = Date.now();
-    while (Date.now() - start < 1200) seen.add(createHash("md5").update(await stage.screenshot()).digest("hex"));
-    await page.keyboard.press("Space");
-    return seen.size;
-  };
-  // No effect: the browser's own video is on screen.
-  await expect(stage).toHaveClass(/native/);
-  expect(await distinctWhilePlaying()).toBeGreaterThanOrEqual(3);
-
-  // With an effect the canvas renders every frame. Reproduce browsers where frame
-  // callbacks stall and a playing <video> keeps handing back the same frame.
-  await page.getByRole("button", { name: "✦ Add effect…" }).click();
-  await page.getByLabel("Search effects").fill("halftone");
-  await page.locator(".fx-card", { hasText: "CMYK Print" }).click();
-  await expect(stage).not.toHaveClass(/native/);
-  await page.evaluate(() => {
-    const original = OffscreenCanvasRenderingContext2D.prototype.drawImage;
-    OffscreenCanvasRenderingContext2D.prototype.drawImage = function (this: OffscreenCanvasRenderingContext2D, ...args: unknown[]) {
-      const source = args[0];
-      if (source instanceof HTMLVideoElement && !source.paused) return;
-      return (original as (...a: unknown[]) => void).apply(this, args);
-    } as typeof original;
-    for (const v of document.querySelectorAll("video")) Object.assign(v, { requestVideoFrameCallback: () => 0 });
-  });
-  expect(await distinctWhilePlaying()).toBeGreaterThanOrEqual(3);
-});
-
 test("text: bundled fonts and animated text export as a GIF", async ({ page }) => {
   await freshLibrary(page);
   await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
@@ -393,14 +304,132 @@ test("text: bundled fonts and animated text export as a GIF", async ({ page }) =
   expect(gifFrames(gif)).toBe(45);
 });
 
-test("video: an untrimmed export at maximum quality copies the original frames bit for bit", async ({ page }) => {
+/** Imports the test clip and waits for the video editor. */
+async function openTestClip(page: Page) {
   await freshLibrary(page);
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
   await chooser.setFiles("tests/fixtures/clip.mp4");
-  await expect(page.locator(".vid-canvas")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByLabel("Quality")).toHaveValue("maximum");
-  await page.getByRole("button", { name: "Export MP4…" }).first().click();
-  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 90_000 }), page.getByRole("dialog").getByRole("button", { name: "Export MP4", exact: true }).click()]);
-  const out = mp4Samples(readFileSync((await download.path())!));
-  expect(out).toEqual(mp4Samples(readFileSync("tests/fixtures/clip.mp4")));
+  await expect(page.getByTestId("viewer")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("segment")).toHaveCount(1);
+  await expect(page.getByTestId("timecode")).toHaveText("0:00.00 / 0:02.00");
+}
+
+/** Decodes MP4 video tracks in the page and counts frames whose YUV planes are identical. */
+async function identicalFrames(page: Page, a: Buffer, b: Buffer) {
+  return page.evaluate(
+    async ([x, y]) => {
+      // Loaded from the dev server inside the page.
+      const path = "/src/core/video/demux.ts";
+      type Demux = (file: Blob) => Promise<{ video: { config: VideoDecoderConfig; track: { timescale: number }; samples: { is_sync: boolean; cts: number; data?: Uint8Array }[] } }>;
+      const { demux } = (await import(/* @vite-ignore */ path)) as { demux: Demux };
+      const decodeAll = async (b64: string) => {
+        const d = await demux(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))]));
+        const v = d.video;
+        const out: { ts: number; data: Uint8Array }[] = [];
+        const pending: Promise<void>[] = [];
+        const dec = new VideoDecoder({
+          output: (f) => {
+            const buf = new Uint8Array(f.allocationSize());
+            pending.push(f.copyTo(buf).then(() => (out.push({ ts: f.timestamp, data: buf }), f.close())));
+          },
+          error: (e) => console.error(e),
+        });
+        dec.configure(v.config);
+        for (const s of v.samples) dec.decode(new EncodedVideoChunk({ type: s.is_sync ? "key" : "delta", timestamp: Math.round((s.cts / v.track.timescale) * 1e6), data: s.data! }));
+        await dec.flush();
+        await Promise.all(pending);
+        return out.sort((p, q) => p.ts - q.ts);
+      };
+      const [fa, fb] = [await decodeAll(x), await decodeAll(y)];
+      let same = 0;
+      for (let i = 0; i < Math.min(fa.length, fb.length); i++) if (fa[i].data.length === fb[i].data.length && fa[i].data.every((v, k) => v === fb[i].data[k])) same++;
+      return { a: fa.length, b: fb.length, same };
+    },
+    [a.toString("base64"), b.toString("base64")],
+  );
+}
+
+async function exportVideo(page: Page) {
+  await page.getByRole("button", { name: "Export…" }).click();
+  const dialog = page.getByRole("dialog");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+  await expect(dialog.getByTestId("export-result")).toBeVisible();
+  const result = (await dialog.getByTestId("export-result").textContent()) ?? "";
+  await dialog.getByRole("button", { name: "Done" }).click();
+  return { name: download.suggestedFilename(), bytes: readFileSync((await download.path())!), result };
+}
+
+test("video: scrub, cut and poop a clip, export a lossless MKV with every frame", async ({ page }) => {
+  await openTestClip(page);
+  // Scrub: drag along the ruler.
+  const ruler = page.getByRole("slider", { name: "Playhead" });
+  const box = (await ruler.boundingBox())!;
+  await page.mouse.move(box.x + 20, box.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.4, box.y + 8, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByTestId("timecode")).not.toHaveText("0:00.00 / 0:02.00");
+  // Play moves the playhead.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(600);
+  await page.keyboard.press("Space");
+  await expect(page.getByTestId("timecode")).not.toHaveText("0:00.00 / 0:02.00");
+  // Cut at exactly one second (frame 30), then stutter and reverse the second half.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.getByTestId("timecode")).toHaveText("0:01.00 / 0:02.00");
+  await page.keyboard.press("s");
+  await expect(page.getByTestId("segment")).toHaveCount(2);
+  await page.getByRole("button", { name: "Stutter", exact: true }).click();
+  await page.getByRole("button", { name: "Reverse", exact: true }).click();
+  await expect(page.getByTestId("segment").nth(1)).toContainText("REV · STUT×4");
+  // 60 frames + 3 repeats of a 4-frame stutter.
+  await expect(page.getByText("frame 31 of 72")).toBeVisible();
+  const out = await exportVideo(page);
+  expect(out.name).toBe("clip-edit.mkv");
+  expect(out.result).toContain("72 frames, none dropped");
+  expect([...out.bytes.subarray(0, 4)]).toEqual([0x1a, 0x45, 0xdf, 0xa3]); // EBML (Matroska)
+  // The timeline survives a reload.
+  await page.waitForTimeout(800);
+  await page.reload();
+  await page.getByRole("button", { name: /^Video/ }).click();
+  await expect(page.getByTestId("segment")).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.getByTestId("segment").nth(1)).toContainText("REV · STUT×4");
 });
+
+test("video: lossless MP4 frames are bit-identical to the source, and an untouched clip is copied", async ({ page }) => {
+  await openTestClip(page);
+  const source = readFileSync("tests/fixtures/clip.mp4");
+  // A cut timeline, re-encoded losslessly: every frame decodes to exactly the source's YUV.
+  await page.getByLabel("Format").selectOption("mp4-lossless");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("s");
+  await expect(page.getByTestId("segment")).toHaveCount(2);
+  const cut = await exportVideo(page);
+  expect(cut.name).toBe("clip-edit.mp4");
+  expect(cut.result).toContain("60 frames, none dropped");
+  expect(cut.result).toContain("lossless");
+  expect(await identicalFrames(page, source, cut.bytes)).toEqual({ a: 60, b: 60, same: 60 });
+  // Undo the cut: an untouched clip is copied sample for sample.
+  await page.keyboard.press("Control+z");
+  await expect(page.getByTestId("segment")).toHaveCount(1);
+  const copy = await exportVideo(page);
+  expect(copy.result).toContain("copied bit for bit");
+  expect(mp4Samples(copy.bytes)).toEqual(mp4Samples(source));
+});
+
+test("video: reversed and stuttered playback moves on screen", async ({ page }) => {
+  await openTestClip(page);
+  await page.getByRole("button", { name: "Reverse", exact: true }).click();
+  await page.getByRole("button", { name: "Stutter", exact: true }).click();
+  await expect(page.getByTestId("segment").first()).toContainText("REV");
+  const viewer = page.getByTestId("viewer");
+  await page.keyboard.press("Space");
+  const seen = new Set<string>();
+  const start = Date.now();
+  while (Date.now() - start < 1500) seen.add(createHash("md5").update(await viewer.screenshot()).digest("hex"));
+  await page.keyboard.press("Space");
+  expect(seen.size).toBeGreaterThanOrEqual(3);
+});
+
