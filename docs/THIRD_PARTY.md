@@ -52,6 +52,7 @@ vite (MIT), @vitejs/plugin-react (MIT), typescript (Apache-2.0), vitest (MIT),
 | OpenLight | MIT | Oklab-based color mixer approach and hue anchor angles | `src/core/gpu/shaders/mixer.glsl.ts` |
 | Björn Ottosson, Oklab | Public domain | Oklab matrices | shaders |
 | [Originkit](https://www.originkit.dev/) "Ribbon Glow 2" | MIT | Ribbon glow field and finish shaders, pointer swirl; reworked as a class with per-workspace looks | `src/features/backdrop/ribbon.ts` |
+| [Originkit](https://www.originkit.dev/) "Magic Marble" | MIT | Marble ray march (pigment slices accumulated along the view ray), palette steps, drag to spin and click to change colour; rewritten in plain WebGL2 with procedural noise and studio lighting, plus a floating preview card | `src/features/export/marble.ts` |
 | [Vercel agent-skills](https://github.com/vercel-labs/agent-skills) | MIT | Agent skills vendored into `.claude/skills/` | `.claude/skills/` |
 
 ## Effects
@@ -73,6 +74,9 @@ are drawn at runtime with the platform's monospace font, so no font files are bu
 - **WebSAM**, **Maskify**, **AlphaVeil** (no license files) — worker-based
   segmentation, SAM prompt handling, model catalog and GPU/WASM fallback. Ideas only.
 - **Transformers.js** (Apache-2.0) — used as a dependency.
+- **magic-marble-tutorial** (Matt Rossman), which the Originkit marble builds on — the
+  volume-slice technique. Its noise textures and the HDRI are not used: Focused makes its
+  noise on the CPU and lights the marble with a procedural studio, so nothing is fetched.
 - **liquid-glass-js** (dashersw, MIT), **liquid-logo** (collidingScopes, MIT) and
   **shadergradient** (ruucm, MIT) — the looks of edge refraction with rim light and
   frost, flowing metal over a shape, and noise-driven colour flow. Liquid Glass, Glass

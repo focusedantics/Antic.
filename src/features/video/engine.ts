@@ -418,6 +418,16 @@ class Engine {
     this.seek(player.getState().frame + frames);
   }
 
+  /** Output frame 0 as a new small bitmap (the export marble's preview), from the timeline thumbnails. */
+  async firstFrame(): Promise<ImageBitmap | null> {
+    const plan = this.plan;
+    if (!plan?.frames) return null;
+    const ref = frameAt(plan, 0, this.infoOf);
+    if (!ref) return null;
+    const bitmap = await (this.thumbs.get(ref.clip) ?? this.previews.get(ref.clip))?.get(ref.frame);
+    return bitmap ? createImageBitmap(bitmap) : null;
+  }
+
   /** The current preview frame as a bitmap (effect browser previews). */
   async grab(): Promise<ImageBitmap | null> {
     const plan = this.plan;

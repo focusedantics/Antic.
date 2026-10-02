@@ -324,6 +324,21 @@ selections again for AI mask components, and builds compositions through
 with fflate (store only), or a directory handle. Watermarks are drawn with Canvas 2D after readback (photos and compositions) or uploaded
 once as an overlay texture (video frames).
 
+## Export marble (`features/export/marble.ts`)
+
+While a photo, composition or video export runs, the shared `ProgressBar` shows
+`ExportMarble` above the bar: a glass marble ray-marched in its own small WebGL2
+canvas (adapted from Originkit's Magic Marble, MIT). Pigment is a 3D value-noise
+texture made on the CPU and sliced along each refracted ray; a card with a preview of
+what is being exported floats inside, facing the viewer. Each dialog passes an
+`ExportPreview` (`key` + `load`): photos use the library thumbnail of the photo being
+exported; compositions their saved thumbnail, rendered at time 0 (the first frame of a
+GIF or MP4); video frame 0 of the edit (from the timeline thumbnails for the open clip,
+else decoded by a muted `<video>`). Previews are shrunk to 192 px before upload. The
+marble renders at most 30 fps (12 on software GL), holds still under reduced motion,
+and frees its context when the export ends. It is decorative (`aria-hidden`); the bar
+and its label carry the progress.
+
 ## Reading pixels back
 
 Every image that leaves the GPU goes through `Gpu.readImage`: exports, thumbnails,

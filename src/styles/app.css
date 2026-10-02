@@ -472,3 +472,10 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .param-group-head > span:first-child { width: 10px; color: var(--text-faint); font-family: var(--mono); }
 .param-group-head .badge { margin-left: auto; }
 .param-group-body { padding-left: 2px; }
+
+/* ─── Export marble (above the progress bar while exporting) ─────────────── */
+.export-marble {
+  position: relative; width: 184px; height: 184px; margin: 2px auto 10px;
+  background: radial-gradient(closest-side at 50% 92%, rgb(0 0 0 / 0.45), transparent 70%) no-repeat 50% 100% / 70% 18%;
+}
+.marble-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }

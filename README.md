@@ -32,7 +32,8 @@ one asset system and one effects library:
   and adjustment layers, and video effects. Apply it to many photos at once, to a
   composition or to a video, and share it as a `.focused` file. AI masks (subject, sky,
   people, objects) are detected again on each photo.
-- **Export**: progress bars; pick several photos, compositions or videos; save to
+- **Export**: progress bars with a glass marble that holds a preview of what is being
+  exported; pick several photos, compositions or videos; save to
   Downloads, one ZIP or a folder on your computer (Chrome/Edge); add a text watermark with font, size, opacity, color, shadow and
   one of nine positions, or tile it across the image.
 - **Video**: a YouTube Poop editor. Scrub frame by frame with sound, then cut, rearrange

@@ -9,10 +9,10 @@ import { getVideo } from "@/core/catalog/db";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { exportEdit, losslessEncoder } from "@/core/video/export";
-import { loadClipMedia } from "@/core/video/media";
-import { type ExportFormat, FORMATS, outputSize, type Resolution, RESOLUTIONS, sanitizeEdit } from "@/core/video/model";
+import { type ClipMedia, loadClipMedia } from "@/core/video/media";
+import { type ExportFormat, FORMATS, outputSize, type Resolution, RESOLUTIONS, sanitizeEdit, type VideoEdit } from "@/core/video/model";
 import { editVideo, flushVideo, importVideos, openClip, refreshClips, removeClip, video, videoHistory } from "@/core/video/session";
-import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
+import { DestinationPicker, type ExportPreview, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
 import { EffectsBrowserHost } from "@/features/effects/EffectsBrowser";
 import { formatBytes } from "@/features/library/format";
 import { openLooks } from "@/features/looks/LooksDialog";
@@ -165,6 +165,39 @@ function ClipsPanel() {
   );
 }
 
+/** The first frame of an edit that is not open in the player, decoded by the browser at a small size. */
+async function firstFrameOf(edit: VideoEdit, own: ClipMedia): Promise<ImageBitmap | null> {
+  const first = edit.segments[0];
+  if (!first) return null;
+  const media = first.clip ? await loadClipMedia(first.clip) : own;
+  if (!media) return null;
+  const time = first.reverse ? Math.max(0, first.out - 1 / media.info.fps) : first.in;
+  const url = URL.createObjectURL(media.file);
+  const el = document.createElement("video");
+  el.muted = true;
+  el.preload = "auto";
+  const wait = (event: "loadeddata" | "seeked") =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timeout")), 4000);
+      el.addEventListener(event, () => (clearTimeout(timer), resolve()), { once: true });
+      el.addEventListener("error", () => (clearTimeout(timer), reject(new Error("decode"))), { once: true });
+    });
+  try {
+    el.src = url;
+    await wait("loadeddata");
+    el.currentTime = time + 0.001;
+    await wait("seeked");
+    const scale = Math.min(1, 192 / Math.max(el.videoWidth, el.videoHeight, 1));
+    return await createImageBitmap(el, { resizeWidth: Math.max(1, Math.round(el.videoWidth * scale)), resizeHeight: Math.max(1, Math.round(el.videoHeight * scale)) });
+  } catch {
+    return null;
+  } finally {
+    el.removeAttribute("src");
+    el.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** Whether this browser can encode lossless VP9 (checked once). */
 let losslessSupport: Promise<boolean> | null = null;
 function useLosslessSupport() {
@@ -246,6 +279,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+  const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -275,6 +309,8 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         if (!own) throw new Error(`${clip.name}: the video file is missing or can't be read.`);
         const state = video.getState();
         const edit = clip.id === state.openId && state.edit ? state.edit : sanitizeEdit((await getVideo(clip.id))?.edit, clip.duration, (id) => durations.get(id) ?? Infinity);
+        // The marble shows the first frame of what is being exported.
+        setPreview({ key: clip.id, load: () => (clip.id === state.openId ? engine.firstFrame() : firstFrameOf(edit, own)) });
         const out = await exportEdit(own, edit, loadClipMedia, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark);
         setProgress({ done: 1, total: 1, label: `${prefix}Saving…` });
         await sink.add(`${clip.name}-edit.${out.extension}`, out.blob);
@@ -292,6 +328,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setProgress(null);
+      setPreview(null);
     }
   };
 
@@ -329,7 +366,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     >
       {progress && (
         <>
-          <ProgressBar {...progress} />
+          <ProgressBar {...progress} preview={preview} />
           <p className="faint" style={{ fontSize: 10, margin: 0 }}>
             Rendering happens on this device, every frame in order. Keep this tab open until it finishes.
           </p>

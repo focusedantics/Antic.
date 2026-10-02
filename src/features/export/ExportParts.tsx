@@ -5,11 +5,61 @@ import { Slider } from "@/components/Slider";
 import { canChooseFolder, chooseFolder, type Destination, describeDestination } from "@/core/export/destination";
 import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition, watermarkFont } from "@/core/export/watermark";
 import { ensureFont, fontLoads } from "@/core/text/fonts";
+import { Marble, previewBitmap } from "./marble";
 
-export function ProgressBar({ done, total, label }: { done: number; total: number; label: string }) {
+/** What is being exported, for the marble: `load` runs again whenever `key` changes. */
+export type ExportPreview = { readonly key: string; readonly load: () => Promise<Blob | ImageBitmap | string | null> };
+
+const REDUCE = "(prefers-reduced-motion: reduce)";
+
+/**
+ * A glass marble with a small preview of the export floating inside, shown above
+ * the progress bar while an export runs. Drag to spin it, click to change its colour.
+ * Decorative: the progress bar and its label carry the information.
+ */
+export function ExportMarble({ preview }: { preview?: ExportPreview | null }) {
+  const host = useRef<HTMLDivElement>(null);
+  const marble = useRef<Marble | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const m = new Marble(host.current!, { reducedMotion: window.matchMedia(REDUCE).matches });
+    if (!m.ready) setFailed(true);
+    marble.current = m;
+    return () => {
+      m.dispose();
+      marble.current = null;
+    };
+  }, []);
+  const key = preview?.key ?? "";
+  useEffect(() => {
+    if (!preview) {
+      marble.current?.setPreview(null);
+      return;
+    }
+    let live = true;
+    void preview
+      .load()
+      .then((source) => (source ? previewBitmap(source) : null))
+      .then((bitmap) => {
+        // The texture keeps its own copy, so the bitmap can go straight away.
+        if (live) marble.current?.setPreview(bitmap);
+        bitmap?.close();
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+    // `preview.load` is a fresh closure each render; the key says when the picture changed.
+  }, [key]);
+  if (failed) return null;
+  return <div ref={host} className="export-marble" aria-hidden="true" data-testid="export-marble" data-preview={key || undefined} title="Drag to spin · click to change color" />;
+}
+
+export function ProgressBar({ done, total, label, preview }: { done: number; total: number; label: string; preview?: ExportPreview | null }) {
   const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
   return (
     <div className="export-progress-block" role="status" aria-live="polite">
+      <ExportMarble preview={preview} />
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span className="dim">{label}</span>
         <span className="num dim">{pct}%</span>

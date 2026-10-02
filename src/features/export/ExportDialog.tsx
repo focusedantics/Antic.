@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
-import { useImageUrl } from "@/app/thumbs";
+import { loadImageUrl, useImageUrl } from "@/app/thumbs";
 import { Dialog } from "@/components/Menu";
 import { catalog, getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
@@ -33,7 +33,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(ids));
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
-  const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string; current?: string } | null>(null);
   const cancelled = useRef(false);
   const chosen = ids.filter((id) => selected.has(id));
   const previewUrl = useImageUrl(getAsset(chosen[0] ?? ids[0]), "preview");
@@ -77,7 +77,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
     try {
       for (const [i, id] of chosen.entries()) {
         if (cancelled.current) break;
-        setProgress({ done: i, total: chosen.length, label: `Exporting ${i + 1} of ${chosen.length} · ${getAsset(id)?.fileName ?? ""}` });
+        setProgress({ done: i, total: chosen.length, label: `Exporting ${i + 1} of ${chosen.length} · ${getAsset(id)?.fileName ?? ""}`, current: id });
         try {
           const result = await exportAsset(id, s, watermark);
           await sink.add(result.name, result.blob);
@@ -86,7 +86,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
           toast(`${getAsset(id)?.fileName}: ${error instanceof Error ? error.message : error}`, "error");
         }
       }
-      setProgress({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
+      setProgress((p) => ({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…", current: p?.current }));
       await sink.finish();
       if (done) toast(`Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
     } catch (error) {
@@ -128,7 +128,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         </>
       }
     >
-      {progress && <ProgressBar {...progress} />}
+      {progress && <ProgressBar {...progress} preview={photoPreview(progress.current ?? chosen[0])} />}
       {ids.length > 1 && (
         <div className="field">
           <span>
@@ -222,4 +222,11 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
       </p>
     </Dialog>
   );
+}
+
+/** The photo being exported, from its library thumbnail. */
+function photoPreview(id: string | undefined) {
+  const asset = id ? getAsset(id) : undefined;
+  if (!asset) return null;
+  return { key: `${asset.id}:${asset.thumbRevision ?? 0}`, load: () => loadImageUrl(asset.id, "thumb", asset.thumbRevision ?? -1) };
 }

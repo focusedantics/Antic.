@@ -278,6 +278,9 @@ they are photo-specific.
     or tiled. For video it is burned into every frame.
   - a progress bar with Stop.
 - File names never collide within one export run.
+- While an export runs, a glass marble floats above the progress bar with a small
+  preview of what is being exported inside it (the first frame for GIF, MP4 and video).
+  Drag to spin it, click to change its colour.
 
 - Every dialog keeps its action buttons pinned and visible, and scrolls its content in
   short windows. Library has an **Export…** button, a context-menu item and
