@@ -3,6 +3,7 @@ import { deleteVideo, getVideo, getVideoFile, listVideos, putVideo, type VideoRe
 import { createHistory, type History } from "@/core/history/history";
 import { track } from "@/lib/activity";
 import { createId } from "@/lib/id";
+import { bitmapStore, openFrames } from "./frames";
 import { forgetClipMedia, mediaFromFile } from "./media";
 import { defaultEdit, sanitizeEdit, type VideoEdit } from "./model";
 
@@ -47,15 +48,53 @@ export async function refreshClips() {
   video.setState({ clips: records.sort((a, b) => b.createdAt - a.createdAt).map(toClip) });
 }
 
-/** Reads duration, display size and a poster frame through a <video> element. */
-function probe(file: Blob): Promise<{ duration: number; width: number; height: number; poster?: Blob }> {
+type Probe = { duration: number; width: number; height: number; poster?: Blob };
+
+/**
+ * Duration, display size and a poster frame. The browser's player answers when
+ * it can show the file; otherwise (HEVC where only WebCodecs decodes it) the
+ * file's own index and a decoded frame do. Fails with advice when nothing here
+ * can decode the clip.
+ */
+async function probe(file: Blob): Promise<Probe> {
+  const media = await mediaFromFile("probe", file).catch(() => null);
+  const shown = await probeElement(file).catch(() => null);
+  if (shown) {
+    // The video track's own length (frames / fps) wins when the browser reports less.
+    if (media) shown.duration = Math.max(shown.duration, media.info.duration);
+    return shown;
+  }
+  if (!media) throw new Error("This file can't be read as a video (MP4 or MOV), or it is damaged.");
+  const frames = await openFrames(media.media.video, bitmapStore(480), 32 * 1024 * 1024);
+  let poster: Blob | undefined;
+  try {
+    const bitmap = await frames.get(Math.floor(media.info.frames * 0.1));
+    const turned = frames.rotation === 90 || frames.rotation === 270;
+    const canvas = new OffscreenCanvas(turned ? bitmap.height : bitmap.width, turned ? bitmap.width : bitmap.height);
+    const ctx = canvas.getContext("2d")!;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((frames.rotation * Math.PI) / 180);
+    ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+    poster = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.8 });
+  } catch {
+    // A poster is optional.
+  } finally {
+    frames.dispose();
+  }
+  return { duration: media.info.duration, width: media.info.width, height: media.info.height, poster };
+}
+
+/** The browser's player: duration, size and a poster, or an error when it can't show the file (or takes too long). */
+function probeElement(file: Blob): Promise<Probe> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const el = document.createElement("video");
     el.muted = true;
     el.playsInline = true;
     el.preload = "auto";
-    const done = (result: { duration: number; width: number; height: number; poster?: Blob } | Error) => {
+    const timer = setTimeout(() => done(new Error("The browser's player took too long to open this video.")), 15000);
+    const done = (result: Probe | Error) => {
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
       el.removeAttribute("src");
       el.load();
@@ -64,6 +103,8 @@ function probe(file: Blob): Promise<{ duration: number; width: number; height: n
     };
     el.onerror = () => done(new Error("This browser can't play this video format."));
     el.onloadedmetadata = () => {
+      // Sound but no picture: the player can't decode the video track (HEVC in many browsers).
+      if (!el.videoWidth) return done(new Error("The browser's player can't show this video's picture."));
       el.currentTime = Math.min(1, (el.duration || 0) * 0.1);
     };
     el.onseeked = async () => {
@@ -93,9 +134,6 @@ export async function importVideos(files: readonly File[]): Promise<string[]> {
       for (const file of files) {
         try {
           const meta = await probe(file);
-          // The video track's own length (frames / fps) wins when the browser reports less.
-          const media = await mediaFromFile("probe", file).catch(() => null);
-          if (media) meta.duration = Math.max(meta.duration, media.info.duration);
           const id = createId("vid");
           const now = Date.now();
           await putVideo(

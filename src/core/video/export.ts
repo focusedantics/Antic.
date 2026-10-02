@@ -4,10 +4,11 @@ import { drawFrameOverlay, type ExportFrame, frameLayout } from "@/core/export/f
 import { drawWatermark, type Watermark, watermarkFont } from "@/core/export/watermark";
 import { loadFonts } from "@/core/text/fonts";
 import { track } from "@/lib/activity";
-import type { Demuxed } from "./demux";
+import { type Demuxed, SampleReader } from "./demux";
 import { type Channels, SAMPLE_RATE } from "./dsp";
 import { chooseEncoder, encodeOptions, type EncoderChoice } from "./encoder";
-import { cpuFrame, type CpuFrame, cpuStore, FrameSource } from "./frames";
+import { cpuFrame, type CpuFrame, cpuStore, type Frames, openFrames } from "./frames";
+import { device } from "@/lib/device";
 import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
@@ -125,7 +126,7 @@ async function run(
 
   // An untouched clip saved as MP4: copy the original frames.
   if (format.extension === "mp4" && keepsSize && !stamped && isUntouched(edit, own.info)) {
-    const copied = copyVideo(own.media, edit.output.audio ? own.media.audio : null);
+    const copied = await copyVideo(own.media, edit.output.audio ? own.media.audio : null);
     if (copied) {
       onProgress({ done: 1, total: 1, stage: "Copying the original frames…" });
       return { blob: copied, extension: "mp4", frames: plan.frames, lossless: true, copied: true };
@@ -143,7 +144,7 @@ async function run(
     try {
       let any = false;
       for (const [id, m] of clips) {
-        const audio = m.media.audio ? await decodeClipAudio(m.file) : null;
+        const audio = m.media.audio ? await decodeClipAudio(m.media) : null;
         any ||= !!audio;
         engine.setSource(id, audio);
       }
@@ -214,11 +215,13 @@ async function run(
   });
   videoEncoder.configure(encoder.config);
 
-  const sources = new Map<string, FrameSource<CpuFrame>>();
+  // Decoded frames waiting to be encoded: far less on phones (lib/device), where a 4K frame is 12 MB.
+  const budget = (id: string) => (device.lite ? 96 : id === own.id ? 768 : 256) * 1024 * 1024;
+  const sources = new Map<string, Promise<Frames<CpuFrame>>>();
   const sourceOf = (id: string) => {
     let s = sources.get(id);
     if (!s) {
-      s = new FrameSource(clips.get(id)!.media.video, cpuStore, id === own.id ? 768 * 1024 * 1024 : 256 * 1024 * 1024);
+      s = openFrames(clips.get(id)!.media.video, cpuStore, budget(id));
       sources.set(id, s);
     }
     return s;
@@ -250,9 +253,9 @@ async function run(
       if (failure) throw failure;
       const ref = frameAt(plan, k, infoOf);
       if (!ref) throw new Error(`Timeline frame ${k} has no picture.`);
-      const clip = clips.get(ref.clip)!;
       const seg = edit.segments[ref.segment];
-      const stored = await sourceOf(ref.clip).get(ref.frame);
+      const source = await sourceOf(ref.clip);
+      const stored = await source.get(ref.frame);
       const timestamp = Math.round(k * step);
       const duration = Math.round(step);
       let out: VideoFrame | null = null;
@@ -262,7 +265,7 @@ async function run(
         const vis = { x: 0, y: 0, width: stored.init.codedWidth, height: stored.init.codedHeight };
         const planes = visibleI420(stored.data, stored.init.format, stored.init.layout ?? [], vis);
         if (planes) {
-          const rotated = rotateI420(planes, clip.media.video.rotation);
+          const rotated = rotateI420(planes, source.rotation);
           if (rotated.width === size.width && rotated.height === size.height) {
             out = i420Frame(rotated, timestamp, duration, stored.init.colorSpace);
             exactFrames++;
@@ -275,7 +278,7 @@ async function run(
           renderer.draw(frame, {
             sourceWidth: frame.displayWidth,
             sourceHeight: frame.displayHeight,
-            rotation: clip.media.video.rotation,
+            rotation: source.rotation,
             width: size.width,
             height: size.height,
             visual: seg.visual,
@@ -339,7 +342,7 @@ async function run(
     mp4!.finalize();
     return { blob: new Blob([mp4Target.buffer], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false };
   } finally {
-    for (const s of sources.values()) s.dispose();
+    for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();
     renderer.dispose();
   }
@@ -357,11 +360,11 @@ const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [
  * samples go into a new MP4 unchanged. Returns null for codecs the muxer
  * can't write.
  */
-export function copyVideo(media: Demuxed, audio: Demuxed["audio"]): Blob | null {
+export async function copyVideo(media: Demuxed, audio: Demuxed["audio"]): Promise<Blob | null> {
   const v = media.video;
   const mux = COPY_MUX.find(([re]) => re.test(v.config.codec))?.[1];
   // The muxer needs a stated colour description to write VP9/AV1 configuration boxes.
-  if (!mux || !v.samples.every((s) => s.data) || ((mux === "vp9" || mux === "av1") && !v.colorSpace)) return null;
+  if (!mux || ((mux === "vp9" || mux === "av1") && !v.colorSpace)) return null;
   const ts = v.track.timescale;
   const pts = (i: number) => (v.samples[i].cts / ts) * MICRO;
   const origin = Math.min(...v.samples.map((_, i) => pts(i)));
@@ -375,16 +378,21 @@ export function copyVideo(media: Demuxed, audio: Demuxed["audio"]): Blob | null 
     ...(audio ? { audio: { codec: audio.codec, numberOfChannels: audio.config.numberOfChannels, sampleRate: audio.config.sampleRate } } : {}),
   });
   const decoderConfig = { codec: v.config.codec, codedWidth: v.config.codedWidth, codedHeight: v.config.codedHeight, description: v.config.description, ...(v.colorSpace ? { colorSpace: v.colorSpace } : {}) };
-  v.samples.forEach((s, i) => {
-    muxer.addVideoChunkRaw(s.data!, s.is_sync ? "key" : "delta", Math.max(0, pts(i) - origin), (s.duration / ts) * MICRO, i === 0 ? { decoderConfig } : undefined, ((s.cts - s.dts) / ts) * MICRO);
-  });
+  // The samples are read from the file in order; the muxer keeps them, so each is copied out of the read window.
+  const reader = new SampleReader(v.file);
+  for (let i = 0; i < v.samples.length; i++) {
+    const s = v.samples[i];
+    const data = (await reader.read(s)).slice();
+    muxer.addVideoChunkRaw(data, s.is_sync ? "key" : "delta", Math.max(0, pts(i) - origin), (s.duration / ts) * MICRO, i === 0 ? { decoderConfig } : undefined, ((s.cts - s.dts) / ts) * MICRO);
+  }
   if (audio) {
     const ats = audio.track.timescale;
+    const audioReader = new SampleReader(audio.file);
     let first = true;
     for (const s of audio.samples) {
       const t = (s.cts / ats) * MICRO;
       if (t < origin) continue;
-      muxer.addAudioChunkRaw(s.data!, "key", t - origin, (s.duration / ats) * MICRO, first ? { decoderConfig: audio.config } : undefined);
+      muxer.addAudioChunkRaw((await audioReader.read(s)).slice(), "key", t - origin, (s.duration / ats) * MICRO, first ? { decoderConfig: audio.config } : undefined);
       first = false;
     }
   }

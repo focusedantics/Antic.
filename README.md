@@ -37,7 +37,7 @@ one asset system and one effects library:
   Downloads, one ZIP or a folder on your computer (Chrome/Edge); add a text watermark with font, size, opacity, color, shadow and
   one of nine positions, or tile it across the image; frame the output in frosted glass,
   a solid mat or a Polaroid border, over the edges or around them.
-- **Video**: a YouTube Poop editor. Scrub frame by frame with sound, then cut, rearrange
+- **Video**: a YouTube Poop editor (iPhone .MOV and HEVC clips included, where the browser can decode HEVC). Scrub frame by frame with sound, then cut, rearrange
   and mix clips. Treat each piece with stutter, reverse, dance, stare-down, speed and
   pitch, ear rape, sus, echo, reverb, chorus, vibrato, bitcrush, mirror, invert, rainbow,
   zoom, shake, deep fry or any effect, or let random poop and chop & shuffle do it. Export

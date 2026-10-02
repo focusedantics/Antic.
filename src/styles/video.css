@@ -19,7 +19,7 @@
 .vt-bar .segmented button { min-width: 28px; }
 .vt-zoom { min-width: 40px; font-size: 11px; text-align: right; }
 .vt-scroll { overflow-x: auto; overflow-y: hidden; position: relative; padding-bottom: 2px; }
-.vt-content { position: relative; user-select: none; touch-action: none; }
+.vt-content { position: relative; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
 .vt-ruler { position: relative; border-bottom: 1px solid var(--line); cursor: ew-resize; background: var(--panel-2); }
 .vt-tick { position: absolute; top: 0; bottom: 0; padding-left: 4px; border-left: 1px solid var(--line); font-size: 10px; line-height: 22px; color: var(--text-dim); font-variant-numeric: tabular-nums; pointer-events: none; }
 .vt-track { position: relative; background: #111; }
@@ -48,3 +48,26 @@
 .poop-grid .btn { justify-content: center; }
 .vid-clip { gap: 2px; }
 .vid-clip[data-selected] .doc-card { background: #3a3222; color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* ─── Phones (compact layout) ─────────────────────────────────────────── */
+.vv-transport.compact { gap: 2px; padding: 4px 6px; }
+.vv-transport.compact .vv-time { min-width: 0; margin: 0 4px; font-size: 12px; white-space: nowrap; }
+.tbtn {
+  width: 40px; height: 40px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--text); touch-action: manipulation;
+}
+.tbtn:disabled { color: var(--text-faint); opacity: 0.5; }
+.tbtn:active:not(:disabled) { background: var(--panel-3); }
+.tbtn.play { background: var(--accent); color: var(--accent-ink); width: 44px; height: 44px; }
+/* Narrow phones: the current time only (the total is in the ruler). */
+@media (max-width: 430px) { .vv-transport.compact .vv-total { display: none; } .tbtn { width: 38px; } }
+.app[data-compact="true"] .vt-tick { font-size: 11px; }
+.app[data-compact="true"] .vt-seg-label { font-size: 11px; padding: 1px 6px; }
+/* Touch: trim handles only on the selected segment, wide enough for a thumb, with a visible grip. */
+@media (pointer: coarse) {
+  .vt-handle { display: none; }
+  .vt-seg[aria-selected="true"] .vt-handle { display: block; width: 22px; background: rgb(255 214 102 / 0.35); }
+  .vt-seg[aria-selected="true"] .vt-handle::after {
+    content: ""; position: absolute; top: 30%; bottom: 30%; left: 9px; width: 4px; border-radius: 2px; background: var(--accent-strong);
+  }
+}

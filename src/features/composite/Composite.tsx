@@ -1,9 +1,11 @@
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useState } from "react";
 import { useStore } from "@/app/hooks";
+import { layout } from "@/app/layout";
+import { Icon, type IconName } from "@/components/icons";
 import { registerShortcuts } from "@/app/shortcuts";
 import { toast, ui } from "@/app/state";
-import { Dialog } from "@/components/Menu";
+import { Dialog, openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
 import { type DocumentRecord, getDocument } from "@/core/catalog/db";
 import { align, type Alignment, distribute, locate, moveTransform, nudgeLayer, ungroup, updateLayers } from "@/core/document/operations";
@@ -254,6 +256,15 @@ function CanvasPanel() {
   );
 }
 
+/** A phone toolbar button: a large icon with its name for screen readers and as a tooltip. */
+function ToolIcon({ icon, label, onClick, pressed, disabled }: { icon: IconName; label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; pressed?: boolean; disabled?: boolean }) {
+  return (
+    <button type="button" className="tool-icon" aria-label={label} title={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>
+      <Icon name={icon} size={22} />
+    </button>
+  );
+}
+
 function Toolbar({ onExport }: { onExport: () => void }) {
   const doc = useStore(composite, (s) => s.doc);
   const selection = useStore(composite, (s) => s.selection);
@@ -264,6 +275,43 @@ function Toolbar({ onExport }: { onExport: () => void }) {
   const tool = useStore(composite, (s) => s.tool);
   const history = compositeHistory();
   const alignTo = (a: Alignment) => editDocument(`Align ${a}`, (d) => align(d, selection, a));
+  const compact = useStore(layout, (s) => s.compact);
+  const actions = (
+    <CompactActions>
+      <TopAction icon="undo" label="Undo" disabled={!history?.status().canUndo} onClick={() => history?.undo()} />
+      <TopAction icon="redo" label="Redo" disabled={!history?.status().canRedo} onClick={() => history?.redo()} />
+      <TopAction icon="export" label="Export" primary disabled={!doc} onClick={onExport} />
+    </CompactActions>
+  );
+  if (compact)
+    // Phones: the same tools as large icons; alignment and distribution in one menu.
+    return (
+      <div className="toolbar icon-toolbar" role="toolbar" aria-label="Composite tools">
+        <ToolIcon icon="move" label="Move & transform" pressed={tool === "move"} onClick={() => composite.setState({ tool: "move", maskLayerId: null })} />
+        <ToolIcon icon="brush" label="Paint the mask" pressed={tool === "mask"} disabled={!composite.getState().maskLayerId} onClick={() => composite.setState({ tool: "mask" })} />
+        <ToolIcon
+          icon="align"
+          label="Align and distribute"
+          disabled={!selection.length}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            openMenu(r.left, r.bottom + 4, [
+              ...(["left", "center", "right", "top", "middle", "bottom"] as const).map((a) => ({ label: `Align ${a}${selection.length === 1 ? " to canvas" : ""}`, onSelect: () => alignTo(a) })),
+              "separator" as const,
+              { label: "Distribute horizontally", disabled: selection.length < 3, onSelect: () => editDocument("Distribute", (d) => distribute(d, selection, "x")) },
+              { label: "Distribute vertically", disabled: selection.length < 3, onSelect: () => editDocument("Distribute", (d) => distribute(d, selection, "y")) },
+            ]);
+          }}
+        />
+        <ToolIcon icon="magnet" label="Snap" pressed={snap} onClick={() => composite.setState({ snap: !snap })} />
+        <ToolIcon icon="guides" label="Guides" pressed={showGuides} onClick={() => composite.setState({ showGuides: !showGuides })} />
+        {doc && isAnimated(doc) && <ToolIcon icon="animate" label={playing ? "Stop animating" : "Animate"} pressed={playing} onClick={() => composite.setState({ playing: !playing })} />}
+        <ToolIcon icon="fit" label="Fit" pressed={view.fit} onClick={() => composite.setState({ view: { ...view, fit: true } })} />
+        <ToolIcon icon="plus" label="Add a layer" disabled={!doc} onClick={(e) => addLayerMenu(e.clientX, e.clientY)} />
+        <ToolIcon icon="presets" label="Looks" disabled={!doc} onClick={() => openLooks({ kind: "composite" })} />
+        {actions}
+      </div>
+    );
   return (
     <div className="toolbar" role="toolbar" aria-label="Composite tools">
       <div className="segmented" role="group" aria-label="Tool">
@@ -327,11 +375,7 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       <button type="button" className="btn small primary wide-only" disabled={!doc} onClick={onExport} title="Export (Ctrl+Shift+E)">
         Export…
       </button>
-      <CompactActions>
-        <TopAction icon="undo" label="Undo" disabled={!history?.status().canUndo} onClick={() => history?.undo()} />
-        <TopAction icon="redo" label="Redo" disabled={!history?.status().canRedo} onClick={() => history?.redo()} />
-        <TopAction icon="export" label="Export" primary disabled={!doc} onClick={onExport} />
-      </CompactActions>
+      {actions}
     </div>
   );
 }

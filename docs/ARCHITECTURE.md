@@ -263,6 +263,18 @@ serialized edit) plus its file (`videoFiles`). The file is copied on import and 
 modified. `session.ts` opens a clip with an undo history over its `VideoEdit` and saves
 changes after a short delay.
 
+**Reading files** (`demux.ts`): only the index (`moov`) is parsed, in 1 MB reads that
+jump over the media data wherever it is (iPhone .MOV files put the index last). Samples
+are a table of offsets, sizes and times; their bytes stay in the file and a
+`SampleReader` per consumer reads them through a 4 MB sliding window. Fragmented MP4s
+(no sample table in `moov`) are read whole. Dolby Vision tracks ("dvh1") are decoded
+as their HEVC base layer (`hevcCodec` builds the codec string from hvcC). The audio
+track is the first one with a codec we decode (newer iPhones add a spatial APAC track),
+and AAC is decoded from an ADTS stream of the track alone (`adtsStream`), trimmed by
+the edit list's priming; other codecs go through the whole file (refused above 300 MB on
+phones). Import probes the file with the browser's player and falls back to the index
+and a WebCodecs frame when the player can't show the picture.
+
 **The edit** (`model.ts`, version 3, sanitized on load; version 1–2 trims migrate to one
 segment) is a list of segments. Each segment is a source range of this clip or another
 clip, with its own treatment: speed (tape-style or pitch-preserving), pitch, reverse,
@@ -288,7 +300,13 @@ an edit re-renders only what changed. Preview and export use the same soundtrack
 index. It continues a running decode for the next frames, and restarts from the keyframe
 before a wanted frame otherwise. That gives frame-accurate random access for scrubbing,
 reverse play and stutters. Decoded frames go through a store (scaled bitmaps for the
-viewer, exact plane copies for export) into a byte-bounded LRU.
+viewer, exact plane copies for export) into a byte-bounded LRU (smaller on phones).
+`openFrames` picks the decoder: WebCodecs when `isConfigSupported`, else
+`ElementFrameSource`, which seeks a hidden `<video>` to the middle of each frame and
+grabs it upright (so `rotation` is 0), for HEVC where only the browser's player decodes
+it; the viewer says "Compatibility playback". When neither can decode the clip,
+`cannotDecode` explains the HEVC options. `localStorage["focused:video-decoder"] =
+"element"` forces the fallback (tests).
 
 **Editor** (`features/video`): `engine.ts` owns playback. The rendered soundtrack plays
 through Web Audio, and its clock drives the frame on screen. Scrubbing plays short
@@ -296,7 +314,11 @@ grains of the soundtrack. The viewer draws the frame through `VideoRenderer`
 (`renderer.ts`: rotation and letterboxing, the picture treatments, then library effects
 through the shared `EffectRunner`). The timeline (`Timeline.tsx`) draws thumbnails and
 the waveform of the visible range only. `actions.ts` holds the editing commands, the
-one-click YTP treatments and the random generators.
+one-click YTP treatments and the random generators. On phones the toolbar row folds into
+the transport (play, frame steps, time, split, duplicate, delete, ⋯), the timeline is
+shorter, and touch has its own gestures on segments: tap selects and seeks, a sideways
+swipe scrolls, a press held for 380 ms picks the selection up to move, two fingers pinch
+to zoom; trim handles appear, thumb-wide, on the selected segment only.
 
 **Export** (`export.ts`):
 - An MP4 of an untouched clip copies the original compressed samples bit for bit (VP9/AV1
@@ -477,7 +499,10 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   for import, the filmstrip, the glow and the tour. Main actions (undo, redo, export)
   render through `<CompactActions>` into the top bar's slot (`actionsSlot`), and the
   toolbar's own copies carry `wide-only` and hide; toolbars scroll sideways for the
-  rest. The effects browser goes full screen with a search, a row of category chips
+  rest (Composite's becomes large icons with alignment in a menu). Held sideways
+  (landscape, up to 520 px tall) the dock is a rail on the right and panels open beside
+  the picture. `-webkit-user-select: none` (Safari ignores the unprefixed property) keeps
+  long presses from selecting the interface. The effects browser goes full screen with a search, a row of category chips
   and two columns of previews (240 px renders on lite devices), and does not raise the
   keyboard by itself. Dialogs and the browser are portalled outside `.app`, so the
   root carries `data-compact` for their styles. `(pointer: coarse)` raises touch targets (sliders 36 px, buttons 32–34 px,

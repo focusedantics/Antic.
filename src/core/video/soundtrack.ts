@@ -1,4 +1,6 @@
 import { type AudioPiece, type Channels, SAMPLE_RATE, type SegmentAudioJob } from "./dsp";
+import { device } from "@/lib/device";
+import { type Demuxed, type DemuxedAudio, SampleReader } from "./demux";
 import type { VideoEdit } from "./model";
 import type { ClipInfo, Plan } from "./timeline";
 import type { SoundtrackRequest, SoundtrackResponse } from "./soundtrack.worker";
@@ -9,12 +11,66 @@ import type { SoundtrackRequest, SoundtrackResponse } from "./soundtrack.worker"
  * pieces the pictures use. Preview playback and export use the same result.
  */
 
-/** Decodes a clip's audio track (null when it has none or it can't be decoded). */
-export async function decodeClipAudio(file: Blob): Promise<Channels | null> {
+/**
+ * An ADTS stream (raw AAC frames, each with a 7-byte header) for an MP4 AAC
+ * track: something every browser's decodeAudioData reads, without handing it
+ * the whole video file. Null when the AudioSpecificConfig can't be expressed
+ * in ADTS (explicit sample rates, AAC object types above 4).
+ */
+export async function adtsStream(audio: DemuxedAudio): Promise<Uint8Array | null> {
+  const d = audio.config.description;
+  const asc = !d ? null : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : new Uint8Array(d);
+  if (!asc || asc.length < 2) return null;
+  const objectType = asc[0] >> 3;
+  const freqIndex = ((asc[0] & 7) << 1) | (asc[1] >> 7);
+  const channelConfig = (asc[1] >> 3) & 15;
+  if (objectType < 1 || objectType > 4 || freqIndex > 12 || !channelConfig) return null;
+  const reader = new SampleReader(audio.file);
+  const total = audio.samples.reduce((n, s) => n + s.size + 7, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const s of audio.samples) {
+    const len = s.size + 7;
+    out[at] = 0xff;
+    out[at + 1] = 0xf1; // MPEG-4, layer 0, no CRC
+    out[at + 2] = ((objectType - 1) << 6) | (freqIndex << 2) | (channelConfig >> 2);
+    out[at + 3] = ((channelConfig & 3) << 6) | (len >> 11);
+    out[at + 4] = (len >> 3) & 0xff;
+    out[at + 5] = ((len & 7) << 5) | 0x1f;
+    out[at + 6] = 0xfc;
+    out.set(await reader.read(s), at + 7);
+    at += len;
+  }
+  return out;
+}
+
+/** Most bytes handed to decodeAudioData as a whole file (it is held in memory twice). */
+const WHOLE_FILE_LIMIT = () => (device.lite ? 300e6 : 2e9);
+
+/**
+ * Decodes a clip's audio track at 48 kHz (null when it has none or it can't be
+ * decoded). AAC goes through a small ADTS stream of the track alone, trimmed by
+ * the edit list's priming; other codecs (Opus) through the whole file.
+ */
+export async function decodeClipAudio(media: Demuxed): Promise<Channels | null> {
+  const audio = media.audio;
+  if (!audio) return null;
+  const context = new OfflineAudioContext(2, 1, SAMPLE_RATE);
+  const channelsOf = (buffer: AudioBuffer, skip = 0) => {
+    const from = Math.min(buffer.length, Math.round(skip * buffer.sampleRate));
+    return Array.from({ length: buffer.numberOfChannels }, (_, k) => buffer.getChannelData(k).slice(from));
+  };
+  if (audio.codec === "aac") {
+    try {
+      const adts = await adtsStream(audio);
+      if (adts) return channelsOf(await context.decodeAudioData(adts.buffer as ArrayBuffer), audio.skip);
+    } catch {
+      // Fall back to the whole file.
+    }
+  }
+  if (media.video.file.size > WHOLE_FILE_LIMIT()) return null;
   try {
-    const context = new OfflineAudioContext(2, 1, SAMPLE_RATE);
-    const buffer = await context.decodeAudioData(await file.arrayBuffer());
-    return Array.from({ length: buffer.numberOfChannels }, (_, k) => buffer.getChannelData(k).slice());
+    return channelsOf(await context.decodeAudioData(await media.video.file.arrayBuffer()));
   } catch {
     return null;
   }

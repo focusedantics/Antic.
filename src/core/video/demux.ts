@@ -2,13 +2,32 @@ import { sourceBitsPerPixel } from "./model";
 import { createFile, DataStream, Endianness, MP4BoxBuffer, type Sample, type Track } from "mp4box";
 
 /**
- * Reads an MP4/MOV (ISO BMFF) file into its tracks and samples with mp4box.js,
- * plus the decoder configurations WebCodecs needs. The whole file is parsed in
- * memory, which is fine for phone and camera clips of a few hundred megabytes.
+ * Reads an MP4/MOV (ISO BMFF) file's tracks and sample tables with mp4box.js,
+ * plus the decoder configurations WebCodecs needs.
+ *
+ * Only the index (`moov`) is parsed, in small reads that skip over the media
+ * data, wherever in the file it is (iPhone .MOV files put it at the end). The
+ * samples' bytes stay in the file and are read on demand (`SampleReader`), so
+ * a 1 GB 4K iPhone clip costs a few megabytes of memory, not two copies of
+ * itself. Fragmented files (no sample table in `moov`) are read whole instead.
  */
+
+/** Where a sample is in the file and when it plays. `data` is set only for files read whole. */
+export type SampleInfo = {
+  readonly offset: number;
+  readonly size: number;
+  readonly cts: number;
+  readonly dts: number;
+  readonly duration: number;
+  readonly is_sync: boolean;
+  readonly data?: Uint8Array;
+};
+
 export type DemuxedVideo = {
   readonly track: Track;
-  readonly samples: readonly Sample[];
+  /** The file the samples are read from. */
+  readonly file: Blob;
+  readonly samples: readonly SampleInfo[];
   readonly config: VideoDecoderConfig;
   /** Clockwise rotation from the track matrix (phones record sideways and flag it). */
   readonly rotation: 0 | 90 | 180 | 270;
@@ -21,7 +40,10 @@ export type DemuxedVideo = {
 
 export type DemuxedAudio = {
   readonly track: Track;
-  readonly samples: readonly Sample[];
+  readonly file: Blob;
+  readonly samples: readonly SampleInfo[];
+  /** Seconds the edit list skips at the start (the AAC encoder's priming samples). */
+  readonly skip: number;
   readonly codec: "aac" | "opus";
   readonly config: AudioDecoderConfig;
 };
@@ -34,9 +56,19 @@ export type Demuxed = {
   readonly audioNote: string | null;
 };
 
+type HvcC = {
+  write(s: DataStream): void;
+  general_profile_space: number;
+  general_tier_flag: number;
+  general_profile_idc: number;
+  general_profile_compatibility: number;
+  general_constraint_indicator: ArrayLike<number>;
+  general_level_idc: number;
+};
+
 type Entry = {
   avcC?: { write(s: DataStream): void };
-  hvcC?: { write(s: DataStream): void };
+  hvcC?: HvcC;
   vpcC?: { write(s: DataStream): void; colourPrimaries?: number; transferCharacteristics?: number; matrixCoefficients?: number; videoFullRangeFlag?: number };
   colr?: { colour_type?: string; colour_primaries?: number; transfer_characteristics?: number; matrix_coefficients?: number; full_range_flag?: number };
   av1C?: { write(s: DataStream): void };
@@ -100,18 +132,83 @@ function opusHead(d: NonNullable<Entry["dOps"]>): Uint8Array {
   return head;
 }
 
-export async function demux(file: Blob): Promise<Demuxed> {
-  const buffer = await file.arrayBuffer();
+/**
+ * The HEVC codec string (ISO/IEC 14496-15 annex E) from an hvcC box. Dolby Vision
+ * tracks from iPhones ("dvh1"/"dvhe") carry an ordinary HEVC base layer: decoding it
+ * as "hvc1" plays them (as HLG/SDR) where Dolby Vision itself is not supported.
+ */
+export function hevcCodec(h: Omit<HvcC, "write">, prefix = "hvc1"): string {
+  let reversed = 0;
+  let v = h.general_profile_compatibility >>> 0;
+  for (let i = 0; i < 32; i++) {
+    reversed = (reversed << 1) | (v & 1);
+    v >>>= 1;
+  }
+  let constraints = "";
+  let any = false;
+  for (let i = 5; i >= 0; i--)
+    if (h.general_constraint_indicator[i] || any) {
+      constraints = `.${h.general_constraint_indicator[i].toString(16).toUpperCase()}${constraints}`;
+      any = true;
+    }
+  const space = ["", "A", "B", "C"][h.general_profile_space] ?? "";
+  return `${prefix}.${space}${h.general_profile_idc}.${(reversed >>> 0).toString(16).toUpperCase()}.${h.general_tier_flag ? "H" : "L"}${h.general_level_idc}${constraints}`;
+}
+
+/** Seconds of media the track's edit list starts after (0 without one). */
+function editSkip(file: ReturnType<typeof createFile>, track: Track): number {
+  const trak = file.getTrackById(track.id) as unknown as { edts?: { elst?: { entries?: { media_time: number }[] } }; mdia?: { mdhd?: { timescale: number } } };
+  const first = trak.edts?.elst?.entries?.find((e) => e.media_time >= 0);
+  const scale = trak.mdia?.mdhd?.timescale || track.timescale;
+  return first && scale ? first.media_time / scale : 0;
+}
+
+/** Audio codecs the editor can decode and carry over. */
+const usableAudio = (codec: string) => codec.startsWith("mp4a.40") || codec === "Opus" || codec === "opus";
+
+const info = (s: Sample): SampleInfo => ({ offset: s.offset, size: s.size, cts: s.cts, dts: s.dts, duration: s.duration, is_sync: s.is_sync, ...(s.data ? { data: s.data } : {}) });
+
+type Movie = Parameters<NonNullable<ReturnType<typeof createFile>["onReady"]>>[0];
+
+/** Reads just the index, skipping the media data. Null for fragmented files (sample tables in `moof`s). */
+async function readIndex(file: Blob, chunk: number): Promise<{ mp4: ReturnType<typeof createFile>; movie: Movie } | null> {
   const mp4 = createFile();
-  let info: Parameters<NonNullable<typeof mp4.onReady>>[0] | null = null;
+  let movie: Movie | null = null;
+  let error: string | null = null;
+  mp4.onError = (e: string) => {
+    error = e;
+  };
+  mp4.onReady = (i) => {
+    movie = i;
+  };
+  const CHUNK = chunk;
+  let pos = 0;
+  for (let reads = 0; !movie && pos < file.size && reads < 4096; reads++) {
+    const end = Math.min(file.size, pos + CHUNK);
+    const ab = await file.slice(pos, end).arrayBuffer();
+    const next = mp4.appendBuffer(MP4BoxBuffer.fromArrayBuffer(ab, pos), end >= file.size);
+    if (error) throw new Error(`Could not read this video: ${error}`);
+    // mp4box says where it wants to read next: past a media data box, it jumps over it.
+    pos = typeof next === "number" && next > pos ? next : end;
+  }
+  if (!movie) return null;
+  const m = movie as Movie;
+  if (m.isFragmented || !m.videoTracks.length || !mp4.getTrackSamplesInfo(m.videoTracks[0].id)?.length) return null;
+  return { mp4, movie: m };
+}
+
+/** Whole-file parse with sample extraction (fragmented MP4s). */
+function readWhole(buffer: ArrayBuffer): { mp4: ReturnType<typeof createFile>; movie: Movie; samples: Map<number, Sample[]> } {
+  const mp4 = createFile(true);
+  let movie: Movie | null = null;
   let error: string | null = null;
   const samples = new Map<number, Sample[]>();
   mp4.onError = (e: string) => {
     error = e;
   };
   mp4.onReady = (i) => {
-    info = i;
-    for (const t of [...i.videoTracks.slice(0, 1), ...i.audioTracks.slice(0, 1)]) {
+    movie = i;
+    for (const t of [...i.videoTracks.slice(0, 1), ...i.audioTracks]) {
       samples.set(t.id, []);
       mp4.setExtractionOptions(t.id, undefined, { nbSamples: 5000 });
     }
@@ -123,41 +220,86 @@ export async function demux(file: Blob): Promise<Demuxed> {
   mp4.appendBuffer(MP4BoxBuffer.fromArrayBuffer(buffer, 0), true);
   mp4.flush();
   if (error) throw new Error(`Could not read this video: ${error}`);
-  const movie = info as Parameters<NonNullable<typeof mp4.onReady>>[0] | null;
   if (!movie) throw new Error("Could not read this video (not an MP4/MOV file, or it is damaged).");
+  return { mp4, movie, samples };
+}
+
+/** `readSize`: bytes per read while looking for the index (tests use small reads). */
+export async function demux(file: Blob, readSize = 1 << 20): Promise<Demuxed> {
+  const indexed = await readIndex(file, readSize);
+  const whole = indexed ? null : readWhole(await file.arrayBuffer());
+  const mp4 = indexed?.mp4 ?? whole!.mp4;
+  const movie = indexed?.movie ?? whole!.movie;
+  const samplesOf = (t: Track): SampleInfo[] => (indexed ? (mp4.getTrackSamplesInfo(t.id) ?? []).map(info) : (whole!.samples.get(t.id) ?? []).map(info));
   const vt = movie.videoTracks[0];
   if (!vt) throw new Error("This file has no video track.");
-  const vSamples = samples.get(vt.id) ?? [];
+  const vSamples = samplesOf(vt);
   if (!vSamples.length) throw new Error("This video has no frames.");
   const entry = sampleEntry(mp4, vt);
   const width = vt.video?.width ?? vt.track_width;
   const height = vt.video?.height ?? vt.track_height;
-  const config: VideoDecoderConfig = { codec: vt.codec.startsWith("vp08") ? "vp8" : vt.codec, codedWidth: width, codedHeight: height, description: videoDescription(entry) };
+  let codec = vt.codec.startsWith("vp08") ? "vp8" : vt.codec;
+  if (/^dv(h1|he)/.test(codec) && entry?.hvcC) codec = hevcCodec(entry.hvcC);
+  const config: VideoDecoderConfig = { codec, codedWidth: width, codedHeight: height, description: videoDescription(entry) };
   const seconds = vt.duration / vt.timescale || vSamples.length / 30;
   const fps = Math.max(1, Math.min(240, Math.round((vSamples.length / seconds) * 100) / 100));
   const bitsPerPixel = sourceBitsPerPixel(vSamples.reduce((n, s) => n + s.size, 0), seconds, width, height, fps);
 
   let audio: DemuxedAudio | null = null;
   let audioNote: string | null = null;
-  const at = movie.audioTracks[0];
+  // Newer iPhones add a spatial audio track (APAC) beside the stereo AAC one: use the first track we can decode.
+  const at = movie.audioTracks.find((t) => usableAudio(t.codec));
   if (at) {
     const aEntry = sampleEntry(mp4, at);
-    const aSamples = samples.get(at.id) ?? [];
+    const aSamples = samplesOf(at);
     const channels = at.audio?.channel_count ?? 2;
     const sampleRate = at.audio?.sample_rate ?? 48000;
     if (at.codec.startsWith("mp4a.40")) {
       const asc = aEntry?.esds?.esd?.descs?.[0]?.descs?.[0]?.data;
-      audio = { track: at, samples: aSamples, codec: "aac", config: { codec: at.codec, numberOfChannels: channels, sampleRate, description: asc } };
-    } else if (at.codec === "Opus" || at.codec === "opus") {
+      audio = { track: at, file, samples: aSamples, skip: editSkip(mp4, at), codec: "aac", config: { codec: at.codec, numberOfChannels: channels, sampleRate, description: asc } };
+    } else {
       audio = {
         track: at,
+        file,
         samples: aSamples,
+        skip: editSkip(mp4, at),
         codec: "opus",
         config: { codec: "opus", numberOfChannels: channels, sampleRate, description: aEntry?.dOps ? opusHead(aEntry.dOps) : undefined },
       };
-    } else {
-      audioNote = `The ${at.codec} audio track can't be carried over; the export will be silent.`;
     }
+  } else if (movie.audioTracks.length) {
+    audioNote = `The ${movie.audioTracks[0].codec} audio track can't be carried over; the export will be silent.`;
   }
-  return { duration: movie.duration / movie.timescale || seconds, video: { track: vt, samples: vSamples, config, rotation: rotationOf(vt), fps, bitsPerPixel, colorSpace: colorSpaceOf(entry) }, audio, audioNote };
+  return {
+    duration: movie.duration / movie.timescale || seconds,
+    video: { track: vt, file, samples: vSamples, config, rotation: rotationOf(vt), fps, bitsPerPixel, colorSpace: colorSpaceOf(entry) },
+    audio,
+    audioNote,
+  };
+}
+
+/**
+ * Reads samples' bytes from the file through a sliding window, so frames that
+ * follow each other on disk cost one read. Each consumer (a decoder, an export)
+ * has its own reader. Returned arrays may share the window: copy to keep them.
+ */
+export class SampleReader {
+  private start = 0;
+  private bytes: Uint8Array | null = null;
+
+  constructor(
+    private readonly file: Blob,
+    private readonly window = 4 << 20,
+  ) {}
+
+  async read(s: SampleInfo): Promise<Uint8Array> {
+    if (s.data) return s.data;
+    const b = this.bytes;
+    if (b && s.offset >= this.start && s.offset + s.size <= this.start + b.length) return b.subarray(s.offset - this.start, s.offset - this.start + s.size);
+    const len = Math.max(this.window, s.size);
+    this.bytes = new Uint8Array(await this.file.slice(s.offset, Math.min(this.file.size, s.offset + len)).arrayBuffer());
+    this.start = s.offset;
+    if (this.bytes.length < s.size) throw new Error("The video file ends before this frame: it may be damaged or still copying.");
+    return this.bytes.subarray(0, s.size);
+  }
 }

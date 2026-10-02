@@ -1,5 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
+import { layout } from "@/app/layout";
 import { effectById } from "@/core/effects/registry";
 import type { Segment } from "@/core/video/model";
 import { beginVideoGesture, editVideo, endVideoGesture, video } from "@/core/video/session";
@@ -55,7 +56,13 @@ export function Timeline() {
   const soundtrackVersion = useStore(player, (s) => s.soundtrackVersion);
   const selection = useStore(editor, (s) => s.selection);
   const zoom = useStore(editor, (s) => s.zoom);
+  // Phones: a shorter track and waveform, no zoom bar (pinch instead).
+  const compact = useStore(layout, (s) => s.compact);
+  const TRACK_H = compact ? 56 : TRACK;
+  const WAVE_H = compact ? 30 : WAVE;
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** True while two fingers pinch the timeline: one-finger gestures underneath stand down. */
+  const pinching = useRef(false);
   // Right-click and hold, then drag across the timeline: select segments for batch actions.
   useSweepSelect(scrollRef, {
     initial: () => editor.getState().selection,
@@ -100,11 +107,11 @@ export function Timeline() {
     if (!thumbs || !wave || !plan) return;
     for (const c of [thumbs, wave]) {
       c.width = Math.round(viewWidth * dpr);
-      c.height = Math.round((c === thumbs ? TRACK : WAVE) * dpr);
+      c.height = Math.round((c === thumbs ? TRACK_H : WAVE_H) * dpr);
     }
     const tctx = thumbs.getContext("2d")!;
     tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    tctx.clearRect(0, 0, viewWidth, TRACK);
+    tctx.clearRect(0, 0, viewWidth, TRACK_H);
     const first = Math.floor(scroll / THUMB_W);
     for (let i = first; i * THUMB_W < scroll + viewWidth; i++) {
       const x = i * THUMB_W;
@@ -112,17 +119,17 @@ export function Timeline() {
       if (k >= frames) break;
       const bitmap = engine.thumbnail(k, () => redraw((n) => n + 1));
       if (!bitmap) continue;
-      const h = TRACK - 18;
+      const h = TRACK_H - 18;
       const w = Math.min(THUMB_W, (bitmap.width / bitmap.height) * h);
       tctx.drawImage(bitmap, x - scroll + (THUMB_W - w) / 2, 16, w, h);
     }
     const wctx = wave.getContext("2d")!;
     wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    wctx.clearRect(0, 0, viewWidth, WAVE);
+    wctx.clearRect(0, 0, viewWidth, WAVE_H);
     const peaks = engine.peaks;
     if (peaks) {
       wctx.fillStyle = "#7fd1a5";
-      const mid = WAVE / 2;
+      const mid = WAVE_H / 2;
       for (let x = 0; x < viewWidth; x++) {
         const t0 = (x + scroll) / pps;
         const t1 = (x + 1 + scroll) / pps;
@@ -138,7 +145,7 @@ export function Timeline() {
         wctx.fillRect(x, mid - hi * mid, 1, Math.max(1, (hi - lo) * mid));
       }
     }
-  }, [plan, viewWidth, scroll, pps, fps, frames]);
+  }, [plan, viewWidth, scroll, pps, fps, frames, TRACK_H, WAVE_H]);
 
   useEffect(() => {
     paint();
@@ -171,7 +178,9 @@ export function Timeline() {
     engine.pause();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     engine.scrub(frameAtX(e.clientX));
-    const move = (ev: PointerEvent) => engine.scrub(frameAtX(ev.clientX));
+    const move = (ev: PointerEvent) => {
+      if (!pinching.current) engine.scrub(frameAtX(ev.clientX));
+    };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -180,8 +189,73 @@ export function Timeline() {
     window.addEventListener("pointerup", up);
   };
 
+  /**
+   * A finger on a segment: a tap selects it (and seeks), a sideways swipe scrolls
+   * the timeline, and a press held still for a moment picks the selection up to move.
+   */
+  const touchSegment = (e: ReactPointerEvent, s: Segment) => {
+    if (!edit) return;
+    e.stopPropagation();
+    const el = scrollRef.current!;
+    const startX = e.clientX;
+    const startScroll = el.scrollLeft;
+    let mode: "pending" | "scroll" | "move" | "cancelled" = "pending";
+    const ids = selected.has(s.id) ? selection : [s.id];
+    const indexAt = (clientX: number) => {
+      if (!plan) return 0;
+      const t = frameAtX(clientX) / fps;
+      let i = 0;
+      while (i < plan.spans.length && t > (plan.spans[i].start + plan.spans[i].end) / 2) i++;
+      return i;
+    };
+    const hold = setTimeout(() => {
+      if (mode !== "pending" || pinching.current) return;
+      mode = "move";
+      select(ids);
+      navigator.vibrate?.(8);
+      setDrop(indexAt(startX));
+    }, 380);
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (pinching.current) {
+        mode = "cancelled";
+        clearTimeout(hold);
+        setDrop(null);
+        return;
+      }
+      const dx = ev.clientX - startX;
+      if (mode === "pending" && Math.abs(dx) > 8) {
+        mode = "scroll";
+        clearTimeout(hold);
+      }
+      if (mode === "scroll") el.scrollLeft = startScroll - dx;
+      else if (mode === "move") setDrop(indexAt(ev.clientX));
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      clearTimeout(hold);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setDrop(null);
+      if (mode === "move" && ev.type === "pointerup") {
+        const moving = new Set(ids);
+        const before = edit.segments.slice(0, indexAt(ev.clientX)).filter((x) => !moving.has(x.id)).length;
+        moveSelection(moving, before);
+      } else if (mode === "pending" && ev.type === "pointerup") {
+        select([s.id]);
+        engine.pause();
+        engine.seek(frameAtX(ev.clientX));
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   /** Pointer down on a segment: select (and seek), or drag to reorder. */
   const grabSegment = (e: ReactPointerEvent, s: Segment) => {
+    if (e.pointerType === "touch") return touchSegment(e, s);
     if (e.button !== 0 || !edit) return;
     e.stopPropagation();
     const startX = e.clientX;
@@ -277,6 +351,58 @@ export function Timeline() {
     requestAnimationFrame(() => (el.scrollLeft = Math.max(0, anchor * next - x)));
   };
   zoomRef.current = zoomBy;
+  /** Pinch: zoom to `startPps × scale`, keeping the time under the fingers' midpoint there. */
+  const pinchRef = useRef<((startPps: number, scale: number, anchorTime: number, x: number) => void) | null>(null);
+  pinchRef.current = (startPps, scale, anchorTime, x) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = Math.max(fit, Math.min(maxPps, startPps * scale));
+    editor.setState({ zoom: next <= fit * 1.001 ? null : next });
+    requestAnimationFrame(() => (el.scrollLeft = Math.max(0, anchorTime * next - x)));
+  };
+  const ppsRef = useRef(pps);
+  ppsRef.current = pps;
+
+  // Two fingers on the timeline: pinch to zoom (captured before the segments see the second finger).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const xs = new Map<number, number>();
+    let start: { dist: number; pps: number; time: number } | null = null;
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      xs.set(e.pointerId, e.clientX);
+      if (xs.size !== 2) return;
+      const [a, b] = [...xs.values()];
+      const x = (a + b) / 2 - el.getBoundingClientRect().left;
+      start = { dist: Math.max(1, Math.abs(a - b)), pps: ppsRef.current, time: (x + el.scrollLeft) / ppsRef.current };
+      pinching.current = true;
+      e.stopPropagation();
+      e.preventDefault();
+    };
+    const move = (e: PointerEvent) => {
+      if (!xs.has(e.pointerId)) return;
+      xs.set(e.pointerId, e.clientX);
+      if (!start || xs.size < 2) return;
+      const [a, b] = [...xs.values()];
+      pinchRef.current?.(start.pps, Math.max(1, Math.abs(a - b)) / start.dist, start.time, (a + b) / 2 - el.getBoundingClientRect().left);
+    };
+    const up = (e: PointerEvent) => {
+      if (!xs.delete(e.pointerId)) return;
+      if (xs.size < 2) start = null;
+      if (!xs.size) pinching.current = false;
+    };
+    el.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      el.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
 
   // Ctrl/⌘ + wheel (or trackpad pinch) zooms. A native, non-passive listener so the page itself doesn't zoom.
   useEffect(() => {
@@ -305,7 +431,7 @@ export function Timeline() {
 
   return (
     <div className="vt">
-      <div className="vt-bar">
+      <div className="vt-bar wide-only">
         <span className="faint" style={{ fontSize: 11 }}>
           Timeline
         </span>
@@ -334,8 +460,8 @@ export function Timeline() {
               </span>
             ))}
           </div>
-          <div className="vt-track" style={{ height: TRACK }}>
-            <canvas ref={thumbsRef} className="vt-canvas" style={{ left: scroll, width: viewWidth, height: TRACK }} />
+          <div className="vt-track" style={{ height: TRACK_H }}>
+            <canvas ref={thumbsRef} className="vt-canvas" style={{ left: scroll, width: viewWidth, height: TRACK_H }} />
             {edit &&
               plan &&
               edit.segments.map((s, i) => {
@@ -370,8 +496,8 @@ export function Timeline() {
               })}
             {drop !== null && plan && <div className="vt-drop" style={{ left: (plan.spans[drop]?.start ?? plan.duration) * pps }} />}
           </div>
-          <div className="vt-wave" style={{ height: WAVE }} onPointerDown={scrub}>
-            <canvas ref={waveRef} className="vt-canvas" style={{ left: scroll, width: viewWidth, height: WAVE }} />
+          <div className="vt-wave" style={{ height: WAVE_H }} onPointerDown={scrub}>
+            <canvas ref={waveRef} className="vt-canvas" style={{ left: scroll, width: viewWidth, height: WAVE_H }} />
           </div>
           <Playhead pps={pps} />
         </div>

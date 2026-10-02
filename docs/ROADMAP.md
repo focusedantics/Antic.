@@ -350,6 +350,9 @@ background, the small AI model by default) and lighter animations on phones; a c
 layout modelled on Lightroom mobile (bottom dock, resizable sheet, ⋯ menu, scrolling
 toolbars, touch-sized controls, pinch zoom and double tap in Develop); resizable and
 hideable side panels and filmstrip on computers, remembered. See `docs/MOBILE.md`.
+Video on phones: iPhone clips read without loading them into memory (index-only demux,
+lazy samples, ADTS audio), a `<video>` fallback where WebCodecs can't decode HEVC, a
+touch timeline and transport; Composite's phone toolbar of large icons; landscape rail.
 Not done: drag-and-drop from the filmstrip into a composition by touch (use "Start from
 selected"), tiled export beyond 4096 px on phones.
 

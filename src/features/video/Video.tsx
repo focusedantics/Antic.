@@ -480,7 +480,7 @@ function Toolbar({ onExport }: { onExport: () => void }) {
     };
   }, [history]);
   return (
-    <div className="toolbar" role="toolbar" aria-label="Video tools">
+    <div className="toolbar wide-only" role="toolbar" aria-label="Video tools">
       <button type="button" className="btn small" disabled={!edit} onClick={splitAtPlayhead} title="Cut the segment at the playhead (S)">
         ✂ Split
       </button>

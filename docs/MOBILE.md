@@ -35,10 +35,17 @@ What we took:
 | Presets and effects as a scrolling grid | The effects browser goes full screen: search, a row of category chips, two columns of live previews |
 | Pinch and double tap on the photo | Pinch zooms and pans; a double tap toggles 100 % |
 | Double-tap a slider to reset | Double-click on a slider's label or track resets it; mobile browsers usually deliver a double tap as a double-click (not checked on every phone) |
+| Landscape: the toolbar moves to the side | Phones held sideways: the dock becomes a rail on the right and panels open beside the picture |
+
+Video on phones follows the same idea: the toolbar row folds into the transport (play,
+frame steps, time, split, duplicate, delete, ⋯), the timeline is shorter, and touch has
+its own gestures (tap selects, swipe scrolls, hold to move, pinch to zoom, trim handles
+on the selected clip). iPhone video (HEVC, often HDR or Dolby Vision, index at the end of
+a .MOV, a spatial-audio track beside the stereo one) is read without loading the file
+into memory and decoded by WebCodecs, or by the browser's own player where only it can.
 
 What we did not take: hold-to-compare (it would fight brush and heal strokes on the
-photo; the Before/After buttons stay in the toolbar) and moving the dock to the side in
-landscape (landscape phones use the same dock, along the bottom).
+photo; the Before/After buttons stay in the toolbar).
 
 ## Mobile web constraints
 

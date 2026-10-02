@@ -1,4 +1,4 @@
-import type { DemuxedVideo } from "./demux";
+import { type DemuxedVideo, SampleReader } from "./demux";
 
 /**
  * Frame-accurate, random-access frames of one clip, decoded with WebCodecs.
@@ -20,7 +20,19 @@ export type FrameStore<T> = {
   release(value: T): void;
 };
 
-export class FrameSource<T> {
+/** Random-access frames of one clip, whichever way they are decoded. */
+export interface Frames<T> {
+  readonly frames: number;
+  /** Clockwise rotation still to apply to the frames (0 when they come out upright). */
+  readonly rotation: 0 | 90 | 180 | 270;
+  get(index: number): Promise<T>;
+  peek(index: number): T | null;
+  prefetch(indices: readonly number[]): void;
+  cancelPrefetch(): void;
+  dispose(): void;
+}
+
+export class FrameSource<T> implements Frames<T> {
   private readonly order: number[];
   private readonly presOf: Int32Array;
   /** For each presentation index, the decode index of the keyframe to start from. */
@@ -38,6 +50,8 @@ export class FrameSource<T> {
   private queue: Promise<unknown> = Promise.resolve();
   private generation = 0;
   private disposed = false;
+  /** Samples come from the file on demand (see demux). */
+  private readonly reader: SampleReader;
 
   readonly frames: number;
 
@@ -47,6 +61,7 @@ export class FrameSource<T> {
     private readonly budget: number,
   ) {
     const samples = video.samples;
+    this.reader = new SampleReader(video.file);
     this.frames = samples.length;
     this.order = samples.map((_, i) => i).sort((a, b) => samples[a].cts - samples[b].cts || a - b);
     this.presOf = new Int32Array(samples.length);
@@ -59,6 +74,10 @@ export class FrameSource<T> {
       keyForSample[s] = key;
     }
     for (let p = 0; p < samples.length; p++) this.keyOf[p] = keyForSample[this.order[p]];
+  }
+
+  get rotation() {
+    return this.video.rotation;
   }
 
   /** The cached frame, if any (no decoding). */
@@ -226,7 +245,9 @@ export class FrameSource<T> {
       }
       if (this.cursor < samples.length && decoder.decodeQueueSize < 6 && this.converting.size < 6) {
         const s = samples[this.cursor];
-        decoder.decode(new EncodedVideoChunk({ type: s.is_sync ? "key" : "delta", timestamp: this.presOf[this.cursor], duration: Math.max(1, Math.round((s.duration / ts) * 1e6)), data: s.data! }));
+        const data = await this.reader.read(s);
+        if (this.disposed || decoder.state !== "configured") throw new Error("Frame source closed");
+        decoder.decode(new EncodedVideoChunk({ type: s.is_sync ? "key" : "delta", timestamp: this.presOf[this.cursor], duration: Math.max(1, Math.round((s.duration / ts) * 1e6)), data }));
         this.cursor++;
         continue;
       }
@@ -250,6 +271,208 @@ export class FrameSource<T> {
     this.cache.clear();
     this.cachedBytes = 0;
   }
+}
+
+// ─── Fallback: the browser's own video player ──────────────────────────────
+
+/**
+ * Frames grabbed from a hidden <video> element, for clips WebCodecs can't
+ * decode in this browser but its player can (HEVC from iPhones in some
+ * browsers). Each frame is a seek to the middle of its presentation time, so
+ * it is slower than WebCodecs and exact only as far as the player's seeking
+ * is, but every feature works. The player shows frames upright, so they need
+ * no further rotation.
+ */
+export class ElementFrameSource<T> implements Frames<T> {
+  readonly frames: number;
+  readonly rotation = 0 as const;
+  private readonly times: Float64Array;
+  private readonly el: HTMLVideoElement;
+  private readonly url: string;
+  private readonly cache = new Map<number, T>();
+  private cachedBytes = 0;
+  private queue: Promise<unknown> = Promise.resolve();
+  private generation = 0;
+  private disposed = false;
+
+  constructor(
+    video: DemuxedVideo,
+    private readonly store: FrameStore<T>,
+    private readonly budget: number,
+  ) {
+    const ts = video.track.timescale;
+    const cts = video.samples.map((s) => s.cts).sort((a, b) => a - b);
+    const first = cts[0] ?? 0;
+    const frame = 1 / Math.max(1, video.fps);
+    // The middle of each frame's display time, on the player's clock (which starts at the first frame).
+    this.times = Float64Array.from(cts, (c) => (c - first) / ts + frame / 2);
+    this.frames = cts.length;
+    this.url = URL.createObjectURL(video.file);
+    this.el = document.createElement("video");
+    this.el.muted = true;
+    this.el.playsInline = true;
+    this.el.preload = "auto";
+    this.el.src = this.url;
+  }
+
+  peek(index: number): T | null {
+    return this.cache.get(this.clamp(index)) ?? null;
+  }
+
+  get(index: number): Promise<T> {
+    const i = this.clamp(index);
+    const hit = this.cache.get(i);
+    if (hit !== undefined) return Promise.resolve(hit);
+    const run = this.queue.then(() => this.grab(i));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  prefetch(indices: readonly number[]) {
+    const generation = ++this.generation;
+    for (const index of indices) {
+      const i = this.clamp(index);
+      if (this.cache.has(i)) continue;
+      const run = this.queue.then(() => (generation === this.generation && !this.disposed && !this.cache.has(i) ? this.grab(i) : undefined));
+      this.queue = run.catch(() => undefined);
+    }
+  }
+
+  cancelPrefetch() {
+    this.generation++;
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.generation++;
+    this.el.removeAttribute("src");
+    this.el.load();
+    URL.revokeObjectURL(this.url);
+    for (const v of this.cache.values()) this.store.release(v);
+    this.cache.clear();
+  }
+
+  private clamp(i: number) {
+    return Math.max(0, Math.min(this.frames - 1, Math.round(i)));
+  }
+
+  private event(name: string, ms = 8000) {
+    return new Promise<void>((resolve, reject) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.el.removeEventListener(name, done);
+        this.el.removeEventListener("error", fail);
+        resolve();
+      };
+      const fail = () => {
+        clearTimeout(timer);
+        this.el.removeEventListener(name, done);
+        reject(new Error("The browser's video player could not read this clip."));
+      };
+      const timer = setTimeout(fail, ms);
+      this.el.addEventListener(name, done, { once: true });
+      this.el.addEventListener("error", fail, { once: true });
+    });
+  }
+
+  private async grab(i: number): Promise<T> {
+    if (this.disposed) throw new Error("Frame source closed");
+    const hit = this.cache.get(i);
+    if (hit !== undefined) return hit;
+    if (this.el.readyState < 1) await this.event("loadedmetadata");
+    const t = Math.min(this.times[i], Math.max(0, (this.el.duration || this.times[i]) - 1e-3));
+    if (Math.abs(this.el.currentTime - t) > 1e-4 || this.el.readyState < 2) {
+      const seeked = this.event("seeked");
+      this.el.currentTime = t;
+      await seeked;
+    }
+    // A bitmap of the frame as the player shows it (upright), wrapped for the store.
+    const bitmap = await createImageBitmap(this.el);
+    const frame = new VideoFrame(bitmap, { timestamp: i });
+    try {
+      const value = await this.store.convert(frame);
+      if (this.disposed) {
+        this.store.release(value);
+        throw new Error("Frame source closed");
+      }
+      this.cache.set(i, value);
+      this.cachedBytes += this.store.bytes(value);
+      for (const [k, v] of this.cache) {
+        if (this.cachedBytes <= this.budget || this.cache.size <= 2) break;
+        if (k === i) continue;
+        this.cache.delete(k);
+        this.cachedBytes -= this.store.bytes(v);
+        this.store.release(v);
+      }
+      return value;
+    } finally {
+      frame.close();
+      bitmap.close();
+    }
+  }
+}
+
+/** How this browser decodes a clip: WebCodecs, its video player, or not at all. */
+export type Decoding = "webcodecs" | "element" | null;
+
+const decodings = new WeakMap<DemuxedVideo, Promise<Decoding>>();
+
+/** Whether the browser's video player can show this file (metadata loads and a frame has a size). */
+export function elementPlays(file: Blob, ms = 8000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement("video");
+    el.muted = true;
+    el.playsInline = true;
+    el.preload = "metadata";
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      el.removeAttribute("src");
+      el.load();
+      URL.revokeObjectURL(url);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), ms);
+    el.onloadedmetadata = () => done(el.videoWidth > 0);
+    el.onerror = () => done(false);
+    el.src = url;
+  });
+}
+
+export function decodingFor(video: DemuxedVideo): Promise<Decoding> {
+  let d = decodings.get(video);
+  if (!d) {
+    d = (async (): Promise<Decoding> => {
+      let forced: string | null = null;
+      try {
+        forced = localStorage.getItem("focused:video-decoder");
+      } catch {
+        // No override.
+      }
+      if (forced !== "element" && typeof VideoDecoder !== "undefined") {
+        const ok = await VideoDecoder.isConfigSupported(video.config).then((r) => r.supported === true, () => false);
+        if (ok) return "webcodecs";
+      }
+      return (await elementPlays(video.file)) ? "element" : null;
+    })();
+    decodings.set(video, d);
+  }
+  return d;
+}
+
+/** What to tell someone whose browser can't decode this clip at all. */
+export function cannotDecode(codec: string): string {
+  if (/^(hvc1|hev1|dvh1|dvhe)/.test(codec))
+    return "This video is HEVC (the iPhone camera's “High Efficiency” format), which this browser can't decode. Open Focused in Safari, or in Chrome or Edge on a Mac, on Android, or on Windows with HEVC support. On an iPhone you can also record compatible video: Settings → Camera → Formats → Most Compatible.";
+  return `This browser can't decode ${codec} video. Try a recent Safari, Chrome or Edge.`;
+}
+
+/** Frames of a clip through WebCodecs when it can, else through the video player. Throws when neither can. */
+export async function openFrames<T>(video: DemuxedVideo, store: FrameStore<T>, budget: number): Promise<Frames<T>> {
+  const how = await decodingFor(video);
+  if (how === "webcodecs") return new FrameSource(video, store, budget);
+  if (how === "element") return new ElementFrameSource(video, store, budget);
+  throw new Error(cannotDecode(video.config.codec));
 }
 
 // ─── Stores ─────────────────────────────────────────────────────────────────

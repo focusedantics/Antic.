@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { demux } from "@/core/video/demux";
+import { demux, hevcCodec, SampleReader } from "@/core/video/demux";
+import { adtsStream } from "@/core/video/soundtrack";
+import { moovAtEnd } from "./fixtures/moov";
 import { bitcrush, earrape, echo, mixSoundtrack, pitchShift, renderSegment, resample, stretch } from "@/core/video/dsp";
 import { encodeOptions, quantizerFor } from "@/core/video/encoder";
 import { defaultAudioFx, defaultEdit, isPlainSegment, isVideoFile, newSegment, outputSize, sanitizeEdit, type VideoEdit } from "@/core/video/model";
@@ -143,6 +145,72 @@ describe("mp4 demuxing", () => {
     expect(d.video.samples[0].is_sync).toBe(true);
     expect(d.video.fps).toBeCloseTo(30, 0);
     expect(d.audio?.codec).toBe("opus");
+    // Only the index is in memory: the frames stay in the file.
+    expect(d.video.samples.every((x) => x.data === undefined)).toBe(true);
+  });
+
+  it("reads files whose index comes after the media (iPhone .MOV layout), sample for sample", async () => {
+    const bytes = new Uint8Array(readFileSync("tests/fixtures/clip.mp4"));
+    const a = await demux(new Blob([bytes]));
+    // Small reads: the media data is jumped over, never read, to reach the index at the end.
+    let read = 0;
+    const counted = (blob: Blob): Blob => {
+      const slice = blob.slice.bind(blob);
+      return Object.assign(blob, {
+        slice: (start?: number, end?: number) => {
+          read += (end ?? blob.size) - (start ?? 0);
+          return slice(start, end);
+        },
+      });
+    };
+    const b = await demux(counted(new Blob([moovAtEnd(bytes)])), 4096);
+    expect(read).toBeLessThan(bytes.length / 4);
+    expect(b.video.samples).toHaveLength(a.video.samples.length);
+    expect(b.audio?.samples.length).toBe(a.audio?.samples.length);
+    const ra = new SampleReader(a.video.file, 4096);
+    const rb = new SampleReader(b.video.file, 4096);
+    for (let i = 0; i < a.video.samples.length; i++) {
+      expect(b.video.samples[i].cts).toBe(a.video.samples[i].cts);
+      expect(Buffer.from(await rb.read(b.video.samples[i])).equals(Buffer.from(await ra.read(a.video.samples[i])))).toBe(true);
+    }
+  });
+});
+
+describe("HEVC and AAC helpers", () => {
+  it("builds HEVC codec strings from hvcC (also for Dolby Vision tracks)", () => {
+    // iPhone HDR: Main 10, level 5.1, progressive-source constraint.
+    const main10 = { general_profile_space: 0, general_tier_flag: 0, general_profile_idc: 2, general_profile_compatibility: 0x20000000, general_constraint_indicator: [0xb0, 0, 0, 0, 0, 0], general_level_idc: 153 };
+    expect(hevcCodec(main10)).toBe("hvc1.2.4.L153.B0");
+    const main = { ...main10, general_profile_idc: 1, general_profile_compatibility: 0x60000000, general_level_idc: 93, general_tier_flag: 1 };
+    expect(hevcCodec(main)).toBe("hvc1.1.6.H93.B0");
+  });
+
+  it("wraps AAC samples in ADTS headers that state the profile, rate, channels and frame length", async () => {
+    const payload = new Uint8Array([1, 2, 3, 9, 8, 7, 6, 5]);
+    const audio = {
+      file: new Blob([payload]),
+      samples: [
+        { offset: 0, size: 3, cts: 0, dts: 0, duration: 1024, is_sync: true },
+        { offset: 3, size: 5, cts: 1024, dts: 1024, duration: 1024, is_sync: true },
+      ],
+      // AAC-LC, 44.1 kHz, stereo.
+      config: { codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 2, description: new Uint8Array([0x12, 0x10]) },
+    } as unknown as Parameters<typeof adtsStream>[0];
+    const out = (await adtsStream(audio))!;
+    expect(out).toHaveLength(3 + 7 + 5 + 7);
+    const header = (at: number) => ({
+      sync: (out[at] << 4) | (out[at + 1] >> 4),
+      profile: (out[at + 2] >> 6) + 1,
+      freq: (out[at + 2] >> 2) & 15,
+      channels: ((out[at + 2] & 1) << 2) | (out[at + 3] >> 6),
+      length: ((out[at + 3] & 3) << 11) | (out[at + 4] << 3) | (out[at + 5] >> 5),
+    });
+    expect(header(0)).toEqual({ sync: 0xfff, profile: 2, freq: 4, channels: 2, length: 10 });
+    expect([...out.subarray(7, 10)]).toEqual([1, 2, 3]);
+    expect(header(10)).toEqual({ sync: 0xfff, profile: 2, freq: 4, channels: 2, length: 12 });
+    expect([...out.subarray(17)]).toEqual([9, 8, 7, 6, 5]);
+    // Explicit sample rates (index 15) cannot be written as ADTS.
+    expect(await adtsStream({ ...audio, config: { ...audio.config, description: new Uint8Array([0x17, 0x80]) } })).toBeNull();
   });
 });
 

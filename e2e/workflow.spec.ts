@@ -329,11 +329,14 @@ async function identicalFrames(page: Page, a: Buffer, b: Buffer) {
     async ([x, y]) => {
       // Loaded from the dev server inside the page.
       const path = "/src/core/video/demux.ts";
-      type Demux = (file: Blob) => Promise<{ video: { config: VideoDecoderConfig; track: { timescale: number }; samples: { is_sync: boolean; cts: number; data?: Uint8Array }[] } }>;
-      const { demux } = (await import(/* @vite-ignore */ path)) as { demux: Demux };
+      type Sample = { is_sync: boolean; cts: number; offset: number; size: number };
+      type Demux = (file: Blob) => Promise<{ video: { config: VideoDecoderConfig; track: { timescale: number }; file: Blob; samples: Sample[] } }>;
+      type Reader = new (file: Blob) => { read(s: Sample): Promise<Uint8Array> };
+      const { demux, SampleReader } = (await import(/* @vite-ignore */ path)) as { demux: Demux; SampleReader: Reader };
       const decodeAll = async (b64: string) => {
         const d = await demux(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))]));
         const v = d.video;
+        const reader = new SampleReader(v.file);
         const out: { ts: number; data: Uint8Array }[] = [];
         const pending: Promise<void>[] = [];
         const dec = new VideoDecoder({
@@ -344,7 +347,7 @@ async function identicalFrames(page: Page, a: Buffer, b: Buffer) {
           error: (e) => console.error(e),
         });
         dec.configure(v.config);
-        for (const s of v.samples) dec.decode(new EncodedVideoChunk({ type: s.is_sync ? "key" : "delta", timestamp: Math.round((s.cts / v.track.timescale) * 1e6), data: s.data! }));
+        for (const s of v.samples) dec.decode(new EncodedVideoChunk({ type: s.is_sync ? "key" : "delta", timestamp: Math.round((s.cts / v.track.timescale) * 1e6), data: await reader.read(s) }));
         await dec.flush();
         await Promise.all(pending);
         return out.sort((p, q) => p.ts - q.ts);

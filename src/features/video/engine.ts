@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { type Channels, SAMPLE_RATE } from "@/core/video/dsp";
-import { bitmapStore, FrameSource } from "@/core/video/frames";
+import { bitmapStore, decodingFor, type Frames, openFrames } from "@/core/video/frames";
+import { device } from "@/lib/device";
 import { type ClipMedia, loadClipMedia } from "@/core/video/media";
 import type { VideoEdit } from "@/core/video/model";
 import { VideoRenderer } from "@/core/video/renderer";
@@ -28,12 +29,17 @@ export type PlayerState = {
   /** Bumped when the soundtrack (waveform) changes. */
   readonly soundtrackVersion: number;
   readonly error: string | null;
+  /** How the open clip is decoded: WebCodecs, or the browser's player (slower; HEVC in some browsers). */
+  readonly decoder: "webcodecs" | "element" | null;
 };
 
-export const player = createStore<PlayerState>(() => ({ frame: 0, frames: 0, fps: 30, playing: false, loop: true, audio: "loading", soundtrackVersion: 0, error: null }));
+export const player = createStore<PlayerState>(() => ({ frame: 0, frames: 0, fps: 30, playing: false, loop: true, audio: "loading", soundtrackVersion: 0, error: null, decoder: null }));
 
-const PREVIEW_SIDE = 1280;
+// Phones keep smaller, fewer decoded frames (lib/device): a 4K clip's frames add up fast.
+const PREVIEW_SIDE = device.lite ? 960 : 1280;
 const THUMB_SIDE = 160;
+const PREVIEW_BUDGET = (device.lite ? 96 : 384) * 1024 * 1024;
+const THUMB_BUDGET = (device.lite ? 16 : 48) * 1024 * 1024;
 
 class Engine {
   private ownId: string | null = null;
@@ -41,8 +47,8 @@ class Engine {
   plan: Plan | null = null;
   private readonly clips = new Map<string, ClipMedia>();
   private readonly loading = new Map<string, Promise<ClipMedia | null>>();
-  private readonly previews = new Map<string, FrameSource<ImageBitmap>>();
-  private readonly thumbs = new Map<string, FrameSource<ImageBitmap>>();
+  private readonly previews = new Map<string, Frames<ImageBitmap>>();
+  private readonly thumbs = new Map<string, Frames<ImageBitmap>>();
   private soundtrack: Soundtrack | null = null;
   /** Each clip's audio, decoded once and handed to the worker: resolves to whether it has sound. */
   private readonly audioReady = new Map<string, Promise<boolean>>();
@@ -77,7 +83,8 @@ class Engine {
     const own = await this.ensureClip(id);
     if (this.ownId !== id) return;
     if (!own) {
-      player.setState({ error: "This video can't be read. It may be damaged or in a format this browser can't decode." });
+      // Keep a specific reason (an undecodable codec) when there is one.
+      if (!player.getState().error) player.setState({ error: "This video can't be read. It may be damaged or in a format this browser can't decode." });
       return;
     }
     player.setState({ fps: own.info.fps });
@@ -109,13 +116,20 @@ class Engine {
     if (!p) {
       p = loadClipMedia(id).then(async (m) => {
         if (!m) return null;
-        if (typeof VideoDecoder !== "undefined" && !(await VideoDecoder.isConfigSupported(m.media.video.config).catch(() => ({ supported: false }))).supported) {
-          player.setState({ error: `This browser can't decode ${m.media.video.config.codec} video. Try Chrome or Edge.` });
+        // WebCodecs when it can decode the clip, else the browser's own player (HEVC in some browsers).
+        let previews: Frames<ImageBitmap>;
+        let thumbs: Frames<ImageBitmap>;
+        try {
+          previews = await openFrames(m.media.video, bitmapStore(PREVIEW_SIDE), PREVIEW_BUDGET);
+          thumbs = await openFrames(m.media.video, bitmapStore(THUMB_SIDE), THUMB_BUDGET);
+        } catch (error) {
+          player.setState({ error: error instanceof Error ? error.message : String(error) });
           return null;
         }
+        if (id === this.ownId) player.setState({ decoder: await decodingFor(m.media.video) });
         this.clips.set(id, m);
-        this.previews.set(id, new FrameSource(m.media.video, bitmapStore(PREVIEW_SIDE), 384 * 1024 * 1024));
-        this.thumbs.set(id, new FrameSource(m.media.video, bitmapStore(THUMB_SIDE), 48 * 1024 * 1024));
+        this.previews.set(id, previews);
+        this.thumbs.set(id, thumbs);
         return m;
       });
       this.loading.set(id, p);
@@ -162,7 +176,7 @@ class Engine {
       let ready = this.audioReady.get(id);
       if (!ready) {
         ready = (async () => {
-          const audio = m.media.audio ? await decodeClipAudio(m.file) : null;
+          const audio = m.media.audio ? await decodeClipAudio(m.media) : null;
           if (this.soundtrack === soundtrack) soundtrack.setSource(id, audio);
           return !!audio;
         })();
@@ -249,7 +263,7 @@ class Engine {
         ...(this.edit!.effect && this.edit!.effectMix > 0 ? [{ effect: this.edit!.effect, mix: this.edit!.effectMix }] : []),
       ];
       try {
-        renderer.draw(bitmap, { sourceWidth: bitmap.width, sourceHeight: bitmap.height, rotation: media.media.video.rotation, width, height, visual: seg.visual, local: ref.local, time: k / plan.fps, effects, viewport });
+        renderer.draw(bitmap, { sourceWidth: bitmap.width, sourceHeight: bitmap.height, rotation: source.rotation, width, height, visual: seg.visual, local: ref.local, time: k / plan.fps, effects, viewport });
       } catch (error) {
         player.setState({ error: error instanceof Error ? error.message : String(error) });
       }
@@ -299,7 +313,7 @@ class Engine {
   }
 
   rotationOf(clip: string) {
-    return this.clips.get(clip)?.media.video.rotation ?? 0;
+    return this.previews.get(clip)?.rotation ?? 0;
   }
 
   // ─── Transport ────────────────────────────────────────────────────────────

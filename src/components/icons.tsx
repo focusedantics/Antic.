@@ -1,5 +1,5 @@
 /** Small line icons for the phone dock and the panel toggles (inherit the text colour). */
-export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects";
+export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate";
 
 const paths: Record<IconName, React.ReactNode> = {
   presets: (
@@ -80,6 +80,53 @@ const paths: Record<IconName, React.ReactNode> = {
   ),
   chevron: <path d="m6 9 6 6 6-6" />,
   effects: <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" />,
+  split: (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M8.1 8.1 20 20M8.1 15.9 20 4" />
+    </>
+  ),
+  duplicate: (
+    <>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+    </>
+  ),
+  trash: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />,
+  play: <path d="M7 4.5v15l12-7.5z" fill="currentColor" />,
+  pause: (
+    <>
+      <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
+      <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
+    </>
+  ),
+  "step-back": <path d="M6 5v14M18 5 9 12l9 7z" />,
+  "step-forward": <path d="M18 5v14M6 5l9 7-9 7z" />,
+  move: <path d="M12 3v18M3 12h18M12 3 9 6M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />,
+  brush: (
+    <>
+      <path d="M14.5 4.5 19.5 9.5 11 18l-5-5z" />
+      <path d="M6 13c-2 1-2.5 3-2.5 5.5 2.5 0 4.5-.5 5.5-2.5" />
+    </>
+  ),
+  align: (
+    <>
+      <path d="M4 3v18" />
+      <rect x="7" y="6" width="12" height="4" rx="1" />
+      <rect x="7" y="14" width="7" height="4" rx="1" />
+    </>
+  ),
+  magnet: <path d="M6 3v8a6 6 0 0 0 12 0V3M6 7h4M14 7h4M10 3v8a2 2 0 0 0 4 0V3" />,
+  guides: <path d="M3 8h18M3 16h18M8 3v18M16 3v18" />,
+  fit: <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  animate: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M10 8.5v7l6-3.5z" fill="currentColor" />
+    </>
+  ),
   more: (
     <>
       <circle cx="5" cy="12" r="1.6" fill="currentColor" />
