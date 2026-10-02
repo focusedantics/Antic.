@@ -21,6 +21,12 @@ export type AiStatus = {
 
 export const aiStatus = createStore<AiStatus>(() => ({ busy: null, model: null, progress: 0, device: null, lastModel: null }));
 
+/** A one-line status for working animations: the task, and the model download while it runs. */
+export function describeAiStatus(task: string): string {
+  const { model, progress } = aiStatus.getState();
+  return model && progress > 0 && progress < 100 ? `${task} · downloading the model ${progress}% (first time only)` : task;
+}
+
 export type AiQuality = "quality" | "fast" | "offline";
 const readQuality = (): AiQuality => {
   try {

@@ -1,4 +1,5 @@
 import { track } from "@/lib/activity";
+import { nextPaint } from "@/lib/pacing";
 import { getAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { outputSize } from "@/core/develop/geometry";
@@ -59,25 +60,38 @@ export function exportSize(full: { width: number; height: number }, s: ExportSet
 
 export type ExportResult = { name: string; blob: Blob; width: number; height: number };
 
-/** Develops and encodes one photo from its original and recipe. */
-export function exportAsset(id: AssetId, settings: ExportSettings, watermark?: Watermark): Promise<ExportResult> {
-  return track(renderExport(id, settings, watermark));
+/** Where an export is (0..1 within this photo), for progress labels. */
+export type ExportStage = (label: string, fraction: number) => void;
+
+/**
+ * Develops and encodes one photo from its original and recipe. Rendering and
+ * read-back are synchronous GPU work, so it lets the browser paint before each
+ * heavy step: the dialog shows what is happening instead of freezing first.
+ */
+export function exportAsset(id: AssetId, settings: ExportSettings, watermark?: Watermark, onStage?: ExportStage): Promise<ExportResult> {
+  return track(renderExport(id, settings, watermark, onStage));
 }
 
-async function renderExport(id: AssetId, settings: ExportSettings, watermark?: Watermark): Promise<ExportResult> {
+async function renderExport(id: AssetId, settings: ExportSettings, watermark?: Watermark, onStage?: ExportStage): Promise<ExportResult> {
   const asset = getAsset(id);
   const recipe = recipeFor(id);
   if (!asset || !recipe) throw new Error("Photo not found");
   const engine = developEngine();
   if (!engine.hasSource(id) || engine.hasSource(id, "preview")) {
+    onStage?.("Reading the original…", 0.05);
     const loaded = await loadSource(asset);
     engine.setSource(id, loaded, loaded.quality);
   }
   const source = engine.sourceFor(id)!;
   const full = outputSize(source.size, recipe.geometry);
   const size = exportSize(full, settings);
+  onStage?.(`Developing ${size.width} × ${size.height}…`, 0.2);
+  await nextPaint();
   const pixels = engine.exportPixels(source, recipe, Math.max(size.width, size.height));
+  onStage?.(`Encoding ${settings.format.toUpperCase()}…`, 0.65);
+  await nextPaint();
   let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background, watermark);
+  onStage?.("Saving…", 0.95);
   if (settings.format === "jpeg" && settings.metadata !== "none") {
     const exif =
       settings.metadata === "all" ? asset.exif : { copyright: asset.exif.copyright, artist: asset.exif.artist };

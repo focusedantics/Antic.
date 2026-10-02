@@ -5,7 +5,7 @@ import { Slider } from "@/components/Slider";
 import { canChooseFolder, chooseFolder, type Destination, describeDestination } from "@/core/export/destination";
 import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition, watermarkFont } from "@/core/export/watermark";
 import { ensureFont, fontLoads } from "@/core/text/fonts";
-import { Marble, previewBitmap } from "./marble";
+import { Marble, type MarbleMood, previewBitmap } from "./marble";
 
 /** What is being exported, for the marble: `load` runs again whenever `key` changes. */
 export type ExportPreview = { readonly key: string; readonly load: () => Promise<Blob | ImageBitmap | string | null> };
@@ -17,7 +17,7 @@ const REDUCE = "(prefers-reduced-motion: reduce)";
  * the progress bar while an export runs. Drag to spin it, click to change its colour.
  * Decorative: the progress bar and its label carry the information.
  */
-export function ExportMarble({ preview }: { preview?: ExportPreview | null }) {
+export function ExportMarble({ preview, mood = "working", className }: { preview?: ExportPreview | null; mood?: MarbleMood; className?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const marble = useRef<Marble | null>(null);
   const [failed, setFailed] = useState(false);
@@ -30,6 +30,7 @@ export function ExportMarble({ preview }: { preview?: ExportPreview | null }) {
       marble.current = null;
     };
   }, []);
+  useEffect(() => marble.current?.setMood(mood), [mood]);
   const key = preview?.key ?? "";
   useEffect(() => {
     if (!preview) {
@@ -52,14 +53,28 @@ export function ExportMarble({ preview }: { preview?: ExportPreview | null }) {
     // `preview.load` is a fresh closure each render; the key says when the picture changed.
   }, [key]);
   if (failed) return null;
-  return <div ref={host} className="export-marble" aria-hidden="true" data-testid="export-marble" data-preview={key || undefined} title="Drag to spin · click to change color" />;
+  return (
+    <div
+      ref={host}
+      className={`export-marble${className ? ` ${className}` : ""}`}
+      aria-hidden="true"
+      data-testid="export-marble"
+      data-mood={mood}
+      data-preview={key || undefined}
+      title="Drag to spin · click to change color"
+    />
+  );
 }
 
-export function ProgressBar({ done, total, label, preview }: { done: number; total: number; label: string; preview?: ExportPreview | null }) {
+/**
+ * The export progress line. With `preview` (even null) it shows the marble above
+ * the bar; dialogs that keep their own marble on screen leave it out.
+ */
+export function ProgressBar({ done, total, label, preview, mood }: { done: number; total: number; label: string; preview?: ExportPreview | null; mood?: MarbleMood }) {
   const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
   return (
     <div className="export-progress-block" role="status" aria-live="polite">
-      <ExportMarble preview={preview} />
+      {preview !== undefined && <ExportMarble preview={preview} mood={mood} />}
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span className="dim">{label}</span>
         <span className="num dim">{pct}%</span>

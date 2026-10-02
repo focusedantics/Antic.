@@ -9,6 +9,8 @@ import { composite } from "@/core/document/session";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
+import type { MarbleMood } from "@/features/export/marble";
+import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
 import { ANIMATED_FORMATS, type DocExport, type DocFormat, exportDocument, exportSize } from "./actions";
 
 let remembered: DocExport = { format: "png", scale: 1, quality: 0.92, background: "#ffffff", time: 0, dither: true, repeats: 3 };
@@ -24,6 +26,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
   const [current, setCurrent] = useState<string | null>(null);
+  const [mood, setMood] = useState<MarbleMood>("working");
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const cancelled = useRef<AbortController | null>(null);
 
@@ -64,6 +67,11 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
     cancelled.current = controller;
     const sink = new ExportSink(destination, `Focused compositions (${chosen.length}).zip`);
     let done = 0;
+    const started = performance.now();
+    setMood("working");
+    setCurrent(chosen[0] ?? null);
+    setProgress({ done: 0, total: chosen.length, label: "Starting…" });
+    await nextPaint();
     try {
       for (const [i, id] of chosen.entries()) {
         if (controller.signal.aborted) break;
@@ -83,7 +91,13 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       }
       setProgress({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
       await sink.finish();
-      if (done) toast(`Exported ${done} composition${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+      await holdAtLeast(started);
+      if (done) {
+        setMood("done");
+        setProgress({ done: chosen.length, total: chosen.length, label: `Saved ${done} composition${done === 1 ? "" : "s"} ✓` });
+        await sleep(PACE.doneBeat);
+        toast(`Exported ${done} composition${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+      }
       if (!controller.signal.aborted) onClose();
     } catch (error) {
       toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -131,6 +145,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       {progress && (
         <ProgressBar
           {...progress}
+          mood={mood}
           // The saved thumbnail is rendered at time 0: the first frame of a GIF or MP4.
           preview={current && thumbs[current] ? { key: thumbs[current], load: async () => thumbs[current] } : null}
         />

@@ -17,6 +17,8 @@ import { EffectsBrowserHost } from "@/features/effects/EffectsBrowser";
 import { formatBytes } from "@/features/library/format";
 import { openLooks } from "@/features/looks/LooksDialog";
 import { holdMotion } from "@/lib/motion";
+import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
+import type { MarbleMood } from "@/features/export/marble";
 import "@/styles/video.css";
 import {
   copySelected,
@@ -280,6 +282,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
   const [preview, setPreview] = useState<ExportPreview | null>(null);
+  const [mood, setMood] = useState<MarbleMood>("working");
   const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -300,6 +303,10 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     let lossless = true;
     let copied = true;
     setError(null);
+    const started = performance.now();
+    setMood("working");
+    setProgress({ done: 0, total: 1, label: "Starting…" });
+    await nextPaint();
     try {
       const durations = new Map(clips.map((c) => [c.id, c.duration]));
       for (const [i, clip] of chosen.entries()) {
@@ -322,6 +329,11 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       }
       setProgress({ done: 1, total: 1, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
       await sink.finish();
+      // Quick exports (a stream copy can take a blink) still show the marble working, then a beat of "done".
+      await holdAtLeast(started);
+      setMood("done");
+      setProgress({ done: 1, total: 1, label: `Saved ${count} video${count === 1 ? "" : "s"} ✓` });
+      await sleep(PACE.doneBeat);
       setResult({ count, bytes, frames, lossless, copied });
       toast(`Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
     } catch (err) {
@@ -366,7 +378,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     >
       {progress && (
         <>
-          <ProgressBar {...progress} preview={preview} />
+          <ProgressBar {...progress} preview={preview} mood={mood} />
           <p className="faint" style={{ fontSize: 10, margin: 0 }}>
             Rendering happens on this device, every frame in order. Keep this tab open until it finishes.
           </p>

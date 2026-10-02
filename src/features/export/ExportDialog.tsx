@@ -11,7 +11,9 @@ import { defaultExportSettings, exportAsset, type ExportSettings, exportSize } f
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { formatBytes } from "@/features/library/format";
-import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "./ExportParts";
+import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
+import { DestinationPicker, ExportMarble, initialDestination, ProgressBar, WatermarkEditor } from "./ExportParts";
+import type { MarbleMood } from "./marble";
 
 function ExportItem({ id, checked, onToggle }: { id: string; checked: boolean; onToggle: () => void }) {
   const asset = useStore(catalog, (s) => s.assets.get(id));
@@ -34,6 +36,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string; current?: string } | null>(null);
+  const [mood, setMood] = useState<MarbleMood>("idle");
   const cancelled = useRef(false);
   const chosen = ids.filter((id) => selected.has(id));
   const previewUrl = useImageUrl(getAsset(chosen[0] ?? ids[0]), "preview");
@@ -51,7 +54,8 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
     if (!recipe || !base) return;
     const size = exportSize(outputSize(base.size, recipe.geometry), s);
     setEstimate({ width: size.width, height: size.height });
-    if (!src || developEngine().hasSource(id, "preview")) return;
+    // The byte estimate is a real export: only for sizes that render in a blink, and never during an export.
+    if (!src || developEngine().hasSource(id, "preview") || busy || size.width * size.height > 12e6) return;
     let live = true;
     const t = setTimeout(async () => {
       try {
@@ -73,13 +77,22 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
     cancelled.current = false;
     const sink = new ExportSink(destination, `Focused export (${chosen.length} photos).zip`);
     let done = 0;
+    const started = performance.now();
     setBusy("Exporting…");
+    setMood("working");
+    setProgress({ done: 0, total: chosen.length, label: "Starting…", current: chosen[0] });
+    // Show the working state before any heavy work starts.
+    await nextPaint();
     try {
       for (const [i, id] of chosen.entries()) {
         if (cancelled.current) break;
-        setProgress({ done: i, total: chosen.length, label: `Exporting ${i + 1} of ${chosen.length} · ${getAsset(id)?.fileName ?? ""}`, current: id });
+        const prefix = chosen.length > 1 ? `${i + 1} of ${chosen.length} · ` : "";
+        const name = getAsset(id)?.fileName ?? "";
+        setProgress({ done: i, total: chosen.length, label: `${prefix}${name}`, current: id });
         try {
-          const result = await exportAsset(id, s, watermark);
+          const result = await exportAsset(id, s, watermark, (stage, fraction) =>
+            setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${name} · ${stage}`, current: id }),
+          );
           await sink.add(result.name, result.blob);
           done++;
         } catch (error) {
@@ -88,12 +101,20 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
       }
       setProgress((p) => ({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…", current: p?.current }));
       await sink.finish();
-      if (done) toast(`Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+      // A quick export still shows its working state, then a short "done" beat.
+      await holdAtLeast(started);
+      if (done) {
+        setMood("done");
+        setProgress((p) => ({ done: chosen.length, total: chosen.length, label: `Saved ${done} photo${done === 1 ? "" : "s"} ✓`, current: p?.current }));
+        await sleep(PACE.doneBeat);
+        toast(`Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+      }
     } catch (error) {
       toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
     } finally {
       setBusy(null);
       setProgress(null);
+      setMood("idle");
     }
     onDone(done);
     onClose();
@@ -128,7 +149,24 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         </>
       }
     >
-      {progress && <ProgressBar {...progress} preview={photoPreview(progress.current ?? chosen[0])} />}
+      <div className="export-hero">
+        <ExportMarble preview={photoPreview(progress?.current ?? chosen[0] ?? ids[0])} mood={mood} />
+        <div className="export-hero-text">
+          {progress ? (
+            <ProgressBar {...progress} />
+          ) : (
+            <>
+              <strong>{chosen.length === 1 ? (getAsset(chosen[0])?.fileName ?? "Photo") : `${chosen.length} photos`}</strong>
+              <span className="dim num">
+                {s.format.toUpperCase()}
+                {estimate ? ` · ${estimate.width} × ${estimate.height} px` : ""}
+                {estimate?.bytes ? ` · about ${formatBytes(estimate.bytes)}` : ""}
+              </span>
+              <span className="faint">Drag the marble to spin it.</span>
+            </>
+          )}
+        </div>
+      </div>
       {ids.length > 1 && (
         <div className="field">
           <span>

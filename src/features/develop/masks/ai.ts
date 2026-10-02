@@ -1,7 +1,8 @@
 import { createStore } from "zustand/vanilla";
 import { toast } from "@/app/state";
 import type { MenuItem } from "@/components/Menu";
-import { aiImage, prepareObjectSelection, selectObject, selectSemantic, selectSubject } from "@/core/ai/client";
+import { aiImage, describeAiStatus, prepareObjectSelection, selectObject, selectSemantic, selectSubject } from "@/core/ai/client";
+import { startCutoutFx } from "@/components/cutoutFx";
 import type { RasterRecord } from "@/core/catalog/db";
 import { addComponent, addMask, aiTargetLabels, newComponent, setCutout, updateComponent, updateMask } from "@/core/develop/masks";
 import type { MaskOperation, MaskShape } from "@/core/develop/recipe";
@@ -62,15 +63,20 @@ export async function aiSelect(target: Exclude<Target, "object">, maskId: string
  * with Add/Subtract brushes (restore/erase) and the AI edge controls.
  */
 export async function removeBackground() {
+  // The scan plays while the AI works (however long), then the background blows away.
+  const fx = startCutoutFx(developEngine().canvas, () => describeAiStatus("Finding the subject…"));
   try {
     const raster = await detect("subject");
-    editRecipe("Remove Background", (r) => {
-      const { recipe, mask } = addMask(r, aiShape("subject", raster), "Background removed");
-      queueMicrotask(() => develop.setState({ activeMaskId: mask.id, activeComponentId: mask.components[0].id, tool: "mask", maskOverlay: false }));
-      return setCutout(recipe, mask.id);
-    });
+    await fx.reveal(() =>
+      editRecipe("Remove Background", (r) => {
+        const { recipe, mask } = addMask(r, aiShape("subject", raster), "Background removed");
+        queueMicrotask(() => develop.setState({ activeMaskId: mask.id, activeComponentId: mask.components[0].id, tool: "mask", maskOverlay: false }));
+        return setCutout(recipe, mask.id);
+      }),
+    );
     toast("Background removed. Add a brush to restore, subtract a brush to erase.");
   } catch (error) {
+    fx.cancel();
     reportError(error);
   }
 }

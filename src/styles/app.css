@@ -479,3 +479,17 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   background: radial-gradient(closest-side at 50% 92%, rgb(0 0 0 / 0.45), transparent 70%) no-repeat 50% 100% / 70% 18%;
 }
 .marble-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.export-hero { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
+.export-hero .export-marble { width: 150px; height: 150px; margin: 0; flex: none; }
+.export-hero-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.export-hero-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.export-hero-text .export-progress-block { margin: 0; }
+
+/* ─── Remove Background animation ───────────────────────────────────────── */
+.cutout-fx { position: absolute; pointer-events: none; z-index: 3; }
+.cutout-chip {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 4; pointer-events: none;
+  padding: 5px 12px; border-radius: 999px; font-size: 11px; letter-spacing: 0.02em; white-space: nowrap;
+  color: #dff8ff; background: rgb(6 20 30 / 0.78); border: 1px solid rgb(120 225 255 / 0.45);
+  box-shadow: 0 0 18px rgb(80 210 255 / 0.25);
+}

@@ -148,6 +148,8 @@ test("sweep select: video segments and clips (batch delete and insert)", async (
   const clips = page.locator(".vid-clip");
   await expect(clips).toHaveCount(2, { timeout: 30_000 });
   await expect(page.getByTestId("viewer")).toBeVisible();
+  // The newly imported clip opens with its own one-segment timeline; wait for it before counting.
+  await expect(segments).toHaveCount(1);
   const before = await segments.count();
   const c0 = await center(clips.nth(0));
   const c1 = await center(clips.nth(1));

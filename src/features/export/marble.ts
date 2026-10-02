@@ -30,6 +30,7 @@ uniform float uPx;      // one pixel, in world units at the marble
 uniform float uScale;   // press feedback
 uniform float uTime;
 uniform vec3 uColor;
+uniform float uFlash;   // the "done" burst, 0..1
 uniform vec3 uCore;
 uniform float uDepth;
 uniform float uSmooth;
@@ -132,6 +133,7 @@ void main() {
   vec3 closest = ro + rd * (-b);
   float edge = clamp((r - length(closest)) / uPx, 0.0, 1.0);
   col = col / (1.0 + col * 0.25);
+  col += uFlash * (0.35 * uColor + 0.25);
   col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 1.15));
   o = vec4(col * edge, edge);
 }`;
@@ -159,6 +161,10 @@ function noiseVolume(size: number): Uint8Array {
 
 export type MarbleOptions = { reducedMotion: boolean };
 
+/** idle: drifting while you choose settings · working: spinning and flowing · done: a bright burst. */
+export type MarbleMood = "idle" | "working" | "done";
+const ENERGY: Record<MarbleMood, number> = { idle: 0, working: 1, done: 1.6 };
+
 /** Renders the marble into its own canvas inside `host` until `dispose()`. */
 export class Marble {
   readonly canvas: HTMLCanvasElement;
@@ -184,6 +190,9 @@ export class Marble {
   private dragging = false;
   private down = { x: 0, y: 0 };
   private lastPtr = { x: 0, y: 0 };
+  private energy = 0;
+  private energyTarget = 0;
+  private flash = 0;
   /** WebGL on the CPU (SwiftShader, llvmpipe): fewer frames and pixels. */
   private software = false;
 
@@ -229,7 +238,7 @@ export class Marble {
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(`Marble link: ${gl.getProgramInfoLog(prog)}`);
     this.program = prog;
-    for (const name of ["uEye", "uCam", "uTan", "uAspect", "uPx", "uScale", "uTime", "uColor", "uCore", "uDepth", "uSmooth", "uDisplace", "uNoise", "uCard", "uHasCard", "uCardSize", "uCardRot", "uCardPos"])
+    for (const name of ["uEye", "uCam", "uTan", "uAspect", "uPx", "uScale", "uTime", "uColor", "uFlash", "uCore", "uDepth", "uSmooth", "uDisplace", "uNoise", "uCard", "uHasCard", "uCardSize", "uCardRot", "uCardPos"])
       this.u[name] = gl.getUniformLocation(prog, name);
     gl.bindVertexArray(gl.createVertexArray());
     const size = 32;
@@ -262,6 +271,19 @@ export class Marble {
     gl.bindTexture(gl.TEXTURE_2D, this.card);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    this.lastDraw = 0;
+  }
+
+  /** Eases the spin and flow to the mood; "done" also swirls to the next colour with a flash. */
+  setMood(mood: MarbleMood) {
+    const was = this.energyTarget;
+    this.energyTarget = ENERGY[mood];
+    if (mood === "done" && was !== ENERGY.done) {
+      this.flash = 1;
+      this.step++;
+      this.target = hex(PALETTE[this.step % PALETTE.length]);
+      this.velAz += 0.25;
+    }
     this.lastDraw = 0;
   }
 
@@ -336,11 +358,13 @@ export class Marble {
     this.last = now;
     this.lastDraw = now;
 
+    this.energy += (this.energyTarget - this.energy) * (1 - Math.exp(-dt * 3));
+    this.flash *= Math.exp(-dt * 3.5);
     if (!still) {
-      this.time += dt * 0.05;
+      this.time += dt * (0.03 + 0.07 * this.energy);
       if (!this.dragging) {
         const decay = Math.exp(-dt * 3);
-        this.azimuth += this.velAz + dt * 0.48;
+        this.azimuth += this.velAz + dt * (0.3 + 0.9 * this.energy);
         this.elevation = Math.max(-PITCH_LIMIT - CAMERA_TILT, Math.min(PITCH_LIMIT - CAMERA_TILT, this.elevation + this.velEl));
         this.velAz *= decay;
         this.velEl *= decay;
@@ -348,7 +372,7 @@ export class Marble {
     }
     const k = 1 - Math.exp(-dt * 2);
     this.color = this.color.map((c, i) => c + (this.target[i] - c) * k) as [number, number, number];
-    this.scale += ((this.pressed ? 0.95 : 1) - this.scale) * (1 - Math.exp(-dt * 14));
+    this.scale += ((this.pressed ? 0.95 : 1 + 0.06 * this.flash) - this.scale) * (1 - Math.exp(-dt * 14));
 
     const cssW = this.canvas.clientWidth || 1;
     const cssH = this.canvas.clientHeight || 1;
@@ -402,6 +426,7 @@ export class Marble {
     gl.uniform1f(u.uScale, this.scale);
     gl.uniform1f(u.uTime, this.time);
     gl.uniform3fv(u.uColor, this.color);
+    gl.uniform1f(u.uFlash, still ? 0 : this.flash);
     gl.uniform3fv(u.uCore, [0.01, 0.01, 0.015]);
     gl.uniform1f(u.uDepth, 0.6);
     gl.uniform1f(u.uSmooth, 0.2);

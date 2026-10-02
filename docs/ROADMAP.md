@@ -278,6 +278,13 @@ they are photo-specific.
     or tiled. For video it is burned into every frame.
   - a progress bar with Stop.
 - File names never collide within one export run.
+- Exports answer at once: the dialog shows each stage (reading, developing W × H,
+  encoding, saving) instead of freezing, quick exports keep their animation up long
+  enough to read and end with a "saved" beat, and the photo export dialog keeps the
+  marble on screen as its preview.
+- Remove Background (Develop and Composite) plays a scan over the photo while the AI
+  works (with the model download percentage the first time), then blows the background
+  away as particles that scatter from the pointer while the subject's outline glows.
 - While an export runs, a glass marble floats above the progress bar with a small
   preview of what is being exported inside it (the first frame for GIF, MP4 and video).
   Drag to spin it, click to change its colour.

@@ -23,6 +23,11 @@ true when a responsibility moves.
 - Anything that parses untrusted input (paste, presets, project files, IndexedDB) goes
   through the sanitizers (`sanitizeRecipe`, `sanitizeDocument`).
 - Heavy work (decoding, thumbnails, AI) runs in workers; AI models load only on first use.
+- Animations for work of unknown length (exports, AI, decoding, imports) follow
+  `lib/pacing.ts`: show the working state within a frame (`nextPaint()` before heavy
+  synchronous work), keep it up at least `PACE.minWorking` and end with a short done beat
+  so quick runs still read, loop and report a stage or percentage so long runs never look
+  frozen, and honour `prefers-reduced-motion`. Test both a quick and a slow run.
 - Dependencies must be MIT/Apache-2.0/ISC/BSD-compatible. Record every new one, with its
   license, in `docs/THIRD_PARTY.md`. Code adapted from a reference repository carries an
   attribution comment naming the project, its license and what was changed.

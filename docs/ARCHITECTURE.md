@@ -324,10 +324,31 @@ selections again for AI mask components, and builds compositions through
 with fflate (store only), or a directory handle. Watermarks are drawn with Canvas 2D after readback (photos and compositions) or uploaded
 once as an overlay texture (video frames).
 
+## Pacing and working animations (`lib/pacing.ts`)
+
+Work of unknown length (exports, AI, decoding) answers within a frame and never looks
+frozen. `nextPaint()` resolves after the browser has painted; callers use it after
+showing a working state and before synchronous GPU work (develop render and read-back),
+so the click lands visibly. `holdAtLeast(start)` keeps a working animation up for
+`PACE.minWorking` (900 ms) so fast runs still read, followed by a `PACE.doneBeat`
+(650 ms) completion moment. Long runs loop and show a stage or a percentage.
+
+- Photo export reports stages (`exportAsset(…, onStage)`: reading the original,
+  developing W × H, encoding, saving) with a paint between each. The dialog's byte
+  estimate (a real export) only runs for outputs up to 12 MP and never during an export.
+- **Remove Background** (`components/cutoutFx.ts`, used by Develop and Composite): a 2D
+  overlay over the viewer canvas. While the AI runs, a scan beam sweeps a dot field that
+  reacts to the pointer, with a status chip (`describeAiStatus`: the stage, and the model
+  download the first time). When it returns, the overlay freezes the "before" frame,
+  applies the cutout underneath, finds the changed pixels by comparing captures, and
+  blows them away as particles from the subject outward (the pointer scatters them)
+  while the outline glows, then removes itself. Reduced motion: a 250 ms crossfade.
+
 ## Export marble (`features/export/marble.ts`)
 
-While a photo, composition or video export runs, the shared `ProgressBar` shows
-`ExportMarble` above the bar: a glass marble ray-marched in its own small WebGL2
+The photo export dialog keeps `ExportMarble` on screen as its preview (idle, then
+working, then a "done" burst); composition and video exports show it above the
+progress bar while they run. It is a glass marble ray-marched in its own small WebGL2
 canvas (adapted from Originkit's Magic Marble, MIT). Pigment is a 3D value-noise
 texture made on the CPU and sliced along each refracted ray; a card with a preview of
 what is being exported floats inside, facing the viewer. Each dialog passes an
