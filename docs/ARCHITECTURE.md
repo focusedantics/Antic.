@@ -336,26 +336,35 @@ so the click lands visibly. `holdAtLeast(start)` keeps a working animation up fo
 - Photo export reports stages (`exportAsset(…, onStage)`: reading the original,
   developing W × H, encoding, saving) with a paint between each. The dialog's byte
   estimate (a real export) only runs for outputs up to 12 MP and never during an export.
-- **Remove Background** (`components/cutoutFx.ts`, used by Develop and Composite): a 2D
-  overlay over the viewer canvas. While the AI runs, a scan beam sweeps a dot field that
-  reacts to the pointer, with a status chip (`describeAiStatus`: the stage, and the model
-  download the first time). When it returns, the overlay freezes the "before" frame,
-  applies the cutout underneath, finds the changed pixels by comparing captures, and
-  blows them away as particles from the subject outward (the pointer scatters them)
-  while the outline glows, then removes itself. Reduced motion: a 250 ms crossfade.
+- **Remove Background** (`components/cutoutFx.ts`, used by Develop and Composite). While
+  the AI runs, `components/particleGlobe.ts` (WebGL2 points) lifts the photo's own pixels
+  into a turning globe: one spring value morphs every particle between its place in the
+  picture and a Fibonacci-sphere point, with per-particle turbulence and depth shading;
+  the pointer tilts the globe and parts the particles; a dotted ring fills while the
+  model downloads the first time. A hidden live region carries the status for screen
+  readers; nothing is drawn as text over the picture. It turns for as long as the AI
+  takes and at least 1.5 s. Then the spring returns the particles to the photo (the exact
+  frame fades back in only in the last few percent of the return), the overlay freezes
+  that frame, applies the cutout underneath, finds the changed pixels by comparing
+  captures, and blows them away as particles that scatter from the pointer while the
+  outline glows. Reduced motion: no globe, a 250 ms crossfade.
 
 ## Export marble (`features/export/marble.ts`)
 
-The photo export dialog keeps `ExportMarble` on screen as its preview (idle, then
-working, then a "done" burst); composition and video exports show it above the
-progress bar while they run. It is a glass marble ray-marched in its own small WebGL2
+Every export dialog (photos, compositions, videos) opens with `ExportHero`: the
+marble holding the selection and, beside it, what will be exported or the progress
+(never covered). The marble takes up to five previews, most recently selected first
+(the active photo or open composition/clip leads), shows the first while you choose,
+crossfades through them while the export runs (two card textures, 520 ms), and shows a
+counter: the number of items, or "2/7" while rendering. It moves idle → working → a
+"done" burst. It is a glass marble ray-marched in its own small WebGL2
 canvas (adapted from Originkit's Magic Marble, MIT). Pigment is a 3D value-noise
 texture made on the CPU and sliced along each refracted ray; a card with a preview of
 what is being exported floats inside, facing the viewer. Each dialog passes an
-`ExportPreview` (`key` + `load`): photos use the library thumbnail of the photo being
-exported; compositions their saved thumbnail, rendered at time 0 (the first frame of a
-GIF or MP4); video frame 0 of the edit (from the timeline thumbnails for the open clip,
-else decoded by a muted `<video>`). Previews are shrunk to 192 px before upload. The
+`ExportPreview` (`key` + `load`): photos use their library thumbnails; compositions their
+saved thumbnails, rendered at time 0 (the first frame of a GIF or MP4); videos frame 0 of
+the edit (from the timeline thumbnails for the open clip; other clips show their poster
+until their export starts, then their first frame decoded by a muted `<video>`). Previews are shrunk to 192 px before upload. The
 marble renders at most 30 fps (12 on software GL), holds still under reduced motion,
 and frees its context when the export ends. It is decorative (`aria-hidden`); the bar
 and its label carry the progress.

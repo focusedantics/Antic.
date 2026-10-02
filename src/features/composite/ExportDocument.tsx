@@ -8,7 +8,7 @@ import { sanitizeDocument } from "@/core/document/operations";
 import { composite } from "@/core/document/session";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
-import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
+import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "@/features/export/ExportParts";
 import type { MarbleMood } from "@/features/export/marble";
 import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
 import { ANIMATED_FORMATS, type DocExport, type DocFormat, exportDocument, exportSize } from "./actions";
@@ -25,8 +25,8 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
-  const [current, setCurrent] = useState<string | null>(null);
-  const [mood, setMood] = useState<MarbleMood>("working");
+  const [item, setItem] = useState(0);
+  const [mood, setMood] = useState<MarbleMood>("idle");
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const cancelled = useRef<AbortController | null>(null);
 
@@ -69,7 +69,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
     let done = 0;
     const started = performance.now();
     setMood("working");
-    setCurrent(chosen[0] ?? null);
+    setItem(1);
     setProgress({ done: 0, total: chosen.length, label: "Starting…" });
     await nextPaint();
     try {
@@ -78,7 +78,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
         const name = names.get(id) ?? "Composition";
         const prefix = chosen.length > 1 ? `${i + 1} of ${chosen.length} · ${name} · ` : "";
         setProgress({ done: i, total: chosen.length, label: `${prefix}Rendering…` });
-        setCurrent(id);
+        setItem(i + 1);
         try {
           const target = id === doc.id ? doc : sanitizeDocument((await getDocument(id))?.data);
           const blob = await exportDocument(target, o, watermark, (fraction, stage) => setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${stage}` }), controller.signal);
@@ -103,6 +103,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
     } finally {
       setProgress(null);
+      setMood("idle");
       cancelled.current = null;
     }
   };
@@ -142,14 +143,15 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      {progress && (
-        <ProgressBar
-          {...progress}
-          mood={mood}
-          // The saved thumbnail is rendered at time 0: the first frame of a GIF or MP4.
-          preview={current && thumbs[current] ? { key: thumbs[current], load: async () => thumbs[current] } : null}
-        />
-      )}
+      <ExportHero
+        previews={compositionPreviews(chosen, doc.id, thumbs)}
+        count={chosen.length}
+        mood={mood}
+        progress={progress}
+        current={item}
+        title={chosen.length === 1 ? (names.get(chosen[0]) ?? "Composition") : `${chosen.length} compositions`}
+        details={`${o.format.toUpperCase()}${chosen.length === 1 && chosen[0] === doc.id ? ` · ${size.width} × ${size.height} px` : ""}`}
+      />
       {ids.length > 1 && (
         <div className="field">
           <span>Compositions · {chosen.length} of {ids.length}</span>
@@ -242,4 +244,20 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={thumbs[chosen[0] ?? doc.id] ?? null} />
     </Dialog>
   );
+}
+
+/**
+ * Saved thumbnails for the marble, the open composition first. They are rendered
+ * at time 0, so an animated composition shows the first frame of its GIF or MP4.
+ */
+function compositionPreviews(chosen: readonly string[], openId: string, thumbs: Record<string, string>): ExportPreview[] {
+  const order = [...chosen].reverse();
+  if (order.includes(openId)) {
+    order.splice(order.indexOf(openId), 1);
+    order.unshift(openId);
+  }
+  return order
+    .filter((id) => thumbs[id])
+    .slice(0, 5)
+    .map((id) => ({ key: thumbs[id], load: async () => thumbs[id] }));
 }

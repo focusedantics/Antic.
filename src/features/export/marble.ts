@@ -36,7 +36,9 @@ uniform float uDepth;
 uniform float uSmooth;
 uniform float uDisplace;
 uniform sampler3D uNoise;
-uniform sampler2D uCard;
+uniform sampler2D uCard;    // the picture fading out
+uniform sampler2D uCardB;   // the picture fading in
+uniform float uCardMix;
 uniform float uHasCard;
 uniform vec2 uCardSize;  // half extents in sphere units
 uniform mat3 uCardRot;   // card orientation (columns: u axis, v axis, normal)
@@ -82,7 +84,8 @@ float cardHit(vec3 ro, vec3 rd, out vec3 color) {
   // Rounded corners.
   vec2 k = max(abs(uv) - (1.0 - 0.12), 0.0);
   if (length(k) > 0.12) return -1.0;
-  color = texture(uCard, vec2(uv.x, -uv.y) * 0.5 + 0.5).rgb;
+  vec2 tuv = vec2(uv.x, -uv.y) * 0.5 + 0.5;
+  color = mix(texture(uCard, tuv).rgb, texture(uCardB, tuv).rgb, uCardMix);
   // Its back is a little darker, like a print seen from behind.
   if (denom > 0.0) color *= 0.55;
   return t;
@@ -138,6 +141,8 @@ void main() {
   o = vec4(col * edge, edge);
 }`;
 
+/** Crossfade between two previews. */
+const SWAP_MS = 520;
 const PALETTE = ["#FF0000", "#FFFF00", "#00FF80", "#5252E0", "#CCCCCC"];
 const CAMERA_DIST = 2.6;
 const CAMERA_TILT = 0.22;
@@ -171,8 +176,11 @@ export class Marble {
   private gl: WebGL2RenderingContext | null;
   private program: WebGLProgram | null = null;
   private u: Record<string, WebGLUniformLocation | null> = {};
-  private card: WebGLTexture | null = null;
-  private cardAspect = 1;
+  /** Two card textures: [front] shows now, the other fades in on a change. */
+  private cards: WebGLTexture[] = [];
+  private aspects = [1, 1];
+  private front = 0;
+  private swapStart = -1;
   private hasCard = false;
   private raf = 0;
   private last = 0;
@@ -238,7 +246,7 @@ export class Marble {
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(`Marble link: ${gl.getProgramInfoLog(prog)}`);
     this.program = prog;
-    for (const name of ["uEye", "uCam", "uTan", "uAspect", "uPx", "uScale", "uTime", "uColor", "uFlash", "uCore", "uDepth", "uSmooth", "uDisplace", "uNoise", "uCard", "uHasCard", "uCardSize", "uCardRot", "uCardPos"])
+    for (const name of ["uEye", "uCam", "uTan", "uAspect", "uPx", "uScale", "uTime", "uColor", "uFlash", "uCore", "uDepth", "uSmooth", "uDisplace", "uNoise", "uCard", "uCardB", "uCardMix", "uHasCard", "uCardSize", "uCardRot", "uCardPos"])
       this.u[name] = gl.getUniformLocation(prog, name);
     gl.bindVertexArray(gl.createVertexArray());
     const size = 32;
@@ -250,28 +258,47 @@ export class Marble {
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     for (const w of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, w, gl.REPEAT);
-    this.card = gl.createTexture();
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.card);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    for (const unit of [1, 2]) {
+      const tex = gl.createTexture()!;
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.cards.push(tex);
+    }
   }
 
-  /** The picture floating in the marble (a small bitmap; null removes it). */
+  /**
+   * The picture floating in the marble (a small bitmap; null removes it). A new
+   * picture crossfades in over the current one; the first one simply appears.
+   */
   setPreview(image: ImageBitmap | null) {
     const gl = this.gl;
-    if (!gl || !this.card) return;
-    this.hasCard = !!image;
-    if (!image) return;
-    this.cardAspect = image.width / Math.max(1, image.height);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.card);
+    if (!gl || !this.cards.length) return;
+    if (!image) {
+      this.hasCard = false;
+      return;
+    }
+    this.finishSwap();
+    const first = !this.hasCard;
+    const slot = first ? this.front : 1 - this.front;
+    this.aspects[slot] = image.width / Math.max(1, image.height);
+    gl.activeTexture(gl.TEXTURE1 + slot);
+    gl.bindTexture(gl.TEXTURE_2D, this.cards[slot]);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    this.hasCard = true;
+    if (!first) this.swapStart = this.options.reducedMotion ? performance.now() - SWAP_MS : performance.now();
     this.lastDraw = 0;
+  }
+
+  private finishSwap() {
+    if (this.swapStart < 0) return;
+    this.front = 1 - this.front;
+    this.swapStart = -1;
   }
 
   /** Eases the spin and flow to the mood; "done" also swirls to the next colour with a flash. */
@@ -405,8 +432,19 @@ export class Marble {
     const n1 = mix(back, right, Math.cos(yaw), -Math.sin(yaw));
     const vAxis = mix(up, n1, Math.cos(tilt), Math.sin(tilt));
     const nAxis = mix(n1, up, Math.cos(tilt), -Math.sin(tilt));
-    const maxHalf = 0.52;
-    const cardSize = this.cardAspect >= 1 ? [maxHalf, maxHalf / this.cardAspect] : [maxHalf * this.cardAspect, maxHalf];
+    // Crossfade progress between the front card and the incoming one (eased), with a little dip in size.
+    let mixK = 0;
+    if (this.swapStart >= 0) {
+      const k = Math.min(1, (now - this.swapStart) / SWAP_MS);
+      mixK = k * k * (3 - 2 * k);
+      if (k >= 1) {
+        this.finishSwap();
+        mixK = 0;
+      } else this.lastDraw = 0;
+    }
+    const aspect = this.aspects[this.front] + (this.aspects[1 - this.front] - this.aspects[this.front]) * mixK;
+    const maxHalf = 0.52 * (1 - 0.12 * Math.sin(Math.PI * mixK));
+    const cardSize = aspect >= 1 ? [maxHalf, maxHalf / aspect] : [maxHalf * aspect, maxHalf];
     const dx = still ? 0 : Math.sin(t * 0.5) * 0.1;
     const dy = still ? 0 : Math.sin(t * 0.7) * 0.08;
     const cardPos = right.map((v, i) => v * dx + up[i] * dy);
@@ -432,7 +470,9 @@ export class Marble {
     gl.uniform1f(u.uSmooth, 0.2);
     gl.uniform1f(u.uDisplace, 0.1);
     gl.uniform1i(u.uNoise, 0);
-    gl.uniform1i(u.uCard, 1);
+    gl.uniform1i(u.uCard, 1 + this.front);
+    gl.uniform1i(u.uCardB, 2 - this.front);
+    gl.uniform1f(u.uCardMix, mixK);
     gl.uniform1f(u.uHasCard, this.hasCard ? 1 : 0);
     gl.uniform2fv(u.uCardSize, cardSize);
     gl.uniformMatrix3fv(u.uCardRot, false, [...uAxis, ...vAxis, ...nAxis]);

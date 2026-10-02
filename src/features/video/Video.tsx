@@ -12,7 +12,7 @@ import { exportEdit, losslessEncoder } from "@/core/video/export";
 import { type ClipMedia, loadClipMedia } from "@/core/video/media";
 import { type ExportFormat, FORMATS, outputSize, type Resolution, RESOLUTIONS, sanitizeEdit, type VideoEdit } from "@/core/video/model";
 import { editVideo, flushVideo, importVideos, openClip, refreshClips, removeClip, video, videoHistory } from "@/core/video/session";
-import { DestinationPicker, type ExportPreview, initialDestination, ProgressBar, WatermarkEditor } from "@/features/export/ExportParts";
+import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "@/features/export/ExportParts";
 import { EffectsBrowserHost } from "@/features/effects/EffectsBrowser";
 import { formatBytes } from "@/features/library/format";
 import { openLooks } from "@/features/looks/LooksDialog";
@@ -167,6 +167,23 @@ function ClipsPanel() {
   );
 }
 
+/**
+ * The clips for the marble, the open one first: its timeline's frame 0; other
+ * clips their first frame once their export has started, their poster before.
+ */
+function videoPreviews(chosen: readonly { id: string; poster: string | null }[], openId: string | null, firstFrames: Record<string, ExportPreview>): ExportPreview[] {
+  const order = [...chosen].reverse();
+  const open = order.findIndex((c) => c.id === openId);
+  if (open > 0) order.unshift(...order.splice(open, 1));
+  return order.slice(0, 5).flatMap((c): ExportPreview[] => {
+    if (c.id === openId) return [{ key: `${c.id}:open`, load: () => engine.firstFrame() }];
+    const first = firstFrames[c.id];
+    if (first) return [first];
+    const poster = c.poster;
+    return poster ? [{ key: poster, load: async () => poster }] : [];
+  });
+}
+
 /** The first frame of an edit that is not open in the player, decoded by the browser at a small size. */
 async function firstFrameOf(edit: VideoEdit, own: ClipMedia): Promise<ImageBitmap | null> {
   const first = edit.segments[0];
@@ -281,8 +298,10 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
-  const [preview, setPreview] = useState<ExportPreview | null>(null);
-  const [mood, setMood] = useState<MarbleMood>("working");
+  // Real first frames of edits, filled in as each clip's export starts.
+  const [firstFrames, setFirstFrames] = useState<Record<string, ExportPreview>>({});
+  const [item, setItem] = useState(0);
+  const [mood, setMood] = useState<MarbleMood>("idle");
   const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -316,8 +335,9 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         if (!own) throw new Error(`${clip.name}: the video file is missing or can't be read.`);
         const state = video.getState();
         const edit = clip.id === state.openId && state.edit ? state.edit : sanitizeEdit((await getVideo(clip.id))?.edit, clip.duration, (id) => durations.get(id) ?? Infinity);
-        // The marble shows the first frame of what is being exported.
-        setPreview({ key: clip.id, load: () => (clip.id === state.openId ? engine.firstFrame() : firstFrameOf(edit, own)) });
+        // The marble shows the first frame of each edit (the poster stands in until then).
+        setItem(i + 1);
+        if (clip.id !== state.openId) setFirstFrames((f) => ({ ...f, [clip.id]: { key: `${clip.id}:first`, load: () => firstFrameOf(edit, own) } }));
         const out = await exportEdit(own, edit, loadClipMedia, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark);
         setProgress({ done: 1, total: 1, label: `${prefix}Saving…` });
         await sink.add(`${clip.name}-edit.${out.extension}`, out.blob);
@@ -340,7 +360,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setProgress(null);
-      setPreview(null);
+      setMood((m) => (m === "done" ? m : "idle"));
     }
   };
 
@@ -376,13 +396,19 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         )
       }
     >
+      <ExportHero
+        previews={videoPreviews(chosen, openId, firstFrames)}
+        count={chosen.length}
+        mood={mood}
+        progress={progress}
+        current={item}
+        title={chosen.length === 1 ? chosen[0].name : `${chosen.length} videos`}
+        details={chosen.length === 1 ? formatClock(chosen[0].duration) : undefined}
+      />
       {progress && (
-        <>
-          <ProgressBar {...progress} preview={preview} mood={mood} />
-          <p className="faint" style={{ fontSize: 10, margin: 0 }}>
-            Rendering happens on this device, every frame in order. Keep this tab open until it finishes.
-          </p>
-        </>
+        <p className="faint" style={{ fontSize: 10, margin: 0 }}>
+          Rendering happens on this device, every frame in order. Keep this tab open until it finishes.
+        </p>
       )}
       {error && <p style={{ color: "var(--danger)", margin: 0 }}>{error}</p>}
       {result ? (

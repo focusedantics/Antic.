@@ -21,10 +21,11 @@ export type AiStatus = {
 
 export const aiStatus = createStore<AiStatus>(() => ({ busy: null, model: null, progress: 0, device: null, lastModel: null }));
 
-/** A one-line status for working animations: the task, and the model download while it runs. */
-export function describeAiStatus(task: string): string {
+/** Status for working animations: a line for screen readers and the model download (0–100) while it runs. */
+export function describeAiStatus(task: string): { text: string; progress: number | null } {
   const { model, progress } = aiStatus.getState();
-  return model && progress > 0 && progress < 100 ? `${task} · downloading the model ${progress}% (first time only)` : task;
+  const downloading = !!model && progress > 0 && progress < 100;
+  return { text: downloading ? `${task} Downloading the model, ${progress}% (first time only).` : task, progress: downloading ? progress : null };
 }
 
 export type AiQuality = "quality" | "fast" | "offline";

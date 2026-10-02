@@ -487,9 +487,8 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 
 /* ─── Remove Background animation ───────────────────────────────────────── */
 .cutout-fx { position: absolute; pointer-events: none; z-index: 3; }
-.cutout-chip {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 4; pointer-events: none;
-  padding: 5px 12px; border-radius: 999px; font-size: 11px; letter-spacing: 0.02em; white-space: nowrap;
-  color: #dff8ff; background: rgb(6 20 30 / 0.78); border: 1px solid rgb(120 225 255 / 0.45);
-  box-shadow: 0 0 18px rgb(80 210 255 / 0.25);
+.marble-count {
+  position: absolute; top: 6px; right: 4px; z-index: 1; min-width: 26px; padding: 2px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; text-align: center; color: var(--accent-ink); background: var(--accent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.5); pointer-events: none;
 }

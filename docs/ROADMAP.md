@@ -282,9 +282,14 @@ they are photo-specific.
   encoding, saving) instead of freezing, quick exports keep their animation up long
   enough to read and end with a "saved" beat, and the photo export dialog keeps the
   marble on screen as its preview.
-- Remove Background (Develop and Composite) plays a scan over the photo while the AI
-  works (with the model download percentage the first time), then blows the background
-  away as particles that scatter from the pointer while the subject's outline glows.
+- Remove Background (Develop and Composite): the photo's pixels lift into a turning
+  particle globe while the AI works (the pointer tilts it and parts the particles; a
+  dotted ring fills while the model downloads the first time), spring back into the
+  photo when it is done, and then the background blows away as particles that scatter
+  from the pointer while the subject's outline glows.
+- Every export dialog shows the marble from the start: with several items selected it
+  carries a counter, shows the most recently selected one, and cycles through the five
+  most recent while rendering.
 - While an export runs, a glass marble floats above the progress bar with a small
   preview of what is being exported inside it (the first frame for GIF, MP4 and video).
   Drag to spin it, click to change its colour.

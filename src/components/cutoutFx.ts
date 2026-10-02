@@ -1,11 +1,14 @@
 import { holdAtLeast, nextPaint, PACE, prefersReducedMotion, sleep } from "@/lib/pacing";
+import { ParticleGlobe } from "./particleGlobe";
 
 /**
  * The Remove Background animation, drawn on a 2D canvas laid over a viewer canvas.
  *
- * Working (any length): a scan beam sweeps the photo over a dot grid that swells
- * and glows around the pointer, with a status chip (stage, model download). It
- * loops seamlessly for as long as the AI takes, and stays up at least PACE.minWorking.
+ * Working (any length): the photo lifts into a turning globe of its own pixels
+ * (`ParticleGlobe`); the pointer tilts it and parts the particles, and a dotted ring
+ * fills while the model downloads the first time. It turns for as long as the AI
+ * takes, and at least GLOBE_MIN so a quick result still shows it form. Then the
+ * particles spring back into the photo.
  *
  * Reveal (fixed ~1.4 s): the overlay freezes the "before" frame, the cutout is
  * applied underneath, and the pixels that changed (the background) break into
@@ -24,7 +27,6 @@ export type CutoutFx = {
 type Box = { x0: number; y0: number; x1: number; y1: number };
 type Particle = { x: number; y: number; vx: number; vy: number; spin: number; color: string; size: number; delay: number };
 
-const DOT = 14;
 const REVEAL_MS = 1400;
 
 /** A copy of what the canvas shows now (it is drawn with preserveDrawingBuffer, or is a 2D canvas). */
@@ -68,7 +70,13 @@ function changedShare(a: ImageData, b: ImageData): number {
   return changed / Math.max(1, total);
 }
 
-export function startCutoutFx(canvas: HTMLCanvasElement | null, status: () => string): CutoutFx {
+/** What the working phase reports: a line for screen readers, and the model download (0–100) or null. */
+export type CutoutStatus = () => { text: string; progress: number | null };
+
+/** The globe stays up at least this long, so it has time to form and be seen. */
+const GLOBE_MIN = 1500;
+
+export function startCutoutFx(canvas: HTMLCanvasElement | null, status: CutoutStatus): CutoutFx {
   const host = canvas?.parentElement;
   if (!canvas || !host) return { reveal: async (apply) => apply(), cancel: () => {} };
   const started = performance.now();
@@ -76,24 +84,39 @@ export function startCutoutFx(canvas: HTMLCanvasElement | null, status: () => st
   const before = capture(canvas);
   const scale = canvas.width / Math.max(1, canvas.clientWidth); // capture px per CSS px
   const box = before ? boundsOf(before) : null;
+  const place = (el: HTMLElement) =>
+    Object.assign(el.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
 
   const overlay = document.createElement("canvas");
   overlay.className = "cutout-fx";
   overlay.dataset.testid = "cutout-fx";
-  overlay.dataset.phase = "scan";
+  overlay.dataset.phase = "globe";
   overlay.setAttribute("aria-hidden", "true");
-  Object.assign(overlay.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
+  place(overlay);
   overlay.width = canvas.width;
   overlay.height = canvas.height;
   host.append(overlay);
-  const chip = document.createElement("div");
-  chip.className = "cutout-chip";
-  chip.setAttribute("role", "status");
-  host.append(chip);
+  // Screen readers hear the stage; nothing extra is drawn over the picture.
+  const live = document.createElement("div");
+  live.className = "sr-only";
+  live.setAttribute("role", "status");
+  live.dataset.testid = "cutout-status";
+  host.append(live);
   const g = overlay.getContext("2d")!;
 
-  // Pointer in capture pixels (the overlay itself never takes the pointer).
-  const ptr = { x: -1e4, y: -1e4, on: 0 };
+  // The photo lifts into a turning globe of its own pixels while the AI works.
+  const area: Box = box ?? { x0: 0, y0: 0, x1: overlay.width, y1: overlay.height };
+  const globe = !still && before ? new ParticleGlobe(before, area, scale) : null;
+  if (globe?.ready) {
+    globe.canvas.className = "cutout-fx";
+    globe.canvas.dataset.testid = "cutout-globe";
+    place(globe.canvas);
+    host.append(globe.canvas);
+    globe.spring.to(1, 55, 16, 1);
+  }
+
+  // Pointer in capture pixels for the dissolve (the overlays never take the pointer).
+  const ptr = { x: -1e4, y: -1e4 };
   const onMove = (e: PointerEvent) => {
     const r = overlay.getBoundingClientRect();
     ptr.x = (e.clientX - r.left) * scale;
@@ -101,70 +124,46 @@ export function startCutoutFx(canvas: HTMLCanvasElement | null, status: () => st
   };
   window.addEventListener("pointermove", onMove, { passive: true });
 
-  const area: Box = box ?? { x0: 0, y0: 0, x1: overlay.width, y1: overlay.height };
-  const dot = DOT * scale;
   let raf = 0;
-  let phase: "scan" | "reveal" | "gone" = "scan";
-
-  const scanFrame = (now: number) => {
-    if (phase !== "scan") return;
-    raf = requestAnimationFrame(scanFrame);
-    chip.textContent = status();
-    if (still) return;
-    const t = (now - started) / 1000;
-    g.clearRect(0, 0, overlay.width, overlay.height);
-    const { x0, y0, x1, y1 } = area;
-    const h = y1 - y0;
-    // A beam bouncing top to bottom (smooth turnarounds), 1.8 s per pass.
-    const beam = y0 + h * (0.5 - 0.5 * Math.cos((t / 1.8) * Math.PI));
-    g.fillStyle = "rgba(8, 12, 22, 0.22)";
-    g.fillRect(x0, y0, x1 - x0, h);
-    const reach = 90 * scale;
-    for (let y = y0 + dot / 2; y < y1; y += dot) {
-      const nearBeam = Math.exp(-(((y - beam) / (h * 0.06 + 1)) ** 2));
-      for (let x = x0 + dot / 2; x < x1; x += dot) {
-        const dx = x - ptr.x;
-        const dy = y - ptr.y;
-        const near = Math.exp(-(dx * dx + dy * dy) / (reach * reach));
-        const glow = 0.12 + 0.75 * nearBeam + 0.7 * near;
-        const r = (0.9 + 1.6 * nearBeam + 2.2 * near) * scale;
-        // Dots lean away from the pointer, like a field.
-        const push = near * 10 * scale;
-        const d = Math.hypot(dx, dy) || 1;
-        g.fillStyle = `rgba(${Math.round(120 + 135 * near)}, ${Math.round(220 + 35 * nearBeam)}, 255, ${Math.min(1, glow)})`;
-        g.fillRect(x + (dx / d) * push - r, y + (dy / d) * push - r, r * 2, r * 2);
-      }
-    }
-    const grad = g.createLinearGradient(0, beam - 26 * scale, 0, beam + 26 * scale);
-    grad.addColorStop(0, "rgba(110, 230, 255, 0)");
-    grad.addColorStop(0.5, "rgba(170, 245, 255, 0.55)");
-    grad.addColorStop(1, "rgba(110, 230, 255, 0)");
-    g.fillStyle = grad;
-    g.fillRect(x0, beam - 26 * scale, x1 - x0, 52 * scale);
-    g.fillStyle = "rgba(220, 252, 255, 0.95)";
-    g.fillRect(x0, beam - scale, x1 - x0, 2 * scale);
+  let phase: "globe" | "reveal" | "gone" = "globe";
+  let lastText = "";
+  const report = () => {
+    if (phase !== "globe") return;
+    const s = status();
+    if (s.text !== lastText) live.textContent = lastText = s.text;
+    globe?.setProgress(s.progress);
   };
-  raf = requestAnimationFrame(scanFrame);
-  chip.textContent = status();
+  const ticker = setInterval(report, 250);
+  report();
 
   const remove = () => {
     phase = "gone";
+    clearInterval(ticker);
     cancelAnimationFrame(raf);
     window.removeEventListener("pointermove", onMove);
+    globe?.dispose();
     overlay.remove();
-    chip.remove();
+    live.remove();
   };
 
   const reveal = async (apply: () => void) => {
-    // Short runs still show the scan; long ones have shown it all along.
-    await holdAtLeast(started, PACE.minWorking);
+    // A quick result still lets the globe form; a slow one has been turning all along.
+    await holdAtLeast(started, globe?.ready ? GLOBE_MIN : PACE.minWorking);
+    if (phase === "gone") return apply();
     phase = "reveal";
     overlay.dataset.phase = "reveal";
-    cancelAnimationFrame(raf);
-    chip.textContent = "Background removed";
+    clearInterval(ticker);
+    globe?.setProgress(null);
+    live.textContent = "Background removed";
+    // The particles fall back into the photo; it ends exactly on the "before" frame.
+    if (globe?.ready) {
+      globe.spring.to(0, 70, 16, 1);
+      await globe.settle();
+    }
     // Freeze the "before" frame on top, so the change underneath never pops.
     g.clearRect(0, 0, overlay.width, overlay.height);
     if (before) g.putImageData(before, 0, 0);
+    globe?.dispose();
     apply();
     // Wait (up to ~1.5 s) for the viewer to draw the cutout.
     let after: ImageData | null = null;

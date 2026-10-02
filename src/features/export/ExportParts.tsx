@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
 import { Slider } from "@/components/Slider";
@@ -7,51 +7,114 @@ import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, ty
 import { ensureFont, fontLoads } from "@/core/text/fonts";
 import { Marble, type MarbleMood, previewBitmap } from "./marble";
 
-/** What is being exported, for the marble: `load` runs again whenever `key` changes. */
+/** A picture for the marble: `load` runs again whenever `key` changes. */
 export type ExportPreview = { readonly key: string; readonly load: () => Promise<Blob | ImageBitmap | string | null> };
 
+/** The marble cycles through at most this many pictures (the most recently selected), for speed. */
+export const MARBLE_PREVIEWS = 5;
+/** Time each picture stays up while the marble cycles during an export. */
+const CYCLE_MS = 1600;
 const REDUCE = "(prefers-reduced-motion: reduce)";
 
 /**
- * A glass marble with a small preview of the export floating inside, shown above
- * the progress bar while an export runs. Drag to spin it, click to change its colour.
- * Decorative: the progress bar and its label carry the information.
+ * A glass marble with a small preview floating inside. `previews` are most recent
+ * first: the first one shows while you choose settings; while `cycle` is on (an
+ * export is running) it crossfades through up to five of them. `badge` is the
+ * counter on the marble (how many items, or which one is rendering).
+ * Drag to spin it, click to change its colour. Decorative: text nearby carries the information.
  */
-export function ExportMarble({ preview, mood = "working", className }: { preview?: ExportPreview | null; mood?: MarbleMood; className?: string }) {
+export function ExportMarble({
+  previews,
+  mood = "working",
+  cycle = false,
+  badge,
+  className,
+}: {
+  previews: readonly ExportPreview[];
+  mood?: MarbleMood;
+  cycle?: boolean;
+  badge?: string;
+  className?: string;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const marble = useRef<Marble | null>(null);
+  const bitmaps = useRef(new Map<string, ImageBitmap>());
+  const shown = useRef<string | null>(null);
+  const [loaded, setLoaded] = useState(0);
   const [failed, setFailed] = useState(false);
+  const list = previews.slice(0, MARBLE_PREVIEWS);
+  const keys = list.map((p) => p.key).join("|");
+
   useEffect(() => {
     const m = new Marble(host.current!, { reducedMotion: window.matchMedia(REDUCE).matches });
     if (!m.ready) setFailed(true);
     marble.current = m;
+    const cache = bitmaps.current;
     return () => {
       m.dispose();
       marble.current = null;
+      for (const b of cache.values()) b.close();
+      cache.clear();
     };
   }, []);
   useEffect(() => marble.current?.setMood(mood), [mood]);
-  const key = preview?.key ?? "";
+
+  // Load the small bitmaps (kept for cycling; at most five of 192 px each).
   useEffect(() => {
-    if (!preview) {
-      marble.current?.setPreview(null);
-      return;
-    }
     let live = true;
-    void preview
-      .load()
-      .then((source) => (source ? previewBitmap(source) : null))
-      .then((bitmap) => {
-        // The texture keeps its own copy, so the bitmap can go straight away.
-        if (live) marble.current?.setPreview(bitmap);
-        bitmap?.close();
-      })
-      .catch(() => undefined);
+    const wanted = new Set(list.map((p) => p.key));
+    for (const [k, b] of bitmaps.current)
+      if (!wanted.has(k)) {
+        b.close();
+        bitmaps.current.delete(k);
+      }
+    for (const p of list) {
+      if (bitmaps.current.has(p.key)) continue;
+      void p
+        .load()
+        .then((source) => (source ? previewBitmap(source) : null))
+        .then((bitmap) => {
+          if (!bitmap) return;
+          if (!live || bitmaps.current.has(p.key)) return bitmap.close();
+          bitmaps.current.set(p.key, bitmap);
+          setLoaded((n) => n + 1);
+        })
+        .catch(() => undefined);
+    }
     return () => {
       live = false;
     };
-    // `preview.load` is a fresh closure each render; the key says when the picture changed.
-  }, [key]);
+    // `load` closures are new each render; the keys say when the pictures changed.
+  }, [keys]);
+
+  // Show the most recent picture, or cycle through them while exporting.
+  useEffect(() => {
+    const ready = list.map((p) => p.key).filter((k) => bitmaps.current.has(k));
+    const show = (k: string | undefined) => {
+      if (!k || k === shown.current) return;
+      shown.current = k;
+      marble.current?.setPreview(bitmaps.current.get(k) ?? null);
+    };
+    if (!ready.length) {
+      if (!list.length) {
+        shown.current = null;
+        marble.current?.setPreview(null);
+      }
+      return;
+    }
+    if (!cycle || ready.length < 2) {
+      show(ready[0]);
+      return;
+    }
+    let i = Math.max(0, ready.indexOf(shown.current ?? ""));
+    show(ready[i]);
+    const timer = setInterval(() => {
+      i = (i + 1) % ready.length;
+      show(ready[i]);
+    }, CYCLE_MS);
+    return () => clearInterval(timer);
+  }, [keys, cycle, loaded]);
+
   if (failed) return null;
   return (
     <div
@@ -60,9 +123,53 @@ export function ExportMarble({ preview, mood = "working", className }: { preview
       aria-hidden="true"
       data-testid="export-marble"
       data-mood={mood}
-      data-preview={key || undefined}
+      data-preview={list[0]?.key}
+      data-count={badge}
       title="Drag to spin · click to change color"
-    />
+    >
+      {badge && <span className="marble-count num">{badge}</span>}
+    </div>
+  );
+}
+
+/**
+ * The top of every export dialog: the marble holding the selection (counter when
+ * there are several) and, beside it, either what will be exported or the progress.
+ */
+export function ExportHero({
+  previews,
+  count,
+  mood,
+  progress,
+  current,
+  title,
+  details,
+}: {
+  previews: readonly ExportPreview[];
+  count: number;
+  mood: MarbleMood;
+  progress: { done: number; total: number; label: string } | null;
+  /** 1-based item being exported, for the counter. */
+  current?: number;
+  title: ReactNode;
+  details?: ReactNode;
+}) {
+  const badge = count > 1 ? (mood === "working" && current ? `${Math.min(current, count)}/${count}` : String(count)) : undefined;
+  return (
+    <div className="export-hero">
+      <ExportMarble previews={previews} mood={mood} cycle={mood === "working"} badge={badge} />
+      <div className="export-hero-text">
+        {progress ? (
+          <ProgressBar {...progress} />
+        ) : (
+          <>
+            <strong>{title}</strong>
+            {details && <span className="dim num">{details}</span>}
+            <span className="faint">Drag the marble to spin it.</span>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -74,7 +181,7 @@ export function ProgressBar({ done, total, label, preview, mood }: { done: numbe
   const pct = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
   return (
     <div className="export-progress-block" role="status" aria-live="polite">
-      {preview !== undefined && <ExportMarble preview={preview} mood={mood} />}
+      {preview !== undefined && <ExportMarble previews={preview ? [preview] : []} mood={mood} />}
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span className="dim">{label}</span>
         <span className="num dim">{pct}%</span>

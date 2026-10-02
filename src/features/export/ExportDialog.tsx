@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
-import { toast } from "@/app/state";
+import { toast, ui } from "@/app/state";
 import { loadImageUrl, useImageUrl } from "@/app/thumbs";
 import { Dialog } from "@/components/Menu";
 import { catalog, getAsset } from "@/core/catalog/store";
@@ -12,7 +12,7 @@ import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/e
 import { developEngine } from "@/core/gpu/develop-engine";
 import { formatBytes } from "@/features/library/format";
 import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
-import { DestinationPicker, ExportMarble, initialDestination, ProgressBar, WatermarkEditor } from "./ExportParts";
+import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "./ExportParts";
 import type { MarbleMood } from "./marble";
 
 function ExportItem({ id, checked, onToggle }: { id: string; checked: boolean; onToggle: () => void }) {
@@ -35,7 +35,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(ids));
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
-  const [progress, setProgress] = useState<{ done: number; total: number; label: string; current?: string } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string; item?: number } | null>(null);
   const [mood, setMood] = useState<MarbleMood>("idle");
   const cancelled = useRef(false);
   const chosen = ids.filter((id) => selected.has(id));
@@ -80,7 +80,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
     const started = performance.now();
     setBusy("Exporting…");
     setMood("working");
-    setProgress({ done: 0, total: chosen.length, label: "Starting…", current: chosen[0] });
+    setProgress({ done: 0, total: chosen.length, label: "Starting…", item: 1 });
     // Show the working state before any heavy work starts.
     await nextPaint();
     try {
@@ -88,10 +88,10 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         if (cancelled.current) break;
         const prefix = chosen.length > 1 ? `${i + 1} of ${chosen.length} · ` : "";
         const name = getAsset(id)?.fileName ?? "";
-        setProgress({ done: i, total: chosen.length, label: `${prefix}${name}`, current: id });
+        setProgress({ done: i, total: chosen.length, label: `${prefix}${name}`, item: i + 1 });
         try {
           const result = await exportAsset(id, s, watermark, (stage, fraction) =>
-            setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${name} · ${stage}`, current: id }),
+            setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${name} · ${stage}`, item: i + 1 }),
           );
           await sink.add(result.name, result.blob);
           done++;
@@ -99,13 +99,13 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
           toast(`${getAsset(id)?.fileName}: ${error instanceof Error ? error.message : error}`, "error");
         }
       }
-      setProgress((p) => ({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…", current: p?.current }));
+      setProgress((p) => ({ done: chosen.length, total: chosen.length, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…", item: p?.item }));
       await sink.finish();
       // A quick export still shows its working state, then a short "done" beat.
       await holdAtLeast(started);
       if (done) {
         setMood("done");
-        setProgress((p) => ({ done: chosen.length, total: chosen.length, label: `Saved ${done} photo${done === 1 ? "" : "s"} ✓`, current: p?.current }));
+        setProgress((p) => ({ done: chosen.length, total: chosen.length, label: `Saved ${done} photo${done === 1 ? "" : "s"} ✓`, item: p?.item }));
         await sleep(PACE.doneBeat);
         toast(`Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
       }
@@ -149,24 +149,15 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         </>
       }
     >
-      <div className="export-hero">
-        <ExportMarble preview={photoPreview(progress?.current ?? chosen[0] ?? ids[0])} mood={mood} />
-        <div className="export-hero-text">
-          {progress ? (
-            <ProgressBar {...progress} />
-          ) : (
-            <>
-              <strong>{chosen.length === 1 ? (getAsset(chosen[0])?.fileName ?? "Photo") : `${chosen.length} photos`}</strong>
-              <span className="dim num">
-                {s.format.toUpperCase()}
-                {estimate ? ` · ${estimate.width} × ${estimate.height} px` : ""}
-                {estimate?.bytes ? ` · about ${formatBytes(estimate.bytes)}` : ""}
-              </span>
-              <span className="faint">Drag the marble to spin it.</span>
-            </>
-          )}
-        </div>
-      </div>
+      <ExportHero
+        previews={photoPreviews(chosen)}
+        count={chosen.length}
+        mood={mood}
+        progress={progress}
+        current={progress?.item}
+        title={chosen.length === 1 ? (getAsset(chosen[0])?.fileName ?? "Photo") : `${chosen.length} photos`}
+        details={`${s.format.toUpperCase()}${estimate ? ` · ${estimate.width} × ${estimate.height} px${ids.length > 1 ? " (first)" : ""}` : ""}${estimate?.bytes ? ` · about ${formatBytes(estimate.bytes)}` : ""}`}
+      />
       {ids.length > 1 && (
         <div className="field">
           <span>
@@ -262,9 +253,20 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
   );
 }
 
-/** The photo being exported, from its library thumbnail. */
-function photoPreview(id: string | undefined) {
-  const asset = id ? getAsset(id) : undefined;
-  if (!asset) return null;
-  return { key: `${asset.id}:${asset.thumbRevision ?? 0}`, load: () => loadImageUrl(asset.id, "thumb", asset.thumbRevision ?? -1) };
+/**
+ * The selection for the marble, most recently selected first (the active photo
+ * leads; the selection keeps the order photos were added in).
+ */
+function photoPreviews(chosen: readonly string[]): ExportPreview[] {
+  const active = ui.getState().activeId;
+  const order = [...chosen].reverse();
+  if (active && order.includes(active)) {
+    order.splice(order.indexOf(active), 1);
+    order.unshift(active);
+  }
+  return order.slice(0, 5).flatMap((id) => {
+    const asset = getAsset(id);
+    if (!asset) return [];
+    return [{ key: `${asset.id}:${asset.thumbRevision ?? 0}`, load: () => loadImageUrl(asset.id, "thumb", asset.thumbRevision ?? -1) }];
+  });
 }

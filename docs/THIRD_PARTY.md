@@ -53,6 +53,7 @@ vite (MIT), @vitejs/plugin-react (MIT), typescript (Apache-2.0), vitest (MIT),
 | Björn Ottosson, Oklab | Public domain | Oklab matrices | shaders |
 | [Originkit](https://www.originkit.dev/) "Ribbon Glow 2" | MIT | Ribbon glow field and finish shaders, pointer swirl; reworked as a class with per-workspace looks | `src/features/backdrop/ribbon.ts` |
 | [Originkit](https://www.originkit.dev/) "Magic Marble" | MIT | Marble ray march (pigment slices accumulated along the view ray), palette steps, drag to spin and click to change colour; rewritten in plain WebGL2 with procedural noise and studio lighting, plus a floating preview card | `src/features/export/marble.ts` |
+| Particle-globe sketch (three.js WebGPU + TSL + Motion), supplied by the project owner | three.js and Motion are MIT; the sketch's own terms were not stated | The idea and numbers: one spring morphing photo particles to a Fibonacci sphere, the turbulence formula, the spring settings and the "high resolution mix" fade; rewritten as plain WebGL2 points with a small spring integrator, no dependency added | `src/components/particleGlobe.ts` |
 | [Vercel agent-skills](https://github.com/vercel-labs/agent-skills) | MIT | Agent skills vendored into `.claude/skills/` | `.claude/skills/` |
 
 ## Effects
