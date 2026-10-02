@@ -1,5 +1,5 @@
 /** Small line icons for the phone dock and the panel toggles (inherit the text colour). */
-export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram";
+export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram" | "select";
 
 const paths: Record<IconName, React.ReactNode> = {
   presets: (
@@ -159,6 +159,12 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 3.5 15 12M20.5 12 12 15M12 20.5 9 12M3.5 12 12 9" />
+    </>
+  ),
+  select: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.2 12.3 2.6 2.6 5-5.4" />
     </>
   ),
   histogram: <path d="M3 20h18M4 20c2-9 3-13 5-13s2 7 4 7 2-9 4-9 2.5 9 3 15" />,

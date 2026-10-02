@@ -1,3 +1,4 @@
+import { stopSelecting } from "./select-mode";
 import { useImageUrl } from "./thumbs";
 import { type DragEvent, lazy, Suspense, useEffect, useState } from "react";
 import { ActivityBar } from "./ActivityBar";
@@ -157,7 +158,14 @@ export function App() {
   const backdrop = useStore(prefs, (s) => s.backdrop);
   const compact = useStore(layout, (s) => s.compact);
   // A phone's panel sheet belongs to the workspace it was opened in.
-  useEffect(() => openSheet(null), [workspace]);
+  useEffect(() => {
+    openSheet(null);
+    stopSelecting();
+  }, [workspace]);
+  // Select mode is a phone's; a window grown to a computer layout leaves it.
+  useEffect(() => {
+    if (!compact) stopSelecting();
+  }, [compact]);
   // Dialogs and the effects browser render outside .app; they read the layout from the root.
   useEffect(() => {
     document.documentElement.dataset.compact = String(compact);

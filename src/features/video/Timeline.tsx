@@ -5,7 +5,8 @@ import { effectById } from "@/core/effects/registry";
 import type { Segment } from "@/core/video/model";
 import { beginVideoGesture, editVideo, endVideoGesture, video } from "@/core/video/session";
 import { formatClock } from "./format";
-import { editor, moveSelection, segmentMenu, select } from "./actions";
+import { editor, moveSelection, segmentMenu, segmentScope, select } from "./actions";
+import { isSelecting, toggleSelected } from "@/app/select-mode";
 import { domHits, useSweepSelect } from "@/components/sweep";
 import { engine, player } from "./engine";
 
@@ -190,8 +191,9 @@ export function Timeline() {
   };
 
   /**
-   * A finger on a segment: a tap selects it (and seeks), a sideways swipe scrolls
-   * the timeline, and a press held still for a moment picks the selection up to move.
+   * A finger on a segment: a tap selects it (and seeks; in select mode it toggles it),
+   * a sideways swipe scrolls the timeline, and a press held still for a moment picks
+   * the selection up to move.
    */
   const touchSegment = (e: ReactPointerEvent, s: Segment) => {
     if (!edit) return;
@@ -243,6 +245,8 @@ export function Timeline() {
         const before = edit.segments.slice(0, indexAt(ev.clientX)).filter((x) => !moving.has(x.id)).length;
         moveSelection(moving, before);
       } else if (mode === "pending" && ev.type === "pointerup") {
+        // Select mode: a tap adds or removes the segment, keeping the others.
+        if (isSelecting(segmentScope)) return toggleSelected(segmentScope, s.id);
         select([s.id]);
         engine.pause();
         engine.seek(frameAtX(ev.clientX));

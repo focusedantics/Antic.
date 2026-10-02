@@ -4,11 +4,14 @@ import { openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
 import { Slider } from "@/components/Slider";
 import { domHits, useSweepSelect } from "@/components/sweep";
+import type { SelectScope } from "@/app/select-mode";
+import { SelectButton } from "@/app/SelectBar";
 import { BLEND_MODES, type BlendMode, type Layer } from "@/core/document/model";
 import {
   adjustmentLayer,
   duplicateLayer,
   emptyMask,
+  flatten,
   fillLayer,
   gradientLayer,
   groupLayers,
@@ -253,9 +256,24 @@ export const sweepLayers = {
   },
 };
 
+/** Layers in select mode (phones). */
+export const layerScope: SelectScope = {
+  id: "layers",
+  noun: ["layer", "layers"],
+  // Top of the list first, as shown.
+  all: () => {
+    const doc = composite.getState().doc;
+    return doc ? flatten(doc.layers).map((l) => l.id).reverse() : [];
+  },
+  get: () => composite.getState().selection,
+  set: sweepLayers.onSelect,
+  subscribe: (listener) => composite.subscribe((s, prev) => s.selection !== prev.selection && listener()),
+  actions: (x, y) => sweepLayers.onDone([...composite.getState().selection], x, y),
+};
+
 function LayerList({ layers }: { layers: readonly Layer[] }) {
   const ref = useRef<HTMLDivElement>(null);
-  useSweepSelect(ref, { ...sweepLayers, hits: (box) => domHits(ref.current, box), scroller: () => ref.current?.closest<HTMLElement>(".side") ?? null });
+  useSweepSelect(ref, { ...sweepLayers, hits: (box) => domHits(ref.current, box), scroller: () => ref.current?.closest<HTMLElement>(".side") ?? null, scope: layerScope });
   return (
     <div ref={ref} className="layer-list" role="listbox" aria-label="Layers" aria-multiselectable>
       {layers.length === 0 && <p className="faint">Drag photos from the filmstrip onto the canvas, or add a layer.</p>}
@@ -277,9 +295,12 @@ export function LayersPanel() {
       id="cmp-layers"
       title="Layers"
       actions={
-        <button type="button" className="btn small" onClick={(e) => addLayerMenu(e.clientX, e.clientY)}>
-          + Add
-        </button>
+        <>
+          <SelectButton scope={layerScope} />
+          <button type="button" className="btn small" onClick={(e) => addLayerMenu(e.clientX, e.clientY)}>
+            + Add
+          </button>
+        </>
       }
     >
       {primary && (

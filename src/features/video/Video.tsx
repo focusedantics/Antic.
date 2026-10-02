@@ -3,6 +3,8 @@ import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
+import type { SelectScope } from "@/app/select-mode";
+import { SelectButton } from "@/app/SelectBar";
 import { toast } from "@/app/state";
 import { Dialog, openMenu } from "@/components/Menu";
 import { domHits, useSweepSelect } from "@/components/sweep";
@@ -80,6 +82,17 @@ function clipMenu(x: number, y: number) {
   ]);
 }
 
+/** Clips in select mode (phones). */
+const clipScope: SelectScope = {
+  id: "clips",
+  noun: ["clip", "clips"],
+  all: () => video.getState().clips.map((c) => c.id),
+  get: () => editor.getState().clipSelection,
+  set: (ids) => editor.setState({ clipSelection: ids }),
+  subscribe: (listener) => editor.subscribe((s, prev) => s.clipSelection !== prev.clipSelection && listener()),
+  actions: clipMenu,
+};
+
 function ClipsPanel() {
   const clips = useStore(video, (s) => s.clips);
   const openId = useStore(video, (s) => s.openId);
@@ -94,15 +107,19 @@ function ClipsPanel() {
     },
     hits: (box) => domHits(listRef.current, box),
     scroller: () => listRef.current?.closest<HTMLElement>(".side") ?? null,
+    scope: clipScope,
   });
   return (
     <Panel
       id="vid-clips"
       title="Videos"
       actions={
-        <button type="button" className="btn small" onClick={pickVideos}>
-          + Import
-        </button>
+        <>
+          <SelectButton scope={clipScope} />
+          <button type="button" className="btn small" onClick={pickVideos}>
+            + Import
+          </button>
+        </>
       }
     >
       {!clips.length && <p className="faint">Import MP4 or MOV clips to cut, mix and poop them. Your originals are never changed.</p>}

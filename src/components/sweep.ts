@@ -1,4 +1,6 @@
 import { type RefObject, useEffect, useRef } from "react";
+import { layout } from "@/app/layout";
+import { isSelecting, type SelectScope, startSelecting, toggleSelected } from "@/app/select-mode";
 
 /**
  * Right-click and hold (or right-drag) to sweep a selection box over items.
@@ -10,6 +12,11 @@ import { type RefObject, useEffect, useRef } from "react";
  * - Esc cancels and restores the selection the sweep started from.
  * - Near the edge of `scroller` the list scrolls; items scrolled out of view
  *   (virtualized lists unmount them) keep their caught state.
+ *
+ * Fingers (with a `scope`, see `app/select-mode.ts`): a press held still on an item
+ * enters select mode with that item selected. In select mode a tap toggles an item
+ * (the item's own tap handling stands down), a swipe across the list's scroll
+ * direction sweeps a box that adds what it touches, and a swipe along it scrolls.
  */
 export type Box = { left: number; top: number; right: number; bottom: number };
 
@@ -24,10 +31,17 @@ export type SweepOptions = {
   scroller?: () => HTMLElement | null;
   /** Return false to ignore a press that starts here (e.g. on a control). */
   accept?: (target: Element) => boolean;
+  /** Touch batch selection for this list (select mode). */
+  scope?: SelectScope;
+  /** The list's scroll direction: a finger sweeps across it and scrolls along it. Default "y". */
+  axis?: "x" | "y";
 };
 
 export const HOLD_MS = 280;
 export const MOVE_PX = 6;
+/** A finger held this long on an item enters select mode. */
+export const LONG_PRESS_MS = 450;
+const TOUCH_SLOP = 8;
 const EDGE = 28;
 
 export function boxFrom(ax: number, ay: number, bx: number, by: number): Box {
@@ -84,9 +98,14 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
       caught: Set<string>;
       el: HTMLDivElement;
       raf: number;
+      touch: boolean;
     } | null = null;
     let timer = 0;
     let swallowUntil = 0;
+    // A finger on an item: waiting to see whether it is a tap, a hold, a sweep or a scroll.
+    let finger: { id: string; target: Element; x: number; y: number; pointerId: number; selecting: boolean; mode: "pending" | "held" | "sweep"; timer: number } | null = null;
+    // Mouse events browsers emulate after a tap (mousedown, click, dblclick) must not undo it.
+    let swallowTapUntil = 0;
 
     const scroller = () => opts.current.scroller?.() ?? host;
     const origin = () => {
@@ -135,7 +154,7 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
       active.raf = requestAnimationFrame(autoscroll);
     };
 
-    const activate = (x: number, y: number, additive: boolean) => {
+    const activate = (x: number, y: number, additive: boolean, touch = false) => {
       if (!press || active) return;
       clearTimeout(timer);
       const o = origin();
@@ -144,14 +163,14 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
       el.className = "sweep-box";
       document.body.append(el);
       document.documentElement.classList.add("sweeping");
-      active = { sx: press.x - o.x, sy: press.y - o.y, x, y, base: additive ? start : [], start, caught: new Set(), el, raf: 0 };
+      active = { sx: press.x - o.x, sy: press.y - o.y, x, y, base: additive ? start : [], start, caught: new Set(), el, raf: 0, touch };
       active.raf = requestAnimationFrame(autoscroll);
       update();
     };
 
     const finish = (cancelled: boolean) => {
       if (!active) return;
-      const { el, raf, start, x, y, base, caught } = active;
+      const { el, raf, start, x, y, base, caught, touch } = active;
       active = null;
       cancelAnimationFrame(raf);
       el.remove();
@@ -159,10 +178,86 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
       // The trailing contextmenu (Windows sends it after the button comes up) is not a menu request.
       swallowUntil = performance.now() + 500;
       if (cancelled) opts.current.onSelect([...start]);
+      // A finger sweep only selects: the select bar holds the actions.
+      else if (touch) opts.current.onSelect(combine(base, caught));
       else opts.current.onDone(combine(base, caught), x, y);
     };
 
+    const swallowTap = () => {
+      swallowTapUntil = performance.now() + 650;
+    };
+    const endFinger = () => {
+      if (finger) clearTimeout(finger.timer);
+      finger = null;
+    };
+    const onTouchDown = (e: PointerEvent) => {
+      const scope = opts.current.scope;
+      // Select mode is the phone layout's (its bar replaces the dock); larger screens tap and sweep as before.
+      if (!scope || !layout.getState().compact || !(e.target instanceof Element)) return;
+      if (!e.isPrimary) return endFinger(); // a second finger: a pinch, not a selection
+      const item = e.target.closest<HTMLElement>("[data-sweep-id]");
+      if (!item || !host.contains(item)) return;
+      if (opts.current.accept && !opts.current.accept(e.target)) return;
+      const selecting = isSelecting(scope);
+      // Selecting, taps belong to select mode: the item's own handlers (select only this, open, drag) stand down.
+      if (selecting) e.stopPropagation();
+      endFinger();
+      const id = item.dataset.sweepId!;
+      finger = { id, target: e.target, x: e.clientX, y: e.clientY, pointerId: e.pointerId, selecting, mode: "pending", timer: 0 };
+      if (!selecting)
+        finger.timer = window.setTimeout(() => {
+          if (!finger || finger.mode !== "pending") return;
+          finger.mode = "held";
+          startSelecting(scope, id);
+          navigator.vibrate?.(8);
+          swallowTap();
+        }, LONG_PRESS_MS);
+    };
+    const onTouchMove = (e: PointerEvent) => {
+      if (!finger || e.pointerId !== finger.pointerId || finger.mode !== "pending") return;
+      const dx = Math.abs(e.clientX - finger.x);
+      const dy = Math.abs(e.clientY - finger.y);
+      if (!finger.selecting) {
+        if (Math.hypot(dx, dy) > TOUCH_SLOP) endFinger(); // a scroll, not a hold
+        return;
+      }
+      const vertical = (opts.current.axis ?? "y") === "y";
+      const along = vertical ? dy : dx;
+      const across = vertical ? dx : dy;
+      if (along > TOUCH_SLOP && along > across) return endFinger(); // scrolling the list
+      if (across > TOUCH_SLOP && across >= along) {
+        finger.mode = "sweep";
+        press = { x: finger.x, y: finger.y, target: finger.target, menu: null };
+        activate(e.clientX, e.clientY, true, true);
+      }
+    };
+    const onTouchUp = (e: PointerEvent) => {
+      if (!finger || e.pointerId !== finger.pointerId) return;
+      const f = finger;
+      endFinger();
+      if (f.mode === "sweep") {
+        press = null;
+        swallowTap();
+        return finish(e.type === "pointercancel");
+      }
+      if (f.mode === "held") return swallowTap();
+      if (f.selecting && e.type === "pointerup" && opts.current.scope) {
+        toggleSelected(opts.current.scope, f.id);
+        swallowTap();
+      }
+    };
+    const onEmulatedMouse = (e: Event) => {
+      if (performance.now() >= swallowTapUntil) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    // While a finger sweeps, the list must not scroll under it (edges still auto-scroll).
+    const onTouchScroll = (e: TouchEvent) => {
+      if (active?.touch) e.preventDefault();
+    };
+
     const onDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return onTouchDown(e);
       if (e.button !== 2 || !(e.target instanceof Element)) return;
       if (opts.current.accept && !opts.current.accept(e.target)) return;
       press = { x: e.clientX, y: e.clientY, target: e.target, menu: null };
@@ -170,6 +265,7 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
       timer = window.setTimeout(() => activate(press?.x ?? e.clientX, press?.y ?? e.clientY, additive), HOLD_MS);
     };
     const onMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch" && !active) return onTouchMove(e);
       if (active) {
         active.x = e.clientX;
         active.y = e.clientY;
@@ -179,6 +275,7 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
       }
     };
     const onUp = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return onTouchUp(e);
       if (e.button !== 2) return;
       clearTimeout(timer);
       const p = press;
@@ -192,7 +289,8 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
     };
     const onMenu = (e: MouseEvent) => {
       if (!e.isTrusted) return; // our own re-dispatched menu
-      if (active || performance.now() < swallowUntil) {
+      // A held finger means select mode here, not the item's menu (Android sends one).
+      if (active || finger || performance.now() < swallowUntil || performance.now() < swallowTapUntil) {
         e.preventDefault();
         e.stopPropagation();
         return;
@@ -219,17 +317,24 @@ export function useSweepSelect(ref: RefObject<HTMLElement | null>, options: Swee
 
     host.addEventListener("pointerdown", onDown, true);
     host.addEventListener("contextmenu", onMenu, true);
+    for (const type of ["mousedown", "click", "dblclick"]) host.addEventListener(type, onEmulatedMouse, true);
+    host.addEventListener("touchmove", onTouchScroll, { passive: false });
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("blur", onBlur);
     return () => {
       clearTimeout(timer);
       finish(true);
+      endFinger();
       host.removeEventListener("pointerdown", onDown, true);
       host.removeEventListener("contextmenu", onMenu, true);
+      for (const type of ["mousedown", "click", "dblclick"]) host.removeEventListener(type, onEmulatedMouse, true);
+      host.removeEventListener("touchmove", onTouchScroll);
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("blur", onBlur);
     };

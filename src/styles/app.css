@@ -788,6 +788,48 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .histogram-float .clip[data-on="true"] { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .histogram-float .clip { transition: none; } }
 .app[data-compact="true"] .compare-label { left: auto; right: 12px; }
+/* Select mode (phones; app/select-mode.ts): the bar takes the dock's place, and every
+   selectable item shows a check circle, filled when selected (as in Photos). */
+.select-bar {
+  flex: none; display: flex; align-items: center; gap: 6px; min-height: 54px;
+  padding: 4px max(10px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: rgb(28 28 28 / 0.82); border-top: 1px solid rgb(255 255 255 / 0.1);
+  -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+.select-count {
+  flex: 1; min-width: 0; text-align: center; font-size: 14px; font-weight: 600; line-height: 1.15;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.select-bar-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 12px; border: 0; border-radius: 20px;
+  background: rgb(255 255 255 / 0.08); color: var(--text); font: inherit; font-size: 15px; touch-action: manipulation;
+}
+.select-bar-btn.primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.select-bar-btn:disabled { opacity: 0.4; }
+.select-bar-btn:active:not(:disabled) { transform: scale(0.96); }
+.top-action.select-toggle[aria-pressed="true"] { color: var(--accent-ink); background: var(--text); }
+.workspace.compact [data-sweep-id] { -webkit-touch-callout: none; -webkit-user-drag: none; }
+.workspace.compact[data-selecting] .cell, .workspace.compact[data-selecting] .layer-row, .workspace.compact[data-selecting] .vid-clip { position: relative; }
+.workspace.compact[data-selecting="photos"] :is(.cell, .film-cell)::after,
+.workspace.compact[data-selecting="layers"] .layer-row::after,
+.workspace.compact[data-selecting="clips"] .vid-clip::after,
+.workspace.compact[data-selecting="segments"] .vt-seg::after {
+  content: ""; position: absolute; z-index: 2; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; pointer-events: none;
+  border: 1.5px solid #fff; background: rgb(0 0 0 / 0.25); box-shadow: 0 1px 3px rgb(0 0 0 / 0.5); box-sizing: border-box;
+}
+.workspace.compact[data-selecting="layers"] .layer-row::after, .workspace.compact[data-selecting="clips"] .vid-clip::after { top: 50%; margin-top: -10px; right: 8px; }
+.workspace.compact[data-selecting="segments"] .vt-seg::after { top: auto; bottom: 4px; right: 4px; }
+.workspace.compact[data-selecting="photos"] :is(.cell, .film-cell)[aria-selected="true"]::after,
+.workspace.compact[data-selecting="layers"] .layer-row[aria-selected="true"]::after,
+.workspace.compact[data-selecting="clips"] .vid-clip[data-selected]::after,
+.workspace.compact[data-selecting="segments"] .vt-seg[aria-selected="true"]::after {
+  border-color: #fff; background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.5l3 3 6-6.5' fill='none' stroke='%23111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat;
+}
+.workspace.compact[data-selecting="photos"] .cell[aria-selected="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
+.workspace.compact[data-selecting="photos"] .grid-scroll, .workspace.compact[data-selecting="layers"] .layer-list,
+.workspace.compact[data-selecting="clips"] .vid-clips { touch-action: pan-y; }
+.workspace.compact[data-selecting="photos"] .filmstrip-scroll { touch-action: pan-x; }
 .app[data-compact="true"] .toast { bottom: calc(64px + env(safe-area-inset-bottom)); max-width: calc(100vw - 24px); }
 
 /* Touch screens: bigger targets (Apple asks for 44 pt, Material for 48 dp); 16 px inputs stop iOS zooming in. */

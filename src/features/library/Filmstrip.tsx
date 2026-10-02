@@ -5,7 +5,7 @@ import { domHits, useSweepSelect } from "@/components/sweep";
 import { selectAsset, ui } from "@/app/state";
 import { catalog } from "@/core/catalog/store";
 import { Thumb } from "./Cell";
-import { assetMenu, sweepAssets } from "./commands";
+import { assetMenu, photoScope, sweepAssets } from "./commands";
 import { useResults } from "./results";
 
 export function Filmstrip() {
@@ -23,7 +23,7 @@ export function Filmstrip() {
     estimateSize: () => width + 4,
     overscan: 8,
   });
-  useSweepSelect(ref, { ...sweepAssets, hits: (box) => domHits(ref.current, box) });
+  useSweepSelect(ref, { ...sweepAssets, hits: (box) => domHits(ref.current, box), scope: photoScope, axis: "x" });
   useEffect(() => {
     const index = activeId ? ids.indexOf(activeId) : -1;
     if (index >= 0) virtualizer.scrollToIndex(index, { align: "auto" });

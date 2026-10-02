@@ -1,4 +1,6 @@
 import { CompactActions, TopAction } from "@/app/Shell";
+import { SelectButton } from "@/app/SelectBar";
+import { photoScope } from "./commands";
 import { useStore } from "@/app/hooks";
 import { type LibraryView, setFilter, setQuery, targetIds, ui } from "@/app/state";
 import { openExport } from "@/features/export/host";
@@ -158,6 +160,7 @@ export function LibraryToolbar({ count, total }: { count: number; total: number 
         Export…
       </button>
       <CompactActions>
+        <SelectButton scope={photoScope} icon />
         <TopAction icon="export" label="Export" title="Export the selected photos" primary onClick={() => openExport(targetIds())} />
       </CompactActions>
       {view === "grid" && (

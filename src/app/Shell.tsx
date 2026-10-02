@@ -5,6 +5,8 @@ import { Filmstrip } from "@/features/library/Filmstrip";
 import { useStore } from "./hooks";
 import { actionsSlot, floatHost, layout, openSheet, type SheetSide } from "./layout";
 import { PANEL_LIMITS, prefs, setPrefs } from "./prefs";
+import { SelectBar } from "./SelectBar";
+import { selectMode } from "./select-mode";
 import { ui } from "./state";
 
 /**
@@ -190,6 +192,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
   ];
   const open = sheet ? (items.find((i) => i.side === sheet && (i.active ?? true)) ?? items.find((i) => i.side === sheet)) : null;
   const host = useStore(floatHost, (s) => s.element);
+  const selecting = useStore(selectMode, (s) => s.scope);
   const cover = useStore(layout, (s) => s.cover);
   // Held upright, panels float translucent over the picture, like Lightroom mobile's;
   // the picture moves up clear of them where it can. Held sideways they sit beside it.
@@ -200,7 +203,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
     </Sheet>
   );
   return (
-    <main className="workspace compact" style={{ "--cover": `${cover}px` } as React.CSSProperties}>
+    <main className="workspace compact" style={{ "--cover": `${cover}px` } as React.CSSProperties} data-selecting={selecting?.id}>
       <section className="center">
         {center}
         {floating && !host && panel}
@@ -208,7 +211,8 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
       {floating && host && createPortal(panel, host)}
       {!floating && panel}
       {!sheet && showFilmstrip && workspace !== "video" && <Filmstrip />}
-      <nav className="dock" aria-label="Panels">
+      {/* In select mode the selection's bar takes the dock's place, as in Photos. */}
+      {selecting ? <SelectBar scope={selecting} /> : <nav className="dock" aria-label="Panels">
         {items.map((item) => {
           const current = !!item.side && sheet === item.side && (item.active ?? true);
           return (
@@ -229,7 +233,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
             </button>
           );
         })}
-      </nav>
+      </nav>}
     </main>
   );
 }

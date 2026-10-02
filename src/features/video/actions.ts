@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import type { SelectScope } from "@/app/select-mode";
 import { toast } from "@/app/state";
 import { openMenu } from "@/components/Menu";
 import { defaultAudioFx, defaultVisualFx, newSegment, type Segment } from "@/core/video/model";
@@ -141,6 +142,17 @@ export function segmentMenu(x: number, y: number) {
     { label: `Delete${many}`, shortcut: "Del", danger: true, onSelect: deleteSelected },
   ]);
 }
+
+/** Timeline segments in select mode (phones): taps toggle, holding still moves the selection. */
+export const segmentScope: SelectScope = {
+  id: "segments",
+  noun: ["segment", "segments"],
+  all: () => video.getState().edit?.segments.map((s) => s.id) ?? [],
+  get: () => editor.getState().selection,
+  set: select,
+  subscribe: (listener) => editor.subscribe((s, prev) => s.selection !== prev.selection && listener()),
+  actions: segmentMenu,
+};
 
 export function moveSelection(ids: ReadonlySet<string>, to: number) {
   editVideo("Move", (e) => moveSegments(e, ids, to));

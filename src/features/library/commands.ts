@@ -25,6 +25,7 @@ import {
 import type { Asset, ColorLabel } from "@/core/catalog/types";
 import { acceptAttribute } from "@/core/image/formats";
 import { openMenu } from "@/components/Menu";
+import type { SelectScope } from "@/app/select-mode";
 import { currentOrder } from "./results";
 
 export async function pickFiles(options: { directory?: boolean } = {}) {
@@ -201,6 +202,19 @@ export const sweepAssets = {
     ui.setState((s) => ({ selection: new Set(ids), activeId: ids.length && !ids.includes(s.activeId ?? "") ? ids[ids.length - 1] : s.activeId })),
   onDone: (ids: string[], x: number, y: number) => {
     if (ids.length) assetMenu(x, y);
+  },
+};
+
+/** Photos in select mode (phones): the grid and the filmstrip share it. */
+export const photoScope: SelectScope = {
+  id: "photos",
+  noun: ["photo", "photos"],
+  all: () => currentOrder(),
+  get: () => [...ui.getState().selection],
+  set: sweepAssets.onSelect,
+  subscribe: (listener) => ui.subscribe((s, prev) => s.selection !== prev.selection && listener()),
+  actions: (x, y) => {
+    if (ui.getState().selection.size) assetMenu(x, y);
   },
 };
 

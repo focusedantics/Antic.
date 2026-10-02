@@ -5,7 +5,8 @@ import { Icon } from "@/components/icons";
 import { openMenu } from "@/components/Menu";
 import { openLooks } from "@/features/looks/LooksDialog";
 import { video } from "@/core/video/session";
-import { deleteSelected, duplicateSelected, splitAtPlayhead } from "./actions";
+import { deleteSelected, duplicateSelected, segmentScope, splitAtPlayhead } from "./actions";
+import { startSelecting } from "@/app/select-mode";
 import { zoomTimeline } from "./Timeline";
 import { engine, player } from "./engine";
 import { formatClock } from "./format";
@@ -106,6 +107,7 @@ function Transport() {
               { label: "Go to end", onSelect: () => engine.seek(frames - 1) },
               { label: "Loop playback", checked: loop, onSelect: () => player.setState({ loop: !loop }) },
               { label: "Fit the timeline", onSelect: () => zoomTimeline("fit") },
+              { label: "Select segments", disabled: !edit, onSelect: () => startSelecting(segmentScope, null) },
               "separator",
               { label: "Looks…", disabled: !edit, onSelect: () => openLooks({ kind: "video" }) },
             ]);

@@ -485,6 +485,22 @@ caught state (`mergeCaught`). Selections go to the surfaces' existing stores
 (`ui.selection`, `composite.selection`, the video `editor` store's `selection` and
 `clipSelection`), so every existing action applies to them.
 
+Phones batch-select in **select mode** (`app/select-mode.ts`, `app/SelectBar.tsx`),
+like the Photos app. A `SelectScope` describes one kind of item (photos, layers,
+clips, segments): its selection's getter, setter and subscription, every item in view
+(Select All), and its batch actions (the same menu the sweep opens). A list passes its
+scope to `useSweepSelect`, whose touch path (phone layout only) turns a press held still
+on an item (`LONG_PRESS_MS`) into select mode with that item; in select mode a tap
+toggles an item (the item's own handlers and the emulated mouse events stand down), a
+swipe across the list's scroll direction (`axis`) sweeps a box that adds what it
+touches, and a swipe along it scrolls. A list's `SelectButton` (Library top bar,
+Layers and Clips panel headers; the video transport's ⋯ menu for segments) enters it
+from nothing. While a scope is active `SelectBar` replaces the dock: Done, the count,
+All/None, Actions. The timeline keeps its own finger gestures (hold to move the
+selection), with a tap toggling in select mode. Changing workspace, Escape (when no
+menu or dialog is open) or growing to the computer layout leaves select mode; the
+selection stays.
+
 ## Layout on computers and phones (`app/Shell.tsx`, `app/layout.ts`, `lib/device.ts`)
 
 Every workspace renders through `Shell` with `left`, `center`, `right` and an optional
