@@ -195,6 +195,16 @@ document's long side, so results do not depend on render scale. The Effects brow
 the engine for previews (`DevelopEngine.effectPreviews`). The engine renders the layers
 below the insertion point once, then runs each effect on that image at 360 px.
 
+**Post-processing** (`post.ts`). Every definition gets the same extra parameters
+(`POST_PARAMS`, appended in `registry.ts`, in a "Post-processing" section): bloom
+(soft-knee threshold → two blurs of different widths added back, spilling onto
+transparent pixels) and film grain (per-cell triangular noise, strongest in the
+mid-tones, re-rolled per frame for animated effects). The runner applies them after the
+effect's own passes. Both default to off, so documents saved earlier load unchanged; a
+definition's `initial` values (ASCII: both on) apply only to newly added effects.
+Parameters can also carry `group`, `short` (visible label) and `showIf` (shown while
+another parameter has a value), which the shared `EffectParams` editor follows.
+
 **Animated effects.** A definition with `animated: true` moves over time. The runner
 passes `uTime`, `uLoop` (loop length in seconds) and `uPhase` (0–1 through the loop) to
 every pass. Animated shaders only move in whole cycles per loop (`loopCircle`,

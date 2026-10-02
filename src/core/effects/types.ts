@@ -31,12 +31,26 @@ export const EFFECT_CATEGORIES: EffectCategory[] = [
   "Motion",
 ];
 
-export type ParamDef =
-  | { readonly key: string; readonly label: string; readonly type: "number"; readonly min: number; readonly max: number; readonly step?: number; readonly default: number }
-  | { readonly key: string; readonly label: string; readonly type: "color"; readonly default: string }
-  | { readonly key: string; readonly label: string; readonly type: "select"; readonly options: readonly { value: string; label: string }[]; readonly default: string }
-  | { readonly key: string; readonly label: string; readonly type: "toggle"; readonly default: boolean }
-  | { readonly key: string; readonly label: string; readonly type: "text"; readonly maxLength: number; readonly default: string };
+/** Shared by every parameter: an optional section heading and a condition for showing it. */
+type ParamBase = {
+  readonly key: string;
+  readonly label: string;
+  /** Shorter visible label inside its section (the full label stays the accessible name). */
+  readonly short?: string;
+  /** Section the control sits in (e.g. "Post-processing"); ungrouped params come first. */
+  readonly group?: string;
+  /** Shown only while another parameter has this value (e.g. custom characters when the set is "custom"). */
+  readonly showIf?: { readonly key: string; readonly equals: ParamValue } | { readonly key: string; readonly not: ParamValue };
+};
+
+export type ParamDef = ParamBase &
+  (
+    | { readonly type: "number"; readonly min: number; readonly max: number; readonly step?: number; readonly default: number }
+    | { readonly type: "color"; readonly default: string }
+    | { readonly type: "select"; readonly options: readonly { value: string; label: string }[]; readonly default: string }
+    | { readonly type: "toggle"; readonly default: boolean }
+    | { readonly type: "text"; readonly maxLength: number; readonly default: string }
+  );
 
 export type ParamValue = number | string | boolean;
 export type EffectParams = Readonly<Record<string, ParamValue>>;
@@ -69,6 +83,8 @@ export type EffectDef = {
   readonly params: readonly ParamDef[];
   /** Moves over time: seamless loops of the document's (or clip's) loop length. */
   readonly animated?: boolean;
+  /** Starting values for a newly added effect that differ from the parameter defaults (defaults stay what old documents load with). */
+  readonly initial?: EffectParams;
   /** Returns a new premultiplied target of the working size. */
   render(ctx: EffectContext, uniforms: Record<string, number | number[]>, params: EffectParams): Target;
 };
@@ -92,6 +108,14 @@ export function paramUniforms(def: EffectDef, params: EffectParams): Record<stri
 
 export function defaultParams(def: EffectDef): EffectParams {
   return Object.fromEntries(def.params.map((p) => [p.key, p.default]));
+}
+
+/** Whether a parameter's control is shown for these values. */
+export function paramVisible(p: ParamDef, params: EffectParams, defs: readonly ParamDef[]): boolean {
+  if (!p.showIf) return true;
+  const rule = p.showIf;
+  const value = params[rule.key] ?? defs.find((d) => d.key === rule.key)?.default;
+  return "equals" in rule ? value === rule.equals : value !== rule.not;
 }
 
 /** Clamps and fills parameters against the definition (for untrusted documents). */

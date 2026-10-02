@@ -1,9 +1,8 @@
 /*
  * Ribbon glow backdrop.
  *
- * Adapted from "Ribbon Glow 2" by Originkit (https://www.originkit.dev/), from
- * source supplied by the project owner. Its license could not be confirmed —
- * see docs/THIRD_PARTY.md before redistributing.
+ * Adapted from "Ribbon Glow 2" by Originkit (https://www.originkit.dev/), MIT
+ * license (see docs/THIRD_PARTY.md).
  *
  * Changes from the original: a plain class instead of a React component; the
  * colours, angle, size, speed and brightness are uniforms that blend between

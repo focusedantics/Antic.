@@ -23,9 +23,11 @@ one asset system and one effects library:
   stitch, knit, tile mosaic, paper cutout, toy bricks, iso cubes, LED wall, relief, ink
   drawing, neon edges, topographic contours, blueprint, pencil hatching, CRT, VHS,
   datamosh glitch, fluted glass, stained glass, halation, prism, aura gradient,
-  kaleidoscope, liquid warp, a tracking HUD, thermal and night vision. You pick them from
-  a browser with live previews of your own image. Every effect is editable and can be
-  masked, blended and exported.
+  kaleidoscope, liquid warp, liquid glass, glass blobs, liquid metal, a tracking HUD,
+  thermal and night vision. You pick them from
+  a browser with live previews of your own image. Every effect is editable, has bloom and
+  film grain post-processing, and can be masked, blended and exported. ASCII offers twelve
+  character sets, including blocks, math, symbols and your own custom characters.
 - **Looks**: save your edits as a reusable look: Develop settings, masks, effect, text
   and adjustment layers, and video effects. Apply it to many photos at once, to a
   composition or to a video, and share it as a `.focused` file. AI masks (subject, sky,

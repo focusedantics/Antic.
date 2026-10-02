@@ -462,3 +462,13 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
   border: 1px solid var(--accent); background: rgb(240 184 76 / 0.12);
 }
 html.sweeping, html.sweeping * { cursor: crosshair !important; }
+
+/* ─── Effect parameter sections ──────────────────────────────────────────── */
+.param-group { margin: 8px 0 4px; border-top: 1px solid var(--line); }
+.param-group-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 0 6px; border: 0; background: none;
+  color: var(--text); font-weight: 600; letter-spacing: 0.02em; text-align: left;
+}
+.param-group-head > span:first-child { width: 10px; color: var(--text-faint); font-family: var(--mono); }
+.param-group-head .badge { margin-left: auto; }
+.param-group-body { padding-left: 2px; }

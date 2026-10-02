@@ -1,13 +1,33 @@
 import { fx, glyphs } from "../glsl";
 import type { EffectDef } from "../types";
 
+/**
+ * Character sets for ASCII. Each is sorted by ink coverage when the atlas is
+ * drawn, so order here does not matter. The values of the original five
+ * ("standard", "simple", "binary", "hex", "dots") never change: saved documents use them.
+ */
 export const CHARSETS = {
   standard: " .'`^\",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
-  simple: " .:-=+*#%@",
+  blocks: " ░▒▓█▖▗▘▝▚▞▙▛▜▟▀▄▌▐",
   binary: " 01",
+  detailed: " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$░▒▓█ÆÑØŒ",
+  simple: " .:-=+*#%@",
+  alphabetic: " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  numeric: " 0123456789",
+  math: " -+×÷=≠≈<>≤≥±∑∏∫√∞∂∆πθλμ",
+  symbols: " .·,:;!?*+=~^#%&@$§¶©®•◆●■▲",
   hex: " 0123456789ABCDEF",
   dots: " .·:∙•●",
 } as const;
+
+/** The characters an ASCII layer draws with: a named set, or the custom text (with a blank added so dark areas stay empty). */
+export function asciiCharset(set: unknown, custom: unknown): string {
+  if (set === "custom") {
+    const chars = [...new Set([...String(custom ?? "")].filter((c) => c !== "\n" && c !== "\t"))].join("");
+    return chars.length ? (chars.includes(" ") ? chars : ` ${chars}`) : CHARSETS.standard;
+  }
+  return CHARSETS[set as keyof typeof CHARSETS] ?? CHARSETS.standard;
+}
 
 const inkModes = [
   { value: "original", label: "Photo colors" },
@@ -151,23 +171,32 @@ export const typeEffects: EffectDef[] = [
         label: "Characters",
         type: "select",
         options: [
-          { value: "standard", label: "Full ramp" },
-          { value: "simple", label: "Classic" },
+          { value: "standard", label: "Standard" },
+          { value: "blocks", label: "Blocks" },
           { value: "binary", label: "Binary" },
+          { value: "detailed", label: "Detailed" },
+          { value: "simple", label: "Minimal" },
+          { value: "alphabetic", label: "Alphabetic" },
+          { value: "numeric", label: "Numeric" },
+          { value: "math", label: "Math" },
+          { value: "symbols", label: "Symbols" },
           { value: "hex", label: "Hex" },
           { value: "dots", label: "Dots" },
+          { value: "custom", label: "Custom" },
         ],
         default: "standard",
       },
+      { key: "chars", label: "Custom characters", type: "text", maxLength: 96, default: " .:-=+*#%@", showIf: { key: "charset", equals: "custom" } },
       { key: "color", label: "Ink", type: "select", options: inkModes, default: "original" },
       { key: "ink", label: "Custom ink", type: "color", default: "#f2efe6" },
       { key: "background", label: "Background", type: "color", default: "#0b0b0c" },
       { key: "contrast", label: "Contrast", type: "number", min: 0.5, max: 3, step: 0.05, default: 1.5 },
       { key: "invert", label: "Light background", type: "toggle", default: false },
     ],
+    // New ASCII layers start with a soft glow and a little grain; older documents keep both off.
+    initial: { post_bloom: true, post_grain: true },
     render(ctx, u, params) {
-      const set = CHARSETS[params.charset as keyof typeof CHARSETS] ?? CHARSETS.standard;
-      const g = ctx.glyphs(set, true);
+      const g = ctx.glyphs(asciiCharset(params.charset, params.chars), true);
       return ctx.pass("fx-ascii", ascii, { ...u, ...g.uniforms }, { uGlyphs: g.texture });
     },
   },

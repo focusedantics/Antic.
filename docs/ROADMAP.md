@@ -156,10 +156,10 @@ Known limitations:
 ## Effects
 
 Done:
-- 48 original GLSL effects in ten categories: Light & glass, Type & code, Halftone & dither,
+- 51 original GLSL effects in ten categories: Light & glass, Type & code, Halftone & dither,
   Textile & craft, Pixel & 3D, Edges & outlines, Analog & glitch, Experimental,
   Tracking & interface, and Motion. Every parameter is real: the GPU reads each one.
-- 19 animated effects. Motion adds Snowfall, Rain, Sparkles, Film Grain & Flicker, Light
+- 21 animated effects. Motion adds Snowfall, Rain, Sparkles, Film Grain & Flicker, Light
   Leaks, Bokeh Float, Heat & Water, Color Cycle, Camera Motion and Confetti. Code Rain,
   CRT, VHS, Datamosh Glitch, Kaleidoscope, Liquid Warp, Aura Gradient, Tracking HUD and
   Night Vision now move too. They all loop seamlessly over the composition's loop (1–10 s,
@@ -169,6 +169,16 @@ Done:
   **MP4** (the loop played 1–10 times, up to 3840 px), or PNG/JPEG/WebP of the frame at a
   chosen time. The progress bar counts frames, and the watermark and destinations work
   as for stills.
+- **Liquid Glass** (pill, circle, rounded square, tiles or frame of thick glass: edge
+  refraction, frost, color fringe, rim light, tint, shadow), **Glass Blobs** (animated
+  drops of glass that drift and merge) and **Liquid Metal** (animated chrome, gold,
+  copper, titanium, iridescent or custom metal poured over the whole picture or its bright
+  or dark parts, reflecting a studio environment).
+- Post-processing on every effect: **Bloom** (threshold, soft threshold, intensity, radius)
+  and **Grain** (intensity, size), in a collapsible section. New ASCII layers start with
+  both on; existing documents are unchanged.
+- ASCII character sets: Standard, Blocks, Binary, Detailed, Minimal, Alphabetic, Numeric,
+  Math, Symbols, Hex, Dots, and Custom (type your own characters).
 - Effect layers in Composite. Each is non-destructive and applies to everything below it,
   or only to its clipping base. It has opacity, fill, a blend mode and a layer mask, and
   it is saved in documents and `.focused` files with sanitized parameters.
@@ -290,7 +300,7 @@ they are photo-specific.
   workspace. Replay from the top bar's **?** menu, from the start or any chapter.
 - Glow backdrop (`features/backdrop`): Originkit's ribbon glow behind the viewers, a
   look per workspace that blends on switch, pointer swirl, on/off toggle (**◐**) that
-  persists. Limits: the Originkit license still needs confirming (`docs/THIRD_PARTY.md`).
+  persists.
 
 ## Sweep selection
 

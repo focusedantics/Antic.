@@ -1,5 +1,6 @@
 import type { Gpu, Target, Texture } from "@/core/gpu/gl";
 import type { DevelopPipeline } from "@/core/gpu/pipeline";
+import { applyPost } from "./post";
 import { effectById } from "./registry";
 import { type EffectContext, type EffectInstance, paramUniforms, sanitizeParams } from "./types";
 
@@ -74,7 +75,7 @@ export class EffectRunner {
       glyphs: (charset, sort) => this.atlas(charset, sort),
       release: (target) => this.pipeline.release(target),
     };
-    return def.render(ctx, paramUniforms(def, params), params);
+    return applyPost(ctx, def.render(ctx, paramUniforms(def, params), params), params, !!def.animated);
   }
 
   private atlas(charset: string, sort: boolean): Atlas {

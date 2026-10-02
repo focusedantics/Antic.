@@ -2,6 +2,8 @@ import { type KeyboardEvent, type PointerEvent, useId, useRef, useState } from "
 
 export type SliderProps = {
   label: string;
+  /** Shorter visible text when the section already says what it belongs to; `label` stays the accessible name. */
+  shortLabel?: string;
   value: number;
   min: number;
   max: number;
@@ -29,6 +31,7 @@ export function formatSigned(value: number, step = 1) {
 
 export function Slider({
   label,
+  shortLabel,
   value,
   min,
   max,
@@ -124,8 +127,8 @@ export function Slider({
 
   return (
     <div className="slider" data-changed={value !== defaultValue}>
-      <label htmlFor={id} onDoubleClick={reset} title="Double-click to reset">
-        {label}
+      <label htmlFor={id} onDoubleClick={reset} title={shortLabel ? `${label} · double-click to reset` : "Double-click to reset"}>
+        {shortLabel ?? label}
       </label>
       <div
         ref={trackRef}

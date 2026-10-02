@@ -1,6 +1,7 @@
+import { type ReactNode, useState } from "react";
 import { Slider } from "@/components/Slider";
 import { effectById, newEffect } from "@/core/effects/registry";
-import type { EffectInstance, ParamValue } from "@/core/effects/types";
+import { type EffectInstance, type ParamDef, type ParamValue, paramVisible } from "@/core/effects/types";
 
 /** Every parameter of an effect as controls; used by effect layers and video edits. */
 const decimalsFor = (step: number) => (step >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(step))));
@@ -39,66 +40,76 @@ export function EffectParams({
         </button>
       </div>
       <p className="dim" style={{ margin: "0 0 8px", fontSize: 11 }}>{def.description}</p>
-      {def.params.map((p) => {
-        const v = params[p.key] ?? p.default;
-        if (p.type === "number") {
-          if (p.key === "seed") return null;
-          const step = p.step ?? 0.01;
-          return (
-            <Slider
-              key={p.key}
-              label={p.label}
-              value={typeof v === "number" ? v : p.default}
-              min={p.min}
-              max={p.max}
-              step={step}
-              defaultValue={p.default}
-              origin={p.min}
-              format={(x) => x.toFixed(decimalsFor(step))}
-              onGestureStart={() => onGestureStart(`${def.name}: ${p.label}`)}
-              onGestureEnd={onGestureEnd}
-              onChange={(x) => setParam(p.key, p.label, x)}
-            />
-          );
-        }
-        if (p.type === "select")
+      {groupsOf(def.params).map(([group, list]) => {
+        const controls = list.filter((p) => paramVisible(p, params, def.params)).map((p) => {
+          const v = params[p.key] ?? p.default;
+          if (p.type === "number") {
+            if (p.key === "seed") return null;
+            const step = p.step ?? 0.01;
+            return (
+              <Slider
+                key={p.key}
+                label={p.label}
+                shortLabel={p.short}
+                value={typeof v === "number" ? v : p.default}
+                min={p.min}
+                max={p.max}
+                step={step}
+                defaultValue={p.default}
+                origin={p.min}
+                format={(x) => x.toFixed(decimalsFor(step))}
+                onGestureStart={() => onGestureStart(`${def.name}: ${p.label}`)}
+                onGestureEnd={onGestureEnd}
+                onChange={(x) => setParam(p.key, p.label, x)}
+              />
+            );
+          }
+          if (p.type === "select")
+            return (
+              <label key={p.key} className="field" style={{ marginBottom: 6 }}>
+                <span>{p.label}</span>
+                <select className="input" value={String(v)} onChange={(e) => setParam(p.key, p.label, e.target.value)}>
+                  {p.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          if (p.type === "color")
+            return (
+              <label key={p.key} className="row" style={{ marginBottom: 6 }}>
+                <input type="color" value={String(v)} aria-label={p.label} onChange={(e) => setParam(p.key, p.label, e.target.value)} />
+                <span>{p.label}</span>
+              </label>
+            );
+          if (p.type === "toggle")
+            return (
+              <label key={p.key} className="check" style={{ marginBottom: 6 }}>
+                <input type="checkbox" checked={v === true} onChange={(e) => setParam(p.key, p.label, e.target.checked)} /> {p.label}
+              </label>
+            );
           return (
             <label key={p.key} className="field" style={{ marginBottom: 6 }}>
               <span>{p.label}</span>
-              <select className="input" value={String(v)} onChange={(e) => setParam(p.key, p.label, e.target.value)}>
-                {p.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              <input
+                className="input"
+                type="text"
+                maxLength={p.maxLength}
+                value={String(v)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onChange={(e) => setParam(p.key, p.label, e.target.value)}
+              />
             </label>
           );
-        if (p.type === "color")
-          return (
-            <label key={p.key} className="row" style={{ marginBottom: 6 }}>
-              <input type="color" value={String(v)} aria-label={p.label} onChange={(e) => setParam(p.key, p.label, e.target.value)} />
-              <span>{p.label}</span>
-            </label>
-          );
-        if (p.type === "toggle")
-          return (
-            <label key={p.key} className="check" style={{ marginBottom: 6 }}>
-              <input type="checkbox" checked={v === true} onChange={(e) => setParam(p.key, p.label, e.target.checked)} /> {p.label}
-            </label>
-          );
+        });
+        if (!group) return controls;
+        const on = list.some((p) => p.type === "toggle" && params[p.key] === true);
         return (
-          <label key={p.key} className="field" style={{ marginBottom: 6 }}>
-            <span>{p.label}</span>
-            <input
-              className="input"
-              type="text"
-              maxLength={p.maxLength}
-              value={String(v)}
-              onKeyDown={(e) => e.stopPropagation()}
-              onChange={(e) => setParam(p.key, p.label, e.target.value)}
-            />
-          </label>
+          <ParamGroup key={`${def.id}:${group}`} title={group} active={on}>
+            {controls}
+          </ParamGroup>
         );
       })}
       <div className="row wrap" style={{ marginTop: 6 }}>
@@ -124,3 +135,28 @@ export function EffectParams({
   );
 }
 
+
+/** Ungrouped parameters first, then each group in order of first appearance. */
+function groupsOf(params: readonly ParamDef[]): [string, ParamDef[]][] {
+  const groups = new Map<string, ParamDef[]>([["", []]]);
+  for (const p of params) {
+    const g = p.group ?? "";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g)!.push(p);
+  }
+  return [...groups];
+}
+
+/** A collapsible section of parameters; it starts open when one of its switches is on. */
+function ParamGroup({ title, active, children }: { title: string; active: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(active);
+  return (
+    <div className="param-group">
+      <button type="button" className="param-group-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span aria-hidden="true">{open ? "−" : "+"}</span> {title}
+        {active && !open && <span className="badge">on</span>}
+      </button>
+      {open && <div className="param-group-body">{children}</div>}
+    </div>
+  );
+}
