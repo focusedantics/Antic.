@@ -303,11 +303,32 @@ export class DevelopEngine {
     return Math.min(region.width / size.width, region.height / size.height);
   }
 
+  /** CSS px at the bottom of the viewer that a translucent panel floats over (phones). */
+  private cover = 0;
+
+  setCover(cssPx: number) {
+    if (Math.abs(cssPx - this.cover) < 0.5) return;
+    this.cover = cssPx;
+    this.requestRender();
+  }
+
   /** Canvas regions (device px) the photo is drawn into: one, or two for side-by-side. */
   regions(): { x: number; y: number; width: number; height: number }[] {
     const pad = Math.round(16 * viewDpr());
     const w = this.canvas.width;
     const h = this.canvas.height;
+    if (this.cover > 0 && develop.getState().compare !== "side-by-side") {
+      // A panel floats over the bottom (Lightroom mobile): the photo keeps the size that
+      // fits the whole viewer, but sits clear of the panel when it fits above it, and
+      // otherwise starts at the top so as much as possible stays uncovered.
+      const region = { x: pad, y: pad, width: w - pad * 2, height: h - pad * 2 };
+      const size = this.outputSize();
+      if (!size) return [region];
+      const shown = size.height * Math.min(region.width / size.width, region.height / size.height);
+      const free = h - this.cover * viewDpr() - pad * 2;
+      const top = pad + Math.max(0, (free - shown) / 2);
+      return [{ ...region, y: Math.round(top - (region.height - shown) / 2) }];
+    }
     if (develop.getState().compare === "side-by-side") {
       const half = Math.floor(w / 2);
       return [

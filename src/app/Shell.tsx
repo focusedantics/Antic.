@@ -22,8 +22,9 @@ export type DockItem = {
   readonly active?: boolean;
   /**
    * The sheet opens at its content's own height rather than the remembered one, and
-   * without a title row: Develop's Edit shows about three sliders, so the photo
-   * stays in view (dragging the grip up still makes it taller).
+   * without a title row; held upright it floats, translucent, over the bottom of the
+   * picture, like Lightroom mobile's panels. Develop's Edit shows about three sliders
+   * so the photo stays in view (dragging the grip up still makes it taller).
    */
   readonly fit?: boolean;
   readonly onSelect?: () => void;
@@ -181,6 +182,7 @@ export function TopAction({ icon, label, onClick, disabled, primary, title }: { 
 
 function CompactShell({ left, center, right, dock }: ShellProps) {
   const sheet = useStore(layout, (s) => s.sheet);
+  const sideways = useStore(layout, (s) => s.sideways);
   const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
   const workspace = useStore(ui, (s) => s.workspace);
   const items = dock ?? [
@@ -188,14 +190,19 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
     { id: "right", label: "Info", icon: "info", side: "right" },
   ];
   const open = sheet ? (items.find((i) => i.side === sheet && (i.active ?? true)) ?? items.find((i) => i.side === sheet)) : null;
+  const floating = !!open?.fit && !sideways;
+  const panel = sheet && open && (
+    <Sheet key={open.fit ? `fit-${open.id}` : "sheet"} title={open.label} fit={open.fit} floating={floating} onClose={() => openSheet(null)}>
+      {sheet === "left" ? left : right}
+    </Sheet>
+  );
   return (
     <main className="workspace compact">
-      <section className="center">{center}</section>
-      {sheet && open && (
-        <Sheet key={open.fit ? `fit-${open.id}` : "sheet"} title={open.label} fit={open.fit} onClose={() => openSheet(null)}>
-          {sheet === "left" ? left : right}
-        </Sheet>
-      )}
+      <section className="center">
+        {center}
+        {floating && panel}
+      </section>
+      {!floating && panel}
       {!sheet && showFilmstrip && workspace !== "video" && <Filmstrip />}
       <nav className="dock" aria-label="Panels">
         {items.map((item) => {
@@ -226,7 +233,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
 const SNAPS = [0.3, 0.5, 0.85];
 
 /** A panel over the bottom of the screen: drag the grip to resize (it snaps), down to close. */
-function Sheet({ title, fit = false, onClose, children }: { title: string; fit?: boolean; onClose: () => void; children: ReactNode }) {
+function Sheet({ title, fit = false, floating = false, onClose, children }: { title: string; fit?: boolean; floating?: boolean; onClose: () => void; children: ReactNode }) {
   const remembered = useStore(prefs, (s) => s.sheetHeight);
   // A fitted sheet starts at its content's height; dragging it taller lasts until it closes.
   const [stretched, setStretched] = useState<number | null>(null);
@@ -238,6 +245,19 @@ function Sheet({ title, fit = false, onClose, children }: { title: string; fit?:
   useLayoutEffect(() => {
     if (fit && height === null && ref.current) natural.current = ref.current.getBoundingClientRect().height / window.innerHeight;
   });
+  // A floating sheet tells the viewer how much of it is covered, so the photo can sit clear of it.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!floating || !el) return;
+    const report = () => layout.setState({ cover: el.getBoundingClientRect().height });
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      layout.setState({ cover: 0 });
+    };
+  }, [floating]);
   const setHeight = (share: number | null) => (fit ? setStretched(share) : share !== null && setPrefs({ sheetHeight: share }));
 
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -292,6 +312,7 @@ function Sheet({ title, fit = false, onClose, children }: { title: string; fit?:
       className="sheet"
       style={height === null ? undefined : ({ "--sheet": height } as React.CSSProperties)}
       data-fit={fit ? (height === null ? "content" : "stretched") : undefined}
+      data-floating={floating || undefined}
       aria-label={title}
       data-testid="sheet"
     >

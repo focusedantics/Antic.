@@ -11,11 +11,22 @@ export const COMPACT_QUERY = "(max-width: 780px), (max-height: 520px) and (point
 /** Which side's panels the phone sheet shows. */
 export type SheetSide = "left" | "right";
 
-const media = typeof matchMedia === "function" ? matchMedia(COMPACT_QUERY) : null;
+/** A phone held sideways: panels open beside the picture rather than over it (matches the stylesheet). */
+export const SIDEWAYS_QUERY = "(orientation: landscape) and (max-height: 520px)";
 
-export const layout = createStore<{ compact: boolean; sheet: SheetSide | null }>(() => ({ compact: !!media?.matches, sheet: null }));
+const media = typeof matchMedia === "function" ? matchMedia(COMPACT_QUERY) : null;
+const sideways = typeof matchMedia === "function" ? matchMedia(SIDEWAYS_QUERY) : null;
+
+export const layout = createStore<{
+  compact: boolean;
+  sideways: boolean;
+  sheet: SheetSide | null;
+  /** CSS px of the viewer's bottom that a floating sheet covers (0 when none floats). */
+  cover: number;
+}>(() => ({ compact: !!media?.matches, sideways: !!sideways?.matches, sheet: null, cover: 0 }));
 
 media?.addEventListener("change", (e) => layout.setState({ compact: e.matches, sheet: null }));
+sideways?.addEventListener("change", (e) => layout.setState({ sideways: e.matches }));
 
 export const openSheet = (sheet: SheetSide | null) => layout.setState({ sheet });
 

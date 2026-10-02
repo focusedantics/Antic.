@@ -505,16 +505,24 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   open a sheet holding just that tool; Composite's dock adds Effects, which opens the
   browser). Edit opens `EditDeck` in a *fitted* sheet (`DockItem.fit`): Lightroom
   mobile's short panel, one group at a time (Light, Curve, Color, Mixer, Grading,
-  Effects, Detail, Optics) with about three sliders showing and the groups in a row
-  beneath; its height is the content's, dragging the grip up stretches it until it
-  closes. The groups reuse the desktop panels' bodies (`ToneSliders`,
-  `WhiteBalance`, `DetailControls`…; each `…Panel` is that body in a collapsible
-  `Panel`). Sliders in a phone sheet put the name and value on one line over a wide
-  track; a finger drags a slider sideways from where it is (`Slider`'s touch path: a tap
-  does nothing, a vertical swipe scrolls, `touch-action: pan-y`). The histogram floats,
-  small and translucent, in the photo's top-left corner (`FloatingHistogram`, only while
-  editing, so crop handles and brushes keep the corner; `prefs.showHistogram`, toggled in
-  the ⋯ menu); it lets touches through to the photo. The
+  Effects, Detail, Optics; Effects and Detail split into parts under sub-tabs) with
+  about three sliders showing and the groups in a row beneath. Its height is the
+  content's; dragging the grip up stretches it until it closes. Held upright it
+  *floats*: it renders inside `.center`, translucent over the bottom of the viewer,
+  reports the height it covers (`layout.cover`), and `DevelopEngine.setCover` keeps
+  the photo at the size that fits the whole viewer but places it clear of the panel
+  when it fits above it (else from the top), so the panel overlays only what must be
+  overlaid. Curve draws the curve over the photo (`CurveOverlay`, the panel's
+  `CurveGraph` in overlay mode, sized in its box's pixels) and shrinks the panel to a
+  bar (`CurveBar`: channels, parametric sliders, Reset, Done). The groups reuse the
+  desktop panels' bodies (`ToneSliders`, `WhiteBalance`, `SharpeningSliders`…; each
+  `…Panel` is those bodies in a collapsible `Panel`). Sliders in a phone sheet put the
+  name and value on one line over a wide track; a finger drags a slider sideways from
+  where it is (`Slider`'s touch path: a tap does nothing, a vertical swipe scrolls,
+  `touch-action: pan-y`). The histogram floats, small and translucent, in the photo's
+  top-left corner (`FloatingHistogram`, only while editing, so crop handles and brushes
+  keep the corner; `prefs.showHistogram`, toggled in the ⋯ menu); it lets touches
+  through to the photo. The
   top bar has a workspace switcher (a menu), the workspace's main actions (in the Library a
   centred Liquid Glass Import button that shows progress while it runs; the newest photo is
   refracted through it), and a ⋯ menu (menus on phones are Liquid Glass too: a

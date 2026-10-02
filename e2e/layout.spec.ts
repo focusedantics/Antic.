@@ -232,9 +232,10 @@ test.describe("phone", () => {
     await expect(bar.getByRole("button", { name: "Export", exact: true })).toBeVisible();
   });
 
-  test("Edit is Lightroom's short panel: about three spaced sliders, groups beneath, the histogram floating over the photo", async ({ page }) => {
+  test("Edit is Lightroom's short panel floating over the photo: about three spaced sliders, groups beneath, a floating histogram", async ({ page }) => {
     await importPhoto(page);
     await switchTo(page, "Develop");
+    const viewBefore = (await page.locator(".develop-view").boundingBox())!;
     await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
     const sheet = page.getByTestId("sheet");
     const exposure = sheet.getByRole("slider", { name: "Exposure" });
@@ -252,7 +253,13 @@ test.describe("phone", () => {
     );
     expect(shown).toBe(3);
     expect((await sheet.boundingBox())!.height).toBeLessThan(664 * 0.42);
-    expect((await page.locator(".develop-view").boundingBox())!.height).toBeGreaterThan(250);
+    // It floats over the bottom of the viewer, which keeps its whole height (the photo sits clear of it;
+    // the filmstrip makes way, so the viewer even grows).
+    const viewAfter = (await page.locator(".develop-view").boundingBox())!;
+    expect(viewAfter.height).toBeGreaterThanOrEqual(viewBefore.height);
+    const sheetBox = (await sheet.boundingBox())!;
+    expect(Math.abs(sheetBox.y + sheetBox.height - (viewAfter.y + viewAfter.height))).toBeLessThan(2);
+    expect(await sheet.evaluate((el) => getComputedStyle(el).position)).toBe("absolute");
 
     // Each slider: its name and value on one line, a wide track beneath.
     const row = sheet.locator(".slider").filter({ has: page.getByRole("slider", { name: "Exposure" }) });
@@ -276,12 +283,38 @@ test.describe("phone", () => {
     await expect(sheet.getByRole("img", { name: "Histogram" })).toHaveCount(0);
 
     // Groups switch the sliders, like Lightroom's Light, Color, Effects…
-    await sheet.getByRole("tab", { name: "Color" }).tap();
+    const groups = sheet.getByRole("tablist", { name: "Adjustments" });
+    await groups.getByRole("tab", { name: "Color" }).tap();
     await expect(sheet.getByRole("slider", { name: "Temp" })).toBeVisible();
     await expect(exposure).toHaveCount(0);
-    await sheet.getByRole("tab", { name: "Effects" }).tap();
+    // …and a group's parts sit under sub-tabs (Effects · Vignette · Grain).
+    await groups.getByRole("tab", { name: "Effects" }).tap();
     await expect(sheet.getByRole("slider", { name: "Clarity" })).toBeVisible();
-    await sheet.getByRole("tab", { name: "Light" }).tap();
+    const parts = sheet.getByRole("tablist", { name: "Effects sections" });
+    await parts.getByRole("tab", { name: "Grain" }).tap();
+    await expect(sheet.getByRole("slider", { name: "Clarity" })).toHaveCount(0);
+    await expect(sheet.getByRole("slider", { name: "Roughness" })).toBeVisible();
+    await groups.getByRole("tab", { name: "Light" }).tap();
+
+    // Curve: drawn over the photo, the panel shrinks to a bar; tapping the curve adds a point.
+    await groups.getByRole("tab", { name: "Curve" }).tap();
+    const curve = page.locator(".develop-view").getByRole("img", { name: "master tone curve" });
+    await expect(curve).toBeVisible();
+    await expect(groups).toHaveCount(0);
+    expect((await sheet.boundingBox())!.height).toBeLessThan(150);
+    const c = (await curve.boundingBox())!;
+    expect(c.y + c.height).toBeLessThanOrEqual((await sheet.boundingBox())!.y);
+    const undo = page.getByRole("banner").getByRole("button", { name: "Undo", exact: true });
+    await expect(undo).toBeDisabled();
+    await page.mouse.click(c.x + c.width * 0.5, c.y + c.height * 0.35);
+    await expect(undo).toBeEnabled();
+    expect(await curve.locator("circle").count()).toBe(3);
+    await sheet.getByRole("button", { name: "Red" }).tap();
+    await expect(page.locator(".develop-view").getByRole("img", { name: "red tone curve" })).toBeVisible();
+    await sheet.getByRole("button", { name: "Done" }).tap();
+    await expect(curve).toHaveCount(0);
+    await expect(groups.getByRole("tab", { name: "Light" })).toHaveAttribute("aria-selected", "true");
+    await undo.tap();
 
     // Crop needs the corner: the histogram steps aside there, and comes back for Edit.
     await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Crop" }).tap();

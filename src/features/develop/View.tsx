@@ -7,7 +7,9 @@ import { develop } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { clamp } from "@/lib/math";
 import { MaskOverlay } from "./masks/MaskOverlay";
+import { deck } from "./panels/EditDeck";
 import { FloatingHistogram } from "./panels/Histogram";
+import { CurveOverlay } from "./panels/ToneCurve";
 import { CropOverlay } from "./tools/Crop";
 import { HealOverlay } from "./tools/Heal";
 
@@ -41,6 +43,12 @@ export function DevelopView() {
   const compact = useStore(layout, (s) => s.compact);
   const showHistogram = useStore(prefs, (s) => s.showHistogram);
   const floatHistogram = compact && showHistogram && tool === "adjust";
+  // A panel floating over the bottom of the viewer: the photo sits clear of it, and
+  // the phone's Curve is drawn over the photo above it.
+  const cover = useStore(layout, (s) => (s.compact ? s.cover : 0));
+  const sheetOpen = useStore(layout, (s) => s.sheet === "right");
+  const curveOnPhoto = useStore(deck, (s) => s.group === "curve") && compact && sheetOpen && tool === "adjust";
+  useEffect(() => developEngine().setCover(cover), [cover]);
   const status = useStore(develop, (s) => (s.error ? `error:${s.error}` : s.loading ? (s.source === "preview" ? "preview" : "loading") : ""));
   useEffect(() => {
     const engine = developEngine();
@@ -193,7 +201,7 @@ export function DevelopView() {
   }, []);
 
   return (
-    <div className="develop-view" ref={ref}>
+    <div className="develop-view" ref={ref} style={{ "--cover": `${cover}px` } as React.CSSProperties} data-histogram={floatHistogram || undefined}>
       {tool === "crop" && <CropOverlay />}
       {tool === "mask" && <MaskOverlay />}
       {tool === "heal" && <HealOverlay />}
@@ -202,6 +210,7 @@ export function DevelopView() {
       {status === "loading" && <div className="develop-status">Decoding original…</div>}
       {status.startsWith("error:") && <div className="develop-status error">{status.slice(6)}</div>}
       {floatHistogram && <FloatingHistogram />}
+      {curveOnPhoto && <CurveOverlay />}
       {compare !== "off" && (
         <div className="develop-status compare-label" style={{ bottom: "auto", top: 10 }}>
           {compare === "split" ? "Before | After" : "Before · After"}
