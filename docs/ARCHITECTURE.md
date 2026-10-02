@@ -503,7 +503,8 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   20 % or on a downward flick). The viewer shrinks above the sheet, so edits stay
   visible. Develop's dock is Presets · Edit · Crop · Masks · Heal (tools open the
   adjustments on that tool; Composite's dock adds Effects, which opens the browser). The
-  top bar has a workspace switcher (a menu), the workspace's main actions, and a ⋯ menu
+  top bar has a workspace switcher (a menu), the workspace's main actions (in the Library a
+  prominent Import button that shows progress while it runs), and a ⋯ menu
   for import, the filmstrip, the glow and the tour. Main actions (undo, redo, export)
   render through `<CompactActions>` into the top bar's slot (`actionsSlot`), and the
   toolbar's own copies carry `wide-only` and hide; toolbars scroll sideways for the

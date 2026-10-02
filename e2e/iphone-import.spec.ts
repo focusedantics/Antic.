@@ -65,6 +65,22 @@ test.describe("iPhone", () => {
     await expect(page.locator(".develop-status.error")).toHaveCount(0);
   });
 
+  test("the Library's top bar has a clear Import button, also once photos are there", async ({ page }) => {
+    await fresh(page);
+    const bar = page.getByRole("banner");
+    const pill = bar.getByRole("button", { name: "Import photos", exact: true });
+    await expect(pill).toBeVisible();
+    const box = (await pill.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(36);
+    const buffer = await jpeg(page);
+    for (const name of ["IMG_1.JPG", "IMG_2.JPG"]) {
+      const [chooser] = await Promise.all([page.waitForEvent("filechooser"), pill.tap()]);
+      await chooser.setFiles({ name, mimeType: "image/jpeg", buffer: name === "IMG_1.JPG" ? buffer : Buffer.concat([buffer, Buffer.from([0])]) });
+    }
+    await expect(page.locator(".cell img")).toHaveCount(2, { timeout: 30_000 });
+    await expect(pill).toContainText("Import");
+  });
+
   test("a photo that can't be read says so on screen, not only in a tooltip", async ({ page }) => {
     await fresh(page);
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).tap()]);

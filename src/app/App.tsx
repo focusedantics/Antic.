@@ -67,6 +67,17 @@ function Toast() {
   );
 }
 
+/** A phone's Library: importing is the first thing to do, so it gets a clear button in the top bar (with progress while it runs). */
+function ImportPill() {
+  const p = useStore(importProgress, (s) => s);
+  return (
+    <button type="button" className="import-pill" aria-label="Import photos" onClick={() => void pickFiles()}>
+      <Icon name="plus" size={18} />
+      <span className="num">{p.active ? `${p.done}/${p.total}` : "Import"}</span>
+    </button>
+  );
+}
+
 // Stable, so the slot is registered once rather than on every render.
 const setActionsSlot = (element: HTMLDivElement | null) => actionsSlot.setState({ element });
 
@@ -91,7 +102,14 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
         {modules.find((m) => m.id === workspace)?.label}
         <Icon name="chevron" size={14} />
       </button>
-      <ImportStatus />
+      {workspace === "library" ? (
+        <>
+          <span className="spacer" />
+          <ImportPill />
+        </>
+      ) : (
+        <ImportStatus />
+      )}
       <span className="spacer" />
       <div className="top-actions" ref={setActionsSlot} />
       <button

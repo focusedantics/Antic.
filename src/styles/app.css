@@ -540,6 +540,12 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .tool-icon:active:not(:disabled) { background: var(--panel-3); }
 .topbar.compact .progress-pill { max-width: 38vw; overflow: hidden; white-space: nowrap; }
 .topbar.compact .progress-bar { display: none; }
+.import-pill {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 36px; padding: 0 14px 0 10px; border-radius: 18px;
+  border: 1px solid var(--accent); background: #3a3222; color: var(--accent-strong); font-size: 13px; font-weight: 600;
+  touch-action: manipulation;
+}
+.import-pill:active { background: #4a3f2a; }
 .tool-btn.more { width: 40px; height: 40px; color: var(--text-dim); border-radius: 50%; flex: none; }
 .workspace.compact { display: flex; flex-direction: column; min-height: 0; }
 .workspace.compact > .center { flex: 1 0 140px; min-height: 140px; }
