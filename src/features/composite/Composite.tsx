@@ -1,4 +1,5 @@
-import { type ComponentType, type ReactNode, useEffect, useState } from "react";
+import type { DockItem, ShellProps } from "@/app/Shell";
+import { type ComponentType, useEffect, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
 import { toast, ui } from "@/app/state";
@@ -29,7 +30,6 @@ import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/Effec
 import { CompositeView, zoomComposite } from "./View";
 import { brush } from "@/features/develop/masks/brush";
 
-type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
 
 const presets = [
   { label: "Instagram portrait 4:5", w: 1080, h: 1350 },
@@ -410,6 +410,11 @@ function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
   return false;
 }
 
+const COMPOSITE_DOCK: DockItem[] = [
+  { id: "documents", label: "Documents", icon: "documents", side: "left" },
+  { id: "layers", label: "Layers", icon: "layers", side: "right" },
+];
+
 export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> }) {
   const doc = useStore(composite, (s) => s.doc);
   const docs = useStore(composite, (s) => s.documents);
@@ -472,6 +477,7 @@ export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> 
             </>
           ) : null
         }
+        dock={COMPOSITE_DOCK}
       />
       <EffectsBrowserHost />
       {dialog === "new" && <NewDocumentDialog onClose={() => setDialog(null)} />}

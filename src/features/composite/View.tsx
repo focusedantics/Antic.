@@ -1,3 +1,4 @@
+import { viewDpr } from "@/lib/device";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { ui } from "@/app/state";
@@ -144,7 +145,7 @@ export function CompositeView() {
       if (!pan) return;
       const { doc, view } = composite.getState();
       if (!doc) return;
-      const s = engine.compositeScale() / (window.devicePixelRatio || 1);
+      const s = engine.compositeScale() / viewDpr();
       composite.setState({ view: { ...view, fit: false, centerX: clamp(pan.cx - (e.clientX - pan.x) / s / doc.width), centerY: clamp(pan.cy - (e.clientY - pan.y) / s / doc.height) } });
     };
     const onUp = () => {
@@ -176,7 +177,7 @@ export function CompositeView() {
     const c = engine.docToClient(p.x, p.y);
     return { x: c.x - rect.left, y: c.y - rect.top };
   };
-  const pxPerDoc = engine.compositeScale() / (window.devicePixelRatio || 1);
+  const pxPerDoc = engine.compositeScale() / viewDpr();
   const primary = doc && selection.length ? (locate(doc.layers, selection[selection.length - 1])?.layer ?? null) : null;
 
   // ─── Move / transform ──────────────────────────────────────────────────

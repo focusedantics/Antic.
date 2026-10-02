@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
@@ -47,7 +48,7 @@ export function ExportMarble({
   const keys = list.map((p) => p.key).join("|");
 
   useEffect(() => {
-    const m = new Marble(host.current!, { reducedMotion: window.matchMedia(REDUCE).matches });
+    const m = new Marble(host.current!, { reducedMotion: window.matchMedia(REDUCE).matches || device.phone });
     if (!m.ready) setFailed(true);
     marble.current = m;
     const cache = bitmaps.current;

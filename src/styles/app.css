@@ -74,6 +74,20 @@ button { cursor: pointer; }
 .side.right { width: var(--panel-width); border-left: 1px solid var(--line); }
 .center { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-canvas); }
 
+/* Side panels sit in a frame with a drag handle on their inner edge. */
+.side-frame { position: relative; display: flex; min-height: 0; }
+.side-frame > .side { flex: none; }
+.resizer { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 6; cursor: col-resize; touch-action: none; }
+.resizer.left { right: -4px; }
+.resizer.right { left: -4px; }
+.resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background 0.12s 0.08s; }
+.resizer:hover::after, .resizer[data-dragging]::after, .resizer:focus-visible::after { background: var(--accent); }
+.resizer:focus-visible { outline: none; }
+.panel-toggles { display: flex; gap: 2px; margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--line); }
+.panel-toggles .tool-btn { border-radius: var(--radius); }
+.panel-toggles .tool-btn[aria-pressed="true"] { color: var(--text-dim); }
+.panel-toggles .tool-btn[aria-pressed="false"] { color: var(--text-faint); opacity: 0.55; }
+
 /* ─── Panels ─────────────────────────────────────────────────────────────── */
 .panel { border-bottom: 1px solid var(--line); }
 .panel-head {
@@ -288,12 +302,6 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 @media (max-width: 1100px) {
   :root { --panel-width: 270px; --left-width: 210px; }
 }
-@media (max-width: 780px) {
-  .workspace { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  .side.left { display: none; }
-  .side.right { width: auto; max-height: 42vh; border-left: 0; border-top: 1px solid var(--line); }
-  .module kbd { display: none; }
-}
 
 /* ─── Develop ────────────────────────────────────────────────────────────── */
 .develop-view { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #0d0d0d; }
@@ -491,4 +499,68 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   position: absolute; top: 6px; right: 4px; z-index: 1; min-width: 26px; padding: 2px 7px; border-radius: 999px;
   font-size: 11px; font-weight: 700; text-align: center; color: var(--accent-ink); background: var(--accent);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.5); pointer-events: none;
+}
+
+/* ─── Phones: compact layout (see app/layout.ts) ───────────────────────────
+   Like Lightroom mobile: the photo fills the screen, tools sit in a bottom dock
+   within thumb reach, and panels open in a resizable sheet over the bottom. */
+.app[data-compact="true"] { grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); --filmstrip-height: 70px; }
+.app[data-compact="true"] > * { min-width: 0; }
+@supports (height: 1dvh) { .app[data-compact="true"] { height: 100dvh; } }
+.topbar.compact {
+  gap: 4px; padding: env(safe-area-inset-top) 4px 0 max(10px, env(safe-area-inset-left)); min-height: calc(44px + env(safe-area-inset-top));
+}
+.topbar.compact .brand-mark { flex: none; }
+.topbar.compact .modules { margin-left: 0; flex: 1; min-width: 0; justify-content: center; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.topbar.compact .module { padding: 10px 7px; font-size: 11px; letter-spacing: 0.04em; flex: none; }
+.topbar.compact .progress-pill { max-width: 38vw; overflow: hidden; white-space: nowrap; }
+.topbar.compact .progress-bar { display: none; }
+.tool-btn.more { width: 40px; height: 40px; color: var(--text-dim); border-radius: 50%; flex: none; }
+.workspace.compact { display: flex; flex-direction: column; min-height: 0; }
+.workspace.compact > .center { flex: 1 0 140px; min-height: 140px; }
+.sheet {
+  flex: 0 1 auto; display: flex; flex-direction: column; min-height: 120px;
+  height: calc(var(--sheet) * 100vh); max-height: calc(100% - 140px);
+  background: var(--panel); border-top: 1px solid var(--line-strong); border-radius: 12px 12px 0 0; box-shadow: 0 -8px 24px #0009;
+}
+@supports (height: 1dvh) { .sheet { height: calc(var(--sheet) * 100dvh); } }
+.sheet-grip { flex: none; height: 24px; display: flex; align-items: center; justify-content: center; cursor: row-resize; touch-action: none; }
+.sheet-grip span { width: 40px; height: 5px; border-radius: 3px; background: var(--line-strong); }
+.sheet-grip:focus-visible { outline: none; }
+.sheet-grip:focus-visible span, .sheet[data-dragging] .sheet-grip span { background: var(--accent); }
+.sheet-head { flex: none; display: flex; align-items: center; padding: 0 6px 4px 14px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.sheet-head strong { flex: 1; font-weight: 600; }
+.sheet-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-bottom: 8px; border-top: 1px solid var(--line); }
+.dock {
+  flex: none; display: flex; justify-content: space-around; gap: 2px; background: var(--panel); border-top: 1px solid var(--line);
+  padding: 2px max(4px, env(safe-area-inset-right)) calc(2px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+}
+.dock-btn {
+  flex: 1; max-width: 96px; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 4px 2px; background: none; border: 0; border-radius: 10px; color: var(--text-dim); font-size: 10px; letter-spacing: 0.03em;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.dock-btn[aria-pressed="true"] { color: var(--accent-strong); background: #ffffff0a; }
+.workspace.compact .filmstrip-bar .faint { display: none; }
+.app[data-compact="true"] .toolbar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.app[data-compact="true"] .toolbar::-webkit-scrollbar { display: none; }
+.app[data-compact="true"] .toolbar > * { flex: none; }
+.app[data-compact="true"] .toolbar .filterbar { flex-wrap: nowrap; }
+.app[data-compact="true"] .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+.app[data-compact="true"] .toast { bottom: calc(64px + env(safe-area-inset-bottom)); max-width: calc(100vw - 24px); }
+
+/* Touch screens: bigger targets (Apple asks for 44 pt, Material for 48 dp); 16 px inputs stop iOS zooming in. */
+@media (pointer: coarse) {
+  button, a, [role="separator"] { touch-action: manipulation; }
+  .btn { height: 34px; padding: 0 12px; }
+  .btn.small { height: 32px; padding: 0 10px; font-size: 12px; }
+  .btn.icon { width: 34px; }
+  .segmented button { padding: 8px 11px; }
+  .panel-head { padding: 13px 12px; font-size: 12px; }
+  .input, select.input { height: 34px; font-size: 16px; }
+  .slider { height: 36px; grid-template-columns: 86px 1fr 46px; }
+  .slider-track { height: 36px; }
+  .slider-track::before, .slider-fill { top: 17px; }
+  .slider-thumb { top: 9px; width: 18px; height: 18px; margin-left: -9px; }
+  .tool-btn { width: 36px; height: 36px; }
 }

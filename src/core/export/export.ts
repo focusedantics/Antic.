@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { track } from "@/lib/activity";
 import { nextPaint } from "@/lib/pacing";
 import { getAsset } from "@/core/catalog/store";
@@ -56,6 +57,8 @@ export function exportSize(full: { width: number; height: number }, s: ExportSet
       break;
   }
   if (!s.enlarge) scale = Math.min(1, scale);
+  // Phones render at most device.maxSide px on the long side (their memory).
+  scale = Math.min(scale, device.maxSide / Math.max(full.width, full.height));
   return { width: Math.max(1, Math.round(full.width * scale)), height: Math.max(1, Math.round(full.height * scale)), scale };
 }
 

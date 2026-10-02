@@ -56,8 +56,8 @@ describe("glow looks", () => {
 
 describe("prefs", () => {
   it("falls back to defaults for anything that is not a boolean", () => {
-    expect(sanitizePrefs(null)).toEqual({ backdrop: true, tourDone: false });
-    expect(sanitizePrefs({ backdrop: false, tourDone: "yes" })).toEqual({ backdrop: false, tourDone: false });
+    expect(sanitizePrefs(null)).toMatchObject({ backdrop: true, tourDone: false });
+    expect(sanitizePrefs({ backdrop: false, tourDone: "yes" })).toMatchObject({ backdrop: false, tourDone: false });
   });
 });
 

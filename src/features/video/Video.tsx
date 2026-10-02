@@ -1,4 +1,5 @@
-import { type ComponentType, type ReactNode, useEffect, useRef, useState } from "react";
+import type { DockItem, ShellProps } from "@/app/Shell";
+import { type ComponentType, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
 import { toast } from "@/app/state";
@@ -41,7 +42,6 @@ import { PoopPanel, SegmentPanel, VideoEffectPanel } from "./Inspector";
 import { Timeline, zoomTimeline } from "./Timeline";
 import { Viewer } from "./Viewer";
 
-type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
 
 const canCodec = typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined";
 
@@ -581,6 +581,11 @@ function videoShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
   return false;
 }
 
+const VIDEO_DOCK: DockItem[] = [
+  { id: "clips", label: "Clips", icon: "clips", side: "left" },
+  { id: "edit", label: "Edit", icon: "edit", side: "right" },
+];
+
 export default function VideoWorkspace({ Shell }: { Shell: ComponentType<ShellProps> }) {
   const openId = useStore(video, (s) => s.openId);
   const edit = useStore(video, (s) => s.edit);
@@ -651,6 +656,7 @@ export default function VideoWorkspace({ Shell }: { Shell: ComponentType<ShellPr
             </>
           ) : null
         }
+        dock={VIDEO_DOCK}
       />
       <EffectsBrowserHost />
       {exporting && <ExportVideoDialog onClose={() => setExporting(false)} />}

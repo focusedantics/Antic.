@@ -2,6 +2,7 @@ import { createDefaultRecipe, type SourceColorInfo } from "@/core/develop/defaul
 import { outputToSource, outputSize, type Size } from "@/core/develop/geometry";
 import type { DevelopRecipe } from "@/core/develop/recipe";
 import { whiteBalanceFor } from "@/core/develop/white-balance";
+import { device } from "@/lib/device";
 import { toGlMat3 } from "@/lib/math";
 import { bakeCurves, isToneCurveActive, LUT_SIZE, toHalfArray } from "./curves";
 import type { Gpu, Target, Texture, TextureFormat } from "./gl";
@@ -47,8 +48,8 @@ export type MaskContext = {
   readonly height: number;
 };
 
-/** Most GPU memory idle pooled targets may hold (about three 4K float targets). */
-const POOL_BUDGET = 320 * 1024 * 1024;
+/** Most GPU memory idle pooled targets may hold (about three 4K float targets; less on phones). */
+const POOL_BUDGET = device.poolBudget;
 const BYTES: Record<string, number> = { rgba16f: 8, rgba8: 4, srgba8: 4, r16f: 2, r8: 1, rgb16ui: 6, rgba16ui: 8 };
 const bytesOf = (t: Target) => t.width * t.height * (BYTES[t.format] ?? 8) * (t.mipmaps ? 1.34 : 1);
 
@@ -106,9 +107,10 @@ export class DevelopPipeline {
 
   // ─── Sources ─────────────────────────────────────────────────────────────
 
-  upload(id: string, data: SourceData, info: SourceColorInfo): GpuSource {
+  /** Uploads a photo, at most `maxSide` px on the long side (phones keep a smaller working copy; see lib/device). */
+  upload(id: string, data: SourceData, info: SourceColorInfo, maxSide = device.maxSide): GpuSource {
     const { gpu } = this;
-    const max = gpu.maxTextureSize;
+    const max = Math.min(gpu.maxTextureSize, maxSide);
     let width = data.width;
     let height = data.height;
     let downscale = 1;
@@ -119,9 +121,14 @@ export class DevelopPipeline {
     }
     const base = gpu.target(width, height, "rgba16f", { mipmaps: true });
     if (data.kind === "rgb16-linear") {
-      if (downscale !== 1) throw new Error("RAW larger than the GPU texture limit");
       const staging = gpu.texture(data.width, data.height, "rgb16ui", data.data);
-      gpu.pass("source-rgb16", S.sourceRgb16, { target: base, textures: { uSource: staging }, uniforms: { uWhite: data.white } });
+      if (downscale === 1) gpu.pass("source-rgb16", S.sourceRgb16, { target: base, textures: { uSource: staging }, uniforms: { uWhite: data.white } });
+      else
+        gpu.pass("source-rgb16-box", S.sourceRgb16Box, {
+          target: base,
+          textures: { uSource: staging },
+          uniforms: { uWhite: data.white, uScale: [data.width / width, data.height / height] },
+        });
       gpu.dispose(staging);
     } else {
       let image: TexImageSource | ImageData = data.image;

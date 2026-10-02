@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
@@ -204,6 +205,11 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
         <p className="faint">
           Nothing in this composition moves yet, so the {o.format === "gif" ? "GIF will be a single frame" : "video will be a still"}. Add an effect from the Motion or Animated
           category to animate it.
+        </p>
+      )}
+      {device.lite && o.format !== "gif" && (
+        <p className="dim" data-testid="device-cap">
+          On this device compositions export at up to {o.format === "mp4" ? Math.min(3840, device.maxSide) : device.maxSide} px on the long side, so the browser has the memory to finish.
         </p>
       )}
       {moving && animated && (

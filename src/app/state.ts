@@ -15,9 +15,6 @@ export type UiState = {
   /** Second photo in Compare view. */
   readonly compareId: AssetId | null;
   readonly thumbSize: number;
-  readonly showFilmstrip: boolean;
-  readonly showLeft: boolean;
-  readonly showRight: boolean;
   readonly toast: { readonly id: number; readonly text: string; readonly kind: "info" | "error" } | null;
 };
 
@@ -36,9 +33,6 @@ export const ui = createStore<UiState>(() => ({
   selection: new Set(),
   compareId: null,
   thumbSize: 180,
-  showFilmstrip: true,
-  showLeft: true,
-  showRight: true,
   toast: null,
 }));
 

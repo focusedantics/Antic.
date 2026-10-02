@@ -13,8 +13,13 @@ import { LibraryCenter } from "@/features/library/Library";
 import { LibraryLeftPanel } from "@/features/library/LeftPanel";
 import { LibraryRightPanel } from "@/features/library/RightPanel";
 import { importFolderInPlace, pickFiles, runImport } from "@/features/library/commands";
+import { Icon } from "@/components/icons";
+import { openMenu } from "@/components/Menu";
+import { startTour } from "@/features/tour/tour";
 import { useStore } from "./hooks";
-import { prefs } from "./prefs";
+import { layout, openSheet } from "./layout";
+import { PanelToggles, Shell } from "./Shell";
+import { prefs, setPrefs } from "./prefs";
 import { handleKey } from "./shortcuts";
 import { setWorkspace, toast, ui, type Workspace } from "./state";
 
@@ -62,22 +67,51 @@ function Toast() {
   );
 }
 
-function Shell({ left, center, right }: { left: React.ReactNode; center: React.ReactNode; right: React.ReactNode }) {
-  const showLeft = useStore(ui, (s) => s.showLeft);
-  const showRight = useStore(ui, (s) => s.showRight);
+/** A phone's top bar: the mark, the workspaces, and a menu for everything else. */
+function CompactTopbar({ workspace }: { workspace: Workspace }) {
+  const backdrop = useStore(prefs, (s) => s.backdrop);
+  const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
   return (
-    <main className="workspace">
-      {showLeft ? <aside className="side left">{left}</aside> : <div />}
-      <section className="center">{center}</section>
-      {showRight ? <aside className="side right">{right}</aside> : <div />}
-    </main>
+    <header className="topbar compact">
+      <span className="brand-mark" aria-label="Focused" role="img" />
+      <nav className="modules" aria-label="Workspaces">
+        {modules.map((m) => (
+          <button key={m.id} type="button" className="module" aria-current={workspace === m.id ? "page" : undefined} onClick={() => setWorkspace(m.id)}>
+            {m.label}
+          </button>
+        ))}
+      </nav>
+      <ImportStatus />
+      <button
+        type="button"
+        className="tool-btn more"
+        aria-label="More"
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          openMenu(r.right, r.bottom + 4, [
+            { label: "Import Photos…", onSelect: () => pickFiles() },
+            { label: "Import Folder…", onSelect: () => void importFolderInPlace() },
+            "separator",
+            ...(workspace !== "video" ? [{ label: showFilmstrip ? "Hide the filmstrip" : "Show the filmstrip", onSelect: () => setPrefs({ showFilmstrip: !showFilmstrip }) }] : []),
+            { label: backdrop ? "Glow background: on" : "Glow background: off", onSelect: () => setPrefs({ backdrop: !backdrop }) },
+            { label: "Replay the tour", onSelect: () => startTour(1) },
+          ]);
+        }}
+      >
+        <Icon name="more" />
+      </button>
+    </header>
   );
 }
 
 export function App() {
   const workspace = useStore(ui, (s) => s.workspace);
-  const showFilmstrip = useStore(ui, (s) => s.showFilmstrip);
+  const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
   const backdrop = useStore(prefs, (s) => s.backdrop);
+  const compact = useStore(layout, (s) => s.compact);
+  // A phone's panel sheet belongs to the workspace it was opened in.
+  useEffect(() => openSheet(null), [workspace]);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -103,6 +137,7 @@ export function App() {
     <div
       className="app"
       data-backdrop={backdrop ? "on" : "off"}
+      data-compact={compact}
       onDragOver={(e) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();
@@ -120,31 +155,46 @@ export function App() {
       }}
     >
       <Backdrop />
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden />
-          FOCUSED
-        </div>
-        <div className="topbar-right">
-          <button type="button" className="btn small" onClick={() => pickFiles()}>
-            Import…
-          </button>
-          <button type="button" className="btn small ghost" onClick={() => void importFolderInPlace()}>
-            Import Folder…
-          </button>
-          <ImportStatus />
-        </div>
-        <nav className="modules" aria-label="Workspaces">
-          {modules.map((m) => (
-            <button key={m.id} type="button" className="module" aria-current={workspace === m.id ? "page" : undefined} onClick={() => setWorkspace(m.id)}>
-              {m.label}
-              {m.key && <kbd>{m.key}</kbd>}
+      {compact ? (
+        <CompactTopbar workspace={workspace} />
+      ) : (
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden />
+            FOCUSED
+          </div>
+          <div className="topbar-right">
+            <button type="button" className="btn small" onClick={() => pickFiles()}>
+              Import…
             </button>
-          ))}
-        </nav>
-        <TopbarTools />
-      </header>
-      {workspace === "library" && <Shell left={<LibraryLeftPanel />} center={<LibraryCenter />} right={<LibraryRightPanel />} />}
+            <button type="button" className="btn small ghost" onClick={() => void importFolderInPlace()}>
+              Import Folder…
+            </button>
+            <ImportStatus />
+          </div>
+          <nav className="modules" aria-label="Workspaces">
+            {modules.map((m) => (
+              <button key={m.id} type="button" className="module" aria-current={workspace === m.id ? "page" : undefined} onClick={() => setWorkspace(m.id)}>
+                {m.label}
+                {m.key && <kbd>{m.key}</kbd>}
+              </button>
+            ))}
+          </nav>
+          <PanelToggles />
+          <TopbarTools />
+        </header>
+      )}
+      {workspace === "library" && (
+        <Shell
+          left={<LibraryLeftPanel />}
+          center={<LibraryCenter />}
+          right={<LibraryRightPanel />}
+          dock={[
+            { id: "folders", label: "Folders", icon: "folders", side: "left" },
+            { id: "info", label: "Info", icon: "info", side: "right" },
+          ]}
+        />
+      )}
       {workspace === "develop" && (
         <Suspense fallback={<div className="empty-state">Loading Develop…</div>}>
           <DevelopWorkspace Shell={Shell} />
@@ -160,7 +210,8 @@ export function App() {
           <VideoWorkspace Shell={Shell} />
         </Suspense>
       )}
-      {showFilmstrip && workspace !== "video" ? <Filmstrip /> : <div />}
+      {/* Phones show the filmstrip inside the workspace, above the dock. */}
+      {!compact && showFilmstrip && workspace !== "video" ? <Filmstrip /> : <div />}
       {dragging && <div className="drop-overlay">Drop photos, videos or folders to import</div>}
       <Toast />
       <ActivityBar />

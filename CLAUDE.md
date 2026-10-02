@@ -28,6 +28,9 @@ true when a responsibility moves.
   synchronous work), keep it up at least `PACE.minWorking` and end with a short done beat
   so quick runs still read, loop and report a stage or percentage so long runs never look
   frozen, and honour `prefers-reduced-motion`. Test both a quick and a slow run.
+- Computers keep the three-column layout; phones get `app/Shell.tsx`'s compact layout
+  and `lib/device.ts` limits. New UI goes inside the shell's panels or toolbars so both
+  work; check it at 390 × 664 as well as on a computer.
 - Dependencies must be MIT/Apache-2.0/ISC/BSD-compatible. Record every new one, with its
   license, in `docs/THIRD_PARTY.md`. Code adapted from a reference repository carries an
   attribution comment naming the project, its license and what was changed.

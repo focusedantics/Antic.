@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { toast, ui } from "@/app/state";
@@ -226,6 +227,11 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
           </label>
         )}
       </div>
+      {device.lite && (
+        <p className="dim" data-testid="device-cap">
+          On this device photos export at up to {device.maxSide} px on the long side, so the browser has the memory to finish.
+        </p>
+      )}
       {s.resize !== "full" && (
         <label className="check">
           <input type="checkbox" checked={s.enlarge} onChange={(e) => set({ enlarge: e.target.checked })} /> Allow enlarging

@@ -1,4 +1,5 @@
-import { type ComponentType, type ReactNode, useEffect } from "react";
+import type { DockItem, ShellProps } from "@/app/Shell";
+import { type ComponentType, useEffect } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
 import { ui } from "@/app/state";
@@ -20,7 +21,6 @@ import { deleteSelectedSpot, HealPanel } from "./tools/Heal";
 import { startEyedropper } from "./tools/eyedropper";
 import { DevelopView, zoomTo } from "./View";
 
-type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
 
 export function setTool(tool: DevelopTool) {
   const current = develop.getState().tool;
@@ -245,6 +245,16 @@ export default function Develop({ Shell }: { Shell: ComponentType<ShellProps> })
     openExport(sel.size > 1 ? [...sel] : id ? [id] : []);
   };
   const target = activeId ?? firstId ?? null;
+  const tool = useStore(develop, (s) => s.tool);
+  // Phones: like Lightroom's bottom bar, each tool opens the adjustments sheet on that tool.
+  const pick = (t: DevelopTool) => () => develop.setState({ tool: t });
+  const dock: DockItem[] = [
+    { id: "presets", label: "Presets", icon: "presets", side: "left" },
+    { id: "edit", label: "Edit", icon: "edit", side: "right", active: tool === "adjust", onSelect: pick("adjust") },
+    { id: "crop", label: "Crop", icon: "crop", side: "right", active: tool === "crop", onSelect: pick("crop") },
+    { id: "masks", label: "Masks", icon: "masks", side: "right", active: tool === "mask", onSelect: pick("mask") },
+    { id: "heal", label: "Heal", icon: "heal", side: "right", active: tool === "heal", onSelect: pick("heal") },
+  ];
 
   useEffect(() => {
     if (!target) return;
@@ -285,6 +295,7 @@ export default function Develop({ Shell }: { Shell: ComponentType<ShellProps> })
           </>
         }
         right={assetId ? <RightPanel /> : null}
+        dock={dock}
       />
     </>
   );

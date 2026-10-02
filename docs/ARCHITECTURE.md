@@ -402,7 +402,8 @@ thumbnails made before this change.
 ## GPU memory and export verification
 
 `DevelopPipeline` pools render targets by size and format, but keeps idle targets only
-within a 320 MB budget; anything beyond is freed on release. Before and after an export,
+within a 320 MB budget (64 MB on phones and tablets, `lib/device.ts`); anything beyond is
+freed on release. Before and after an export,
 `DevelopEngine.freeMemory()` also drops layer, effect and preview caches.
 `exportDocument` / `exportPixels` check the full-size result against a 512 px reference
 (`gpu/verify.ts`) and check `gl.getError()` for out-of-memory and context loss. They
@@ -425,8 +426,9 @@ return blank or stale pixels without any error.
   clip plays or exports, so playback has the GPU to itself. It renders at a capped field
   resolution and 30 fps (15 on software GL), pauses in hidden tabs, holds still under
   `prefers-reduced-motion`, and frees its context when switched off.
-- **Prefs** (`app/prefs.ts`): the glow on/off and whether the tour was finished, in
-  localStorage under `focused:prefs`, sanitized on read. They are viewer conveniences,
+- **Prefs** (`app/prefs.ts`): the glow on/off, whether the tour was finished, which
+  panels are shown and their widths, and the phone sheet's height, in localStorage
+  under `focused:prefs`, sanitized on read. They are viewer conveniences,
   not edits.
 - **Tour.** `features/tour/steps.ts` lists the cards (the eight chapters of the
   tutorial); `tour.ts` is the store (start, next, back, skip chapter, end).
@@ -451,6 +453,39 @@ caught state (`mergeCaught`). Selections go to the surfaces' existing stores
 (`ui.selection`, `composite.selection`, the video `editor` store's `selection` and
 `clipSelection`), so every existing action applies to them.
 
+## Layout on computers and phones (`app/Shell.tsx`, `app/layout.ts`, `lib/device.ts`)
+
+Every workspace renders through `Shell` with `left`, `center`, `right` and an optional
+`dock`. Design notes and sources: `docs/MOBILE.md`.
+
+- **Computers** keep the three columns. Each side panel sits in a `.side-frame` with a
+  `role="separator"` handle on its inner edge: drag it (the width lives on the element
+  while dragging and is written to prefs once), use the arrow keys, or double-click for
+  the stylesheet default (`leftWidth`/`rightWidth` null). The top bar's panel toggles
+  (and Tab / Shift+F) show or hide the left panel (Develop: presets, snapshots,
+  history), the filmstrip and the right panel; all of it persists.
+- **Phones** (`COMPACT_QUERY`: up to 780 px wide, or a touch screen up to 520 px tall)
+  get the compact layout, modelled on Lightroom mobile: the viewer fills the screen; a
+  bottom dock in thumb reach opens one side's panels in a sheet (`layout.sheet`); the
+  sheet's grip drags to resize and snaps to 30/50/85 % of the screen (or closes below
+  20 % or on a downward flick). The viewer shrinks above the sheet, so edits stay
+  visible. Develop's dock is Presets · Edit · Crop · Masks · Heal (tools open the
+  adjustments on that tool). The top bar keeps the workspaces and folds import, the
+  filmstrip, the glow and the tour into a ⋯ menu; toolbars scroll sideways instead of
+  wrapping. `(pointer: coarse)` raises touch targets (sliders 36 px, buttons 32–34 px,
+  16 px inputs so iOS does not zoom). The Develop viewer adds touch gestures: two
+  fingers pinch-zoom and pan (captured before tools), a double tap toggles 100 %.
+- **Device profile** (`lib/device.ts`, decided once per load; desktops get the full
+  profile, which changes nothing). `lite` (phones, tablets, ≤2 GB): photos are uploaded
+  at most 4096 px on the long side (`DevelopPipeline.upload`; RAW goes through
+  `sourceRgb16Box`, which averages the samples each pixel covers, since integer
+  textures cannot be filtered) and exported at most that size (`exportSize`, with a
+  note in the export dialogs); the pool budget is 64 MB; viewer canvases render at most
+  2 device pixels per CSS pixel (`viewDpr`); two decode workers; idle GPU targets are
+  freed when the tab is hidden; the AI defaults to the small model. `phone`: the glow
+  starts off, the export marble holds still and Remove Background uses its crossfade
+  instead of the particle globe. `localStorage["focused:device"]` overrides the guess.
+
 ## Activity (`lib/activity.ts`)
 
 A counter of running work, plus "pulses" for instant changes. The engine's frame
@@ -461,7 +496,7 @@ with it. `app/ActivityBar.tsx` turns it into the thin line at the top of the win
 
 | Worker | Work |
 | --- | --- |
-| `core/image/image.worker.ts` (pool of ≤4) | metadata, embedded previews, thumbnails, previews |
+| `core/image/image.worker.ts` (pool of ≤4, ≤2 on phones) | metadata, embedded previews, thumbnails, previews |
 | LibRaw worker (inside libraw-wasm) | RAW decoding |
 | `core/ai/ai.worker.ts` | model loading and inference: Transformers.js (BiRefNet, MODNet, DETR, SlimSAM) and ONNX Runtime directly for the bundled U²-Netp; WebGPU → WASM |
 

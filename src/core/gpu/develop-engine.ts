@@ -1,3 +1,4 @@
+import { device, viewDpr } from "@/lib/device";
 import { beginActivity } from "@/lib/activity";
 import { similarImages } from "./verify";
 import { composeExport, type ExportFrame } from "@/core/export/frame";
@@ -83,6 +84,12 @@ export class DevelopEngine {
       this.lost = true;
     });
     this.canvas.addEventListener("webglcontextrestored", () => this.restore());
+    // Phones: a backgrounded tab gives back its idle GPU memory, so the OS is less
+    // likely to discard the page (it would otherwise reload with the work lost).
+    if (device.lite)
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden && !this.lost) this.pipeline.trim();
+      });
     develop.subscribe((s, prev) => {
       if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
         this.requestRender();
@@ -182,7 +189,7 @@ export class DevelopEngine {
   }
 
   private resize(container: HTMLElement) {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = viewDpr();
     const w = Math.max(1, Math.round(container.clientWidth * dpr));
     const h = Math.max(1, Math.round(container.clientHeight * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -298,7 +305,7 @@ export class DevelopEngine {
 
   /** Canvas regions (device px) the photo is drawn into: one, or two for side-by-side. */
   regions(): { x: number; y: number; width: number; height: number }[] {
-    const pad = Math.round(16 * (window.devicePixelRatio || 1));
+    const pad = Math.round(16 * viewDpr());
     const w = this.canvas.width;
     const h = this.canvas.height;
     if (develop.getState().compare === "side-by-side") {
@@ -440,7 +447,7 @@ export class DevelopEngine {
   compositeScale(): number {
     const { doc, view } = composite.getState();
     if (!doc) return 1;
-    const pad = 40 * (window.devicePixelRatio || 1);
+    const pad = 40 * viewDpr();
     const fit = Math.min((this.canvas.width - pad * 2) / doc.width, (this.canvas.height - pad * 2) / doc.height);
     return view.fit ? fit : view.zoom;
   }
@@ -448,7 +455,7 @@ export class DevelopEngine {
   compositeFitScale(): number {
     const { doc } = composite.getState();
     if (!doc) return 1;
-    const pad = 40 * (window.devicePixelRatio || 1);
+    const pad = 40 * viewDpr();
     return Math.min((this.canvas.width - pad * 2) / doc.width, (this.canvas.height - pad * 2) / doc.height);
   }
 

@@ -50,6 +50,12 @@ one asset system and one effects library:
   the **?** button in the top bar. An animated glow sits behind the photo and changes
   colour with each workspace; **◐** turns it off.
 
+- **Phones and panels**: on a computer, drag a side panel's edge to resize it and hide
+  the presets/history panel, the filmstrip or the adjustments from the top bar. On a
+  phone the photo fills the screen, tools sit in a bottom dock and panels open in a
+  sheet you can drag taller or shorter; pinch to zoom. Phones also get memory limits
+  (photos are edited and exported up to 4096 px) and lighter animations.
+
 A photo flows through all three without being flattened. Import a RAW, develop it,
 remove its background with the local AI, place it over another photo, add a gradient,
 set its opacity and blend mode, and export. Every step stays editable, and originals are

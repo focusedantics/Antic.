@@ -1,4 +1,5 @@
 import type { FileKind } from "@/core/catalog/types";
+import { device } from "@/lib/device";
 import type { Analysis } from "./analyze";
 import type { WorkerRequest, WorkerResponse } from "./image.worker";
 import type { DecodedTiff } from "./tiff";
@@ -11,7 +12,8 @@ type Request = WorkerRequest extends infer R ? (R extends { id: number } ? Omit<
 type Job = { request: Request; resolve: (value: unknown) => void; reject: (e: Error) => void };
 type Slot = { worker: Worker; busy: boolean };
 
-const size = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+// Fewer on phones: each worker holds a decoded image while it works.
+const size = device.workers;
 const workers: Slot[] = [];
 const queue: Job[] = [];
 const pending = new Map<number, Job & { slot: Slot }>();

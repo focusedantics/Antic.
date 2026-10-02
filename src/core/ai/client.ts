@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { beginActivity } from "@/lib/activity";
 import { createStore } from "zustand/vanilla";
 import { putRaster, type RasterRecord } from "@/core/catalog/db";
@@ -36,7 +37,8 @@ const readQuality = (): AiQuality => {
   } catch {
     // Storage unavailable: use the default.
   }
-  return "quality";
+  // Phones and tablets start with the small model: BiRefNet's download and memory are large for them.
+  return device.lite ? "fast" : "quality";
 };
 /** Which subject model to use: BiRefNet (best), MODNet (small download) or the bundled U²-Netp. */
 export const aiPreferences = createStore<{ quality: AiQuality }>(() => ({ quality: readQuality() }));

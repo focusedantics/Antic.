@@ -3,6 +3,7 @@ import { compare, flag, label, rate, removeSelected, selectAll, step } from "@/f
 import { currentOrder } from "@/features/library/results";
 import { stackAssets } from "@/core/catalog/store";
 import { openExport } from "@/features/export/host";
+import { prefs, setPrefs } from "./prefs";
 import { setWorkspace, targetIds, ui } from "./state";
 
 /**
@@ -50,8 +51,10 @@ export function handleKey(e: KeyboardEvent) {
     ui.setState({ libraryView: "survey" });
   } else if (key === "d") setWorkspace("develop");
   else if (key === "c") setWorkspace("composite");
-  else if (key === "tab") ui.setState((s) => ({ showLeft: !(s.showLeft && s.showRight), showRight: !(s.showLeft && s.showRight) }));
-  else if (key === "f" && e.shiftKey) ui.setState((s) => ({ showFilmstrip: !s.showFilmstrip }));
+  else if (key === "tab") {
+    const both = prefs.getState().showLeft && prefs.getState().showRight;
+    setPrefs({ showLeft: !both, showRight: !both });
+  } else if (key === "f" && e.shiftKey) setPrefs({ showFilmstrip: !prefs.getState().showFilmstrip });
   else if (key === "arrowright") step(1);
   else if (key === "arrowleft") step(-1);
   else if (workspace === "library" && /^[0-5]$/.test(key)) rate(Number(key));

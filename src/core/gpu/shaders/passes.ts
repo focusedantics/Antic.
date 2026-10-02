@@ -11,6 +11,29 @@ void main() {
   outColor = vec4(vec3(v) / uWhite, 1.0);
 }`;
 
+/**
+ * RAW, smaller than the original (phones keep a smaller working copy): each output
+ * pixel averages the block of samples it covers. Integer textures cannot be filtered.
+ */
+export const sourceRgb16Box = `${header}
+uniform usampler2D uSource;
+uniform float uWhite;
+uniform vec2 uScale;
+void main() {
+  ivec2 size = textureSize(uSource, 0);
+  vec2 o = floor(gl_FragCoord.xy);
+  ivec2 a = min(size - 1, ivec2(floor(o * uScale)));
+  ivec2 b = min(size, max(a + 1, ivec2(floor((o + 1.0) * uScale))));
+  vec3 sum = vec3(0.0);
+  float n = 0.0;
+  for (int y = a.y; y < b.y; y++)
+    for (int x = a.x; x < b.x; x++) {
+      sum += vec3(texelFetch(uSource, ivec2(x, y), 0).rgb);
+      n += 1.0;
+    }
+  outColor = vec4(sum / (max(n, 1.0) * uWhite), 1.0);
+}`;
+
 /** Rendered files: sRGB-encoded 8-bit (decoded to linear by the texture format) → linear Rec.2020. */
 export const sourceSrgb = `${header}
 ${common}

@@ -342,6 +342,17 @@ Done: presets with amount and JSON import/export, copy/paste/sync of setting gro
 named snapshots, `.focused` project files (document + recipes + AI rasters, optional
 originals; reopening relinks by fingerprint or imports the included originals).
 
+## Phones and resizable panels
+
+Done: a device profile with phone memory limits (4096 px working copies and exports,
+smaller GPU pool, capped canvas resolution, fewer workers, GPU memory freed in the
+background, the small AI model by default) and lighter animations on phones; a compact
+layout modelled on Lightroom mobile (bottom dock, resizable sheet, ⋯ menu, scrolling
+toolbars, touch-sized controls, pinch zoom and double tap in Develop); resizable and
+hideable side panels and filmstrip on computers, remembered. See `docs/MOBILE.md`.
+Not done: drag-and-drop from the filmstrip into a composition by touch (use "Start from
+selected"), tiled export beyond 4096 px on phones.
+
 ## Stages 9 & 10 — Not started
 
 - WebGPU backend, tiled full-resolution export beyond 8192 px, region-of-interest
@@ -360,6 +371,8 @@ originals; reopening relinks by fingerprint or imports the included originals).
   and the glow (per-workspace look, photo pixels unchanged, toggle persists); sweep
   selection on every surface (quick right-click, hold, Esc, batch delete and insert);
   export frames (framed-around PNG size, remembered settings) and Remove Background's
-  particle globe on a composition layer.
+  particle globe on a composition layer; layout (resizing and hiding panels on a
+  computer; on a phone the dock, sheet, pinch zoom and export limit) and the phone RAW
+  downscale shader.
   `E2E_BACKDROP=on` runs the workflow tests with the glow on. Set `CHROMIUM_PATH` to use
   a preinstalled Chromium.

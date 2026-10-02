@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { device } from "@/lib/device";
 import { holdAtLeast, nextPaint, PACE, prefersReducedMotion } from "@/lib/pacing";
 import { type Grid, Kind, ParticleGlobe, type Rect } from "./particleGlobe";
 
@@ -144,7 +145,8 @@ export function startCutoutFx(canvas: HTMLCanvasElement | null, status: CutoutSt
   const host = canvas?.parentElement;
   if (!canvas || !host) return { reveal: async (apply) => apply(), cancel: () => {} };
   const started = performance.now();
-  const still = prefersReducedMotion();
+  // Phones get the short crossfade instead of the particle globe (GPU and battery).
+  const still = prefersReducedMotion() || device.phone;
   const scale = canvas.width / Math.max(1, canvas.clientWidth); // canvas px per CSS px
   const visible = photoBounds(canvas) ?? { x0: 0, y0: 0, x1: canvas.width, y1: canvas.height };
   // Only the given area (say, one layer), where it is on screen.

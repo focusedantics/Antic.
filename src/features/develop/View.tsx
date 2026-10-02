@@ -1,3 +1,4 @@
+import { viewDpr } from "@/lib/device";
 import { useEffect, useRef } from "react";
 import { useStore } from "@/app/hooks";
 import { develop } from "@/core/develop/session";
@@ -44,6 +45,8 @@ export function DevelopView() {
     const el = ref.current!;
     const engine = developEngine();
     let panning: { x: number; y: number; cx: number; cy: number } | null = null;
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinch: { dist: number; x: number; y: number } | null = null;
     let space = false;
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space" && !(e.target instanceof HTMLInputElement)) {
@@ -53,6 +56,7 @@ export function DevelopView() {
       }
     };
     const onDown = (e: PointerEvent) => {
+      if (pinch) return;
       const { view, tool } = develop.getState();
       const toolWantsPointer = tool === "crop" || tool === "mask" || tool === "heal";
       if (e.button === 1 || space || (e.button === 0 && !view.fit && !toolWantsPointer)) {
@@ -67,11 +71,11 @@ export function DevelopView() {
       }
     };
     const onMove = (e: PointerEvent) => {
-      if (!panning) return;
+      if (!panning || pinch) return;
       const size = engine.outputSize();
       if (!size) return;
       const s = engine.displayScale(size);
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = viewDpr();
       const { view } = develop.getState();
       develop.setState({
         view: {
@@ -98,19 +102,84 @@ export function DevelopView() {
       if (view.fit) zoomTo(1, e.clientX, e.clientY);
       else develop.setState({ view: { ...view, fit: true } });
     };
+    // Touch: two fingers pinch to zoom and pan together (over any tool); a double tap
+    // toggles 100% like a double click. Mouse and pen input are unchanged.
+    let lastTap = { t: 0, x: 0, y: 0 };
+    let touchDoubled = 0;
+    const midpoint = () => {
+      const [a, b] = [...touches.values()];
+      return { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
+    const onTouchDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        pinch = midpoint();
+        panning = null;
+        // The second finger turns the gesture into a pinch; tools underneath do not see it.
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+    const onTouchMove = (e: PointerEvent) => {
+      if (e.pointerType !== "touch" || !touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!pinch || touches.size < 2) return;
+      e.stopPropagation();
+      const size = engine.outputSize();
+      if (!size) return;
+      const now = midpoint();
+      const current = engine.displayScale(size);
+      zoomTo(clamp((current * now.dist) / Math.max(1, pinch.dist), engine.fitScale(size), 8), now.x, now.y);
+      const { view } = develop.getState();
+      if (!view.fit) {
+        const s = engine.displayScale(size);
+        const dpr = viewDpr();
+        develop.setState({
+          view: { ...view, centerX: clamp(view.centerX - ((now.x - pinch.x) * dpr) / (s * size.width)), centerY: clamp(view.centerY - ((now.y - pinch.y) * dpr) / (s * size.height)) },
+        });
+      }
+      pinch = now;
+    };
+    const onTouchUp = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      const wasPinch = !!pinch;
+      touches.delete(e.pointerId);
+      if (touches.size < 2) pinch = null;
+      if (wasPinch || touches.size) return;
+      const t = performance.now();
+      if (t - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+        lastTap = { t: 0, x: 0, y: 0 };
+        touchDoubled = t;
+        onDouble(e);
+      } else lastTap = { t, x: e.clientX, y: e.clientY };
+    };
+    const onDoubleClick = (e: MouseEvent) => {
+      // A double tap already handled above; browsers may also send dblclick for it.
+      if (performance.now() - touchDoubled < 600) return;
+      onDouble(e);
+    };
+    el.addEventListener("pointerdown", onTouchDown, true);
+    el.addEventListener("pointermove", onTouchMove, true);
+    el.addEventListener("pointerup", onTouchUp, true);
+    el.addEventListener("pointercancel", onTouchUp, true);
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("wheel", onWheel, { passive: false });
-    el.addEventListener("dblclick", onDouble);
+    el.addEventListener("dblclick", onDoubleClick);
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
     return () => {
+      el.removeEventListener("pointerdown", onTouchDown, true);
+      el.removeEventListener("pointermove", onTouchMove, true);
+      el.removeEventListener("pointerup", onTouchUp, true);
+      el.removeEventListener("pointercancel", onTouchUp, true);
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("dblclick", onDouble);
+      el.removeEventListener("dblclick", onDoubleClick);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKey);
     };
@@ -137,7 +206,7 @@ export function DevelopView() {
 function SplitHandle({ position }: { position: number }) {
   const engine = developEngine();
   const region = engine.regions()[0];
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = viewDpr();
   const left = (region.x + region.width * position) / dpr;
   return (
     <div

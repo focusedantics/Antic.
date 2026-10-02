@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { track } from "@/lib/activity";
 import type { Watermark } from "@/core/export/watermark";
 import { setWorkspace, toast } from "@/app/state";
@@ -102,7 +103,7 @@ const MAX_LONG_SIDE: Record<DocFormat, number> = { png: 8192, jpeg: 8192, webp: 
 
 /** Pixel size of an export: the chosen scale, capped per format. */
 export function exportSize(doc: CompositeDocument, options: Pick<DocExport, "format" | "scale">) {
-  const scale = Math.min(options.scale, MAX_LONG_SIDE[options.format] / Math.max(doc.width, doc.height));
+  const scale = Math.min(options.scale, Math.min(MAX_LONG_SIDE[options.format], device.maxSide) / Math.max(doc.width, doc.height));
   return { scale, width: Math.max(1, Math.round(doc.width * scale)), height: Math.max(1, Math.round(doc.height * scale)) };
 }
 
