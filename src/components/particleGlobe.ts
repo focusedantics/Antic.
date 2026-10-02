@@ -1,20 +1,35 @@
 /*
- * The photo as a field of particles that gathers into a turning globe and falls
- * back into the photo. Interpreted from a three.js WebGPU + TSL + Motion sketch
- * supplied by the project owner (one spring value morphs every particle between its
- * place in the picture and a point on a Fibonacci sphere, with per-particle
- * turbulence; the exact photo fades back in only when the particles have settled).
- * Here it is plain WebGL2 points and a small spring integrator, with a pointer that
- * tilts the globe and parts the particles, depth shading, and a dotted progress ring.
+ * The photo as a field of particles, all on the GPU: it gathers into a turning
+ * globe while the AI works, falls back into the photo, and then the background
+ * particles blow away (the dissolve) while the subject's outline glows.
+ *
+ * The globe is interpreted from a three.js WebGPU + TSL + Motion sketch supplied by
+ * the project owner (one spring value morphs every particle between its place in
+ * the picture and a point on a Fibonacci sphere, with per-particle turbulence; the
+ * exact photo fades back in only once the particles have settled). Here it is plain
+ * WebGL2 points and a small spring integrator, with a pointer that tilts the globe
+ * and parts the particles, depth shading, and a dotted progress ring.
  */
 
-type Rect = { x0: number; y0: number; x1: number; y1: number };
+export type Rect = { x0: number; y0: number; x1: number; y1: number };
+
+/** Particle kinds once the cutout is known. */
+export const enum Kind {
+  Subject = 0,
+  Background = 1,
+  Edge = 2,
+}
+
+/** Length of the dissolve. */
+export const DISSOLVE_MS = 1400;
 
 const VERT = `#version 300 es
 in vec2 aImage;
 in vec3 aSphere;
 in vec3 aColor;
-in vec2 aNoise; // phase, speed
+in vec2 aNoise;   // phase, speed
+in vec4 aFly;     // velocity xy, spin, delay
+in float aKind;   // 0 subject, 1 background, 2 outline
 uniform vec2 uView;
 uniform vec2 uCenter;
 uniform float uRadius;
@@ -25,10 +40,47 @@ uniform float uTilt;
 uniform float uPoint;
 uniform vec2 uPointer;
 uniform float uPointerOn;
+uniform float uMode;      // 0 globe, 1 dissolve
+uniform float uFlyT;      // seconds into the dissolve
+uniform float uFlyLen;    // dissolve length, seconds
+uniform float uScale;     // device px per CSS px
 out vec3 vColor;
+out float vAlpha;
+out float vSpin;
 mat3 rotY(float a) { float c = cos(a), s = sin(a); return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c); }
 mat3 rotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
+vec4 place(vec2 p) { return vec4(p.x / uView.x * 2.0 - 1.0, 1.0 - p.y / uView.y * 2.0, 0.0, 1.0); }
+void hide() { gl_Position = vec4(2.0, 2.0, 0.0, 1.0); gl_PointSize = 0.0; vAlpha = 0.0; }
 void main() {
+  vSpin = 0.0;
+  if (uMode > 0.5) {
+    if (aKind < 0.5) { hide(); return; }
+    if (aKind > 1.5) {
+      // The outline lights up while the background leaves, then fades.
+      float glow = sin(min(1.0, uFlyT / uFlyLen) * 3.14159265);
+      vColor = vec3(0.75, 0.97, 1.0);
+      vAlpha = glow * 0.9;
+      gl_PointSize = max(1.0, uPoint * 0.7);
+      gl_Position = place(aImage);
+      return;
+    }
+    float lt = max(0.0, uFlyT - aFly.w);
+    float k = min(1.0, lt / (uFlyLen * 0.75));
+    if (k >= 1.0) { hide(); return; }
+    vec2 p = aImage + aFly.xy * (lt * lt * 0.9) - vec2(0.0, 40.0 * uScale * lt);
+    // The pointer scatters them.
+    vec2 d = p - uPointer;
+    float reach = 110.0 * uScale;
+    float near = exp(-dot(d, d) / (reach * reach)) * uPointerOn;
+    p += normalize(d + 1e-4) * near * 60.0 * uScale;
+    vColor = aColor;
+    vAlpha = lt == 0.0 ? 1.0 : pow(1.0 - k, 1.5);
+    vSpin = aFly.z * lt;
+    // Room for the square to turn inside the point sprite.
+    gl_PointSize = uPoint * (1.0 - k * 0.8) * (lt == 0.0 ? 1.0 : 1.42);
+    gl_Position = place(p);
+    return;
+  }
   float phase = aNoise.x;
   float speed = aNoise.y;
   float t = uTime;
@@ -49,15 +101,27 @@ void main() {
   float depth = g.z * 0.5 + 0.5;
   float kk = clamp(k, 0.0, 1.0);
   vColor = aColor * mix(1.0, 0.45 + 0.75 * depth, kk) + vec3(0.12, 0.2, 0.25) * near;
+  vAlpha = 1.0;
   gl_PointSize = uPoint * mix(1.0, 0.55 + 0.75 * depth, kk);
-  gl_Position = vec4(p.x / uView.x * 2.0 - 1.0, 1.0 - p.y / uView.y * 2.0, 0.0, 1.0);
+  gl_Position = place(p);
 }`;
 
 const FRAG = `#version 300 es
 precision mediump float;
 in vec3 vColor;
+in float vAlpha;
+in float vSpin;
 out vec4 o;
-void main() { o = vec4(vColor, 1.0); }`;
+void main() {
+  if (vSpin != 0.0) {
+    // A turning square inside the (larger) point sprite.
+    vec2 q = gl_PointCoord - 0.5;
+    float c = cos(vSpin), s = sin(vSpin);
+    q = vec2(c * q.x + s * q.y, -s * q.x + c * q.y) * 1.42;
+    if (abs(q.x) > 0.5 || abs(q.y) > 0.5) discard;
+  }
+  o = vec4(vColor * vAlpha, vAlpha);
+}`;
 
 /** Textured or flat quads in pixels (the dark stage and the photo). */
 const QUAD_VERT = `#version 300 es
@@ -79,10 +143,8 @@ uniform vec4 uColor;
 uniform float uTextured;
 out vec4 o;
 void main() {
-  if (uTextured > 0.5) {
-    vec4 c = texture(uTex, mix(uUvRect.xy, uUvRect.zw, vUv));
-    o = c * uColor.a; // premultiplied
-  } else o = vec4(uColor.rgb * uColor.a, uColor.a);
+  if (uTextured > 0.5) o = texture(uTex, mix(uUvRect.xy, uUvRect.zw, vUv)) * uColor.a;
+  else o = vec4(uColor.rgb * uColor.a, uColor.a);
 }`;
 
 /** Fades the exact photo in only once the particles have all but landed (from the sketch). */
@@ -131,16 +193,19 @@ function program(gl: WebGL2RenderingContext, vs: string, fs: string) {
     const sh = gl.createShader(type)!;
     gl.shaderSource(sh, src);
     gl.compileShader(sh);
-    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(`Globe shader: ${gl.getShaderInfoLog(sh)}`);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(`Particle shader: ${gl.getShaderInfoLog(sh)}`);
     return sh;
   };
   const p = gl.createProgram()!;
   gl.attachShader(p, make(gl.VERTEX_SHADER, vs));
   gl.attachShader(p, make(gl.FRAGMENT_SHADER, fs));
   gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`Globe link: ${gl.getProgramInfoLog(p)}`);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(`Particle link: ${gl.getProgramInfoLog(p)}`);
   return p;
 }
+
+/** One sample per particle (row-major RGBA), and the grid size. */
+export type Grid = { readonly columns: number; readonly rows: number; readonly rgba: Uint8ClampedArray };
 
 export class ParticleGlobe {
   readonly canvas: HTMLCanvasElement;
@@ -150,10 +215,10 @@ export class ParticleGlobe {
   private quads: WebGLProgram | null = null;
   private pointVao: WebGLVertexArrayObject | null = null;
   private quadVao: WebGLVertexArrayObject | null = null;
+  private flyBuffer: WebGLBuffer | null = null;
   private photo: WebGLTexture | null = null;
   private count = 0;
-  private ringStart = 0;
-  private ringCount = 0;
+  private ringCount = 160;
   private point = 2;
   private raf = 0;
   private last = 0;
@@ -162,23 +227,31 @@ export class ParticleGlobe {
   private look = { x: 0, y: 0 };
   private pointer = { x: -1e5, y: -1e5, on: 0, inside: false };
   private progress: number | null = null;
+  private flyStart = -1;
+  private flyDone: (() => void) | null = null;
+  private loc: Record<string, WebGLUniformLocation | null> = {};
+  private qloc: Record<string, WebGLUniformLocation | null> = {};
+  /** Called every frame; returning false stops everything (the viewer went away). */
+  alive: () => boolean = () => true;
+  onLost: (() => void) | null = null;
 
   /**
-   * `before` is the viewer as it looks now (device pixels), `box` the photo inside
-   * it. The canvas is placed by the caller over the viewer canvas.
+   * `source` is the viewer canvas (its current frame becomes the photo texture);
+   * `box` is the photo inside it, in its pixels; `grid` the colour of each particle.
    */
   constructor(
-    private readonly before: ImageData,
+    source: HTMLCanvasElement,
     private readonly box: Rect,
+    private readonly grid: Grid,
     private readonly scale: number,
   ) {
     this.canvas = document.createElement("canvas");
-    this.canvas.width = before.width;
-    this.canvas.height = before.height;
+    this.canvas.width = source.width;
+    this.canvas.height = source.height;
     this.gl = this.canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, powerPreference: "high-performance" });
     if (!this.gl) return;
     try {
-      this.init(this.gl);
+      this.init(this.gl, source);
     } catch (error) {
       console.warn(error);
       this.gl = null;
@@ -197,10 +270,40 @@ export class ParticleGlobe {
     this.progress = p;
   }
 
-  /** Resolves once the spring rests at its target (or after `timeout` ms). */
+  /** Resolves once the spring rests at its target (or after `timeout` ms, or if stopped). */
   async settle(timeout = 2500): Promise<void> {
     const start = performance.now();
-    while (!this.spring.resting && performance.now() - start < timeout && this.gl) await new Promise((r) => requestAnimationFrame(r));
+    while (this.gl && !this.spring.resting && performance.now() - start < timeout) await new Promise((r) => requestAnimationFrame(r));
+  }
+
+  /**
+   * The dissolve: background particles burst outward from `center`, the outline
+   * glows, subject particles disappear (the real cutout shows through). `kinds`
+   * has one entry per particle. Resolves when it is over.
+   */
+  dissolve(kinds: Uint8Array, center: { x: number; y: number }): Promise<void> {
+    const gl = this.gl;
+    if (!gl || !this.flyBuffer) return Promise.resolve();
+    const { box, grid } = this;
+    const span = Math.max(box.x1 - box.x0, box.y1 - box.y0);
+    const fly = new Float32Array(this.count * 5 + this.ringCount * 5);
+    for (let i = 0; i < this.count; i++) {
+      const c = i % grid.columns;
+      const r = Math.floor(i / grid.columns);
+      const x = box.x0 + ((c + 0.5) / grid.columns) * (box.x1 - box.x0);
+      const y = box.y0 + ((r + 0.5) / grid.rows) * (box.y1 - box.y0);
+      const dx = x - center.x;
+      const dy = y - center.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const speed = (0.25 + Math.random() * 0.55) * span;
+      // The wave starts at the subject and runs outward.
+      fly.set([(dx / d) * speed + (Math.random() - 0.5) * span * 0.15, (dy / d) * speed - span * 0.2 * Math.random(), (Math.random() - 0.5) * 6, Math.min(0.35, (d / span) * 0.45), kinds[i]], i * 5);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.flyBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, fly, gl.STATIC_DRAW);
+    this.progress = null;
+    this.flyStart = performance.now();
+    return new Promise((resolve) => (this.flyDone = resolve));
   }
 
   dispose() {
@@ -209,60 +312,67 @@ export class ParticleGlobe {
     this.gl?.getExtension("WEBGL_lose_context")?.loseContext();
     this.gl = null;
     this.canvas.remove();
+    this.flyDone?.();
+    this.flyDone = null;
   }
 
-  private init(gl: WebGL2RenderingContext) {
-    const { before, box } = this;
+  private init(gl: WebGL2RenderingContext, source: HTMLCanvasElement) {
+    const { box, grid } = this;
     const bw = box.x1 - box.x0;
     const bh = box.y1 - box.y0;
-    // About one particle per 4 CSS pixels, at most 180 across: smooth on modest GPUs.
-    const columns = Math.max(48, Math.min(180, Math.round(bw / this.scale / 4)));
-    const rows = Math.max(1, Math.round((columns * bh) / bw));
+    const { columns, rows, rgba } = grid;
     const count = columns * rows;
-    const ring = 160;
+    const ring = this.ringCount;
     const data = new Float32Array((count + ring) * 10);
     const golden = Math.PI * (3 - Math.sqrt(5));
     for (let i = 0; i < count; i++) {
       const c = i % columns;
       const r = Math.floor(i / columns);
-      const x = box.x0 + ((c + 0.5) / columns) * bw;
-      const y = box.y0 + ((r + 0.5) / rows) * bh;
-      const px = (Math.min(before.height - 1, Math.floor(y)) * before.width + Math.min(before.width - 1, Math.floor(x))) * 4;
       // A Fibonacci sphere, in shuffled order so neighbouring pixels scatter across it.
       const j = (i * 7919) % count;
       const sy = 1 - (j / Math.max(count - 1, 1)) * 2;
       const ringR = Math.sqrt(Math.max(0, 1 - sy * sy));
       const a = j * golden;
-      data.set([x, y, Math.cos(a) * ringR, sy, Math.sin(a) * ringR, before.data[px] / 255, before.data[px + 1] / 255, before.data[px + 2] / 255, Math.random() * Math.PI * 2, 0.7 + Math.random() * 0.35], i * 10);
+      data.set(
+        [box.x0 + ((c + 0.5) / columns) * bw, box.y0 + ((r + 0.5) / rows) * bh, Math.cos(a) * ringR, sy, Math.sin(a) * ringR, rgba[i * 4] / 255, rgba[i * 4 + 1] / 255, rgba[i * 4 + 2] / 255, Math.random() * Math.PI * 2, 0.7 + Math.random() * 0.35],
+        i * 10,
+      );
     }
-    // The progress ring: dots on a circle, drawn with the same program (globe = 1, no turbulence).
+    // The progress ring: dots on a circle, drawn with the same program.
     for (let i = 0; i < ring; i++) {
       const a = (i / ring) * Math.PI * 2;
       data.set([0, 0, Math.sin(a), Math.cos(a), 0, 0.75, 0.96, 1, 0, 0], (count + i) * 10);
     }
     this.count = count;
-    this.ringStart = count;
-    this.ringCount = ring;
     this.point = Math.max(1, (bw / columns) * 1.02);
 
     this.points = program(gl, VERT, FRAG);
+    for (const n of ["uView", "uCenter", "uRadius", "uGlobe", "uTime", "uYaw", "uTilt", "uPoint", "uPointer", "uPointerOn", "uMode", "uFlyT", "uFlyLen", "uScale"])
+      this.loc[n] = gl.getUniformLocation(this.points, n);
     this.pointVao = gl.createVertexArray();
     gl.bindVertexArray(this.pointVao);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    const attr = (name: string, size: number, offset: number) => {
+    const attr = (name: string, size: number, stride: number, offset: number) => {
       const loc = gl.getAttribLocation(this.points!, name);
       if (loc < 0) return;
       gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 40, offset * 4);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride * 4, offset * 4);
     };
-    attr("aImage", 2, 0);
-    attr("aSphere", 3, 2);
-    attr("aColor", 3, 5);
-    attr("aNoise", 2, 8);
+    attr("aImage", 2, 10, 0);
+    attr("aSphere", 3, 10, 2);
+    attr("aColor", 3, 10, 5);
+    attr("aNoise", 2, 10, 8);
+    // Dissolve data: zeros until the cutout is known.
+    this.flyBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.flyBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array((count + ring) * 5), gl.STATIC_DRAW);
+    attr("aFly", 4, 5, 0);
+    attr("aKind", 1, 5, 4);
 
     this.quads = program(gl, QUAD_VERT, QUAD_FRAG);
+    for (const n of ["uView", "uRect", "uTex", "uUvRect", "uColor", "uTextured"]) this.qloc[n] = gl.getUniformLocation(this.quads, n);
     this.quadVao = gl.createVertexArray();
     gl.bindVertexArray(this.quadVao);
     const qb = gl.createBuffer();
@@ -272,10 +382,11 @@ export class ParticleGlobe {
     gl.enableVertexAttribArray(ql);
     gl.vertexAttribPointer(ql, 2, gl.FLOAT, false, 0, 0);
 
+    // The viewer's current frame, copied GPU to GPU (no read-back to the CPU).
     this.photo = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.photo);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, before);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -293,11 +404,19 @@ export class ParticleGlobe {
     this.raf = requestAnimationFrame(this.frame);
     const gl = this.gl;
     if (!gl || !this.points || !this.quads) return;
+    if (!this.alive()) {
+      const lost = this.onLost;
+      this.dispose();
+      lost?.();
+      return;
+    }
     const dt = this.last ? Math.min(0.05, (now - this.last) / 1000) : 0;
     this.last = now;
     this.time += dt;
     this.spring.step(dt);
     const globe = this.spring.x;
+    const flying = this.flyStart >= 0;
+    const flyT = flying ? (now - this.flyStart) / 1000 : 0;
     const { box } = this;
     const cx = (box.x0 + box.x1) / 2;
     const cy = (box.y0 + box.y1) / 2;
@@ -318,59 +437,74 @@ export class ParticleGlobe {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const q = this.qloc;
+    const L = this.loc;
 
     // A dark stage over the photo while the particles are away.
-    const stage = Math.min(1, Math.max(0, globe) * 5) * 0.94;
-    gl.useProgram(this.quads);
-    gl.bindVertexArray(this.quadVao);
-    const qu = (n: string) => gl.getUniformLocation(this.quads!, n);
-    gl.uniform2f(qu("uView"), W, H);
-    gl.uniform4f(qu("uRect"), box.x0, box.y0, box.x1, box.y1);
+    const stage = flying ? 0 : Math.min(1, Math.max(0, globe) * 5) * 0.94;
     if (stage > 0) {
-      gl.uniform1f(qu("uTextured"), 0);
-      gl.uniform4f(qu("uColor"), 0.035, 0.04, 0.05, stage);
+      gl.useProgram(this.quads);
+      gl.bindVertexArray(this.quadVao);
+      gl.uniform2f(q.uView, W, H);
+      gl.uniform4f(q.uRect, box.x0, box.y0, box.x1, box.y1);
+      gl.uniform1f(q.uTextured, 0);
+      gl.uniform4f(q.uColor, 0.035, 0.04, 0.05, stage);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
 
     gl.useProgram(this.points);
     gl.bindVertexArray(this.pointVao);
-    const pu = (n: string) => gl.getUniformLocation(this.points!, n);
-    gl.uniform2f(pu("uView"), W, H);
-    gl.uniform2f(pu("uCenter"), cx, cy);
-    gl.uniform1f(pu("uRadius"), radius);
-    gl.uniform1f(pu("uGlobe"), globe);
-    gl.uniform1f(pu("uTime"), this.time);
-    gl.uniform1f(pu("uYaw"), this.yaw + this.look.x * 0.6);
-    gl.uniform1f(pu("uTilt"), -0.28 + this.look.y * 0.45);
-    gl.uniform1f(pu("uPoint"), this.point);
-    gl.uniform2f(pu("uPointer"), p.x, p.y);
-    gl.uniform1f(pu("uPointerOn"), p.on);
-    if (globe > 0.0005) gl.drawArrays(gl.POINTS, 0, this.count);
+    gl.uniform2f(L.uView, W, H);
+    gl.uniform2f(L.uCenter, cx, cy);
+    gl.uniform1f(L.uRadius, radius);
+    gl.uniform1f(L.uGlobe, globe);
+    gl.uniform1f(L.uTime, this.time);
+    gl.uniform1f(L.uYaw, this.yaw + this.look.x * 0.6);
+    gl.uniform1f(L.uTilt, -0.28 + this.look.y * 0.45);
+    gl.uniform1f(L.uPoint, this.point);
+    gl.uniform2f(L.uPointer, p.x, p.y);
+    gl.uniform1f(L.uPointerOn, p.on);
+    gl.uniform1f(L.uMode, flying ? 1 : 0);
+    gl.uniform1f(L.uFlyT, flyT);
+    gl.uniform1f(L.uFlyLen, DISSOLVE_MS / 1000);
+    gl.uniform1f(L.uScale, this.scale);
+    // Once the exact photo is fully back (it covers them), the particles rest.
+    if (flying || highResolutionMix(globe) < 1) gl.drawArrays(gl.POINTS, 0, this.count);
     // Download progress: a dotted ring around the globe, lit up to the percentage.
-    if (this.progress !== null && globe > 0.5) {
+    if (!flying && this.progress !== null && globe > 0.5) {
       const lit = Math.round((this.progress / 100) * this.ringCount);
-      gl.uniform1f(pu("uGlobe"), 1);
-      gl.uniform1f(pu("uTime"), 0);
-      gl.uniform1f(pu("uYaw"), 0);
-      gl.uniform1f(pu("uTilt"), 0);
-      gl.uniform1f(pu("uRadius"), radius * 1.24);
-      gl.uniform1f(pu("uPointerOn"), 0);
-      gl.uniform1f(pu("uPoint"), Math.max(2, this.point * 1.2));
-      if (lit > 0) gl.drawArrays(gl.POINTS, this.ringStart, lit);
+      gl.uniform1f(L.uGlobe, 1);
+      gl.uniform1f(L.uTime, 0);
+      gl.uniform1f(L.uYaw, 0);
+      gl.uniform1f(L.uTilt, 0);
+      gl.uniform1f(L.uRadius, radius * 1.24);
+      gl.uniform1f(L.uPointerOn, 0);
+      gl.uniform1f(L.uPoint, Math.max(2, this.point * 1.2));
+      if (lit > 0) gl.drawArrays(gl.POINTS, this.count, lit);
     }
 
     // The exact photo returns only once the particles have landed.
-    const photo = highResolutionMix(globe);
+    const photo = flying ? 0 : highResolutionMix(globe);
     if (photo > 0.001) {
       gl.useProgram(this.quads);
       gl.bindVertexArray(this.quadVao);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.photo);
-      gl.uniform1i(qu("uTex"), 0);
-      gl.uniform1f(qu("uTextured"), 1);
-      gl.uniform4f(qu("uColor"), 1, 1, 1, photo);
-      gl.uniform4f(qu("uUvRect"), box.x0 / this.before.width, box.y0 / this.before.height, box.x1 / this.before.width, box.y1 / this.before.height);
+      gl.uniform2f(q.uView, W, H);
+      gl.uniform1i(q.uTex, 0);
+      gl.uniform1f(q.uTextured, 1);
+      gl.uniform4f(q.uColor, 1, 1, 1, photo);
+      // The whole frame: the photo and its surround, exactly as the viewer showed them.
+      gl.uniform4f(q.uRect, 0, 0, W, H);
+      gl.uniform4f(q.uUvRect, 0, 0, 1, 1);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    if (flying && flyT * 1000 >= DISSOLVE_MS) {
+      const done = this.flyDone;
+      this.flyDone = null;
+      this.flyStart = -1;
+      done?.();
     }
   };
 }

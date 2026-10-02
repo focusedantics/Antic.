@@ -1,5 +1,6 @@
 import { useStore } from "@/app/hooks";
 import { selectAsset, setWorkspace, toast } from "@/app/state";
+import { cutoutRun } from "@/components/cutoutFx";
 import { openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
 import { formatSigned, Slider } from "@/components/Slider";
@@ -575,6 +576,7 @@ function EffectSection({ layer }: { layer: Extract<Layer, { kind: "effect" }> })
 }
 
 function ImageSection({ layer }: { layer: Extract<Layer, { kind: "image" }> }) {
+  const removing = useStore(cutoutRun, (st) => st.running);
   const asset = getAsset(layer.assetId);
   return (
     <>
@@ -609,6 +611,8 @@ function ImageSection({ layer }: { layer: Extract<Layer, { kind: "image" }> }) {
           type="button"
           className="btn small"
           title="Cut out the subject (AI, on this device)"
+          disabled={removing}
+          aria-busy={removing}
           onClick={async () => {
             if (layer.develop !== "asset") {
               toast("Remove Background works on photos that follow their Develop settings.");

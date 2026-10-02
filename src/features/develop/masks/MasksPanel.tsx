@@ -28,6 +28,7 @@ import { TEMPERATURE_TRACK, TINT_TRACK } from "../edit";
 import { brush } from "./brush";
 import { aiPreferences, aiStatus } from "@/core/ai/client";
 import { aiMenuItems, removeBackground } from "./ai";
+import { cutoutRun } from "@/components/cutoutFx";
 
 type ManualKind = Exclude<ShapeKind, "ai">;
 const manualKinds: ManualKind[] = ["brush", "linear", "radial", "luminance", "color"];
@@ -353,6 +354,7 @@ export function MasksPanel() {
   const bw = useStore(develop, (s) => s.maskBw);
   const active = masks.find((m) => m.id === activeMaskId) ?? null;
   const component = active?.components.find((c) => c.id === activeComponentId) ?? active?.components[0] ?? null;
+  const removing = useStore(cutoutRun, (st) => st.running);
   const createMenu = (e: React.MouseEvent) =>
     openMenu(e.clientX, e.clientY, [
       ...manualKinds.map((k) => ({ label: shapeLabels[k], onSelect: () => createMask(k) })),
@@ -368,7 +370,7 @@ export function MasksPanel() {
       title="Masks"
       actions={
         <>
-          <button type="button" className="btn small" title="Make everything but the subject transparent" onClick={() => void removeBackground()}>
+          <button type="button" className="btn small" title="Make everything but the subject transparent" disabled={removing} aria-busy={removing} onClick={() => void removeBackground()}>
             Remove BG
           </button>
           <button type="button" className="btn small" onClick={createMenu}>

@@ -96,12 +96,12 @@ test("remove background: a particle globe while the AI works, then the backgroun
   const fx = page.getByTestId("cutout-fx");
   // The photo becomes a globe of particles; screen readers hear the stage, nothing covers the picture.
   await expect(fx).toHaveAttribute("data-phase", "globe");
-  await expect(page.getByTestId("cutout-globe")).toBeVisible();
+  await expect(page.locator('[data-testid="cutout-fx"][data-kind="particles"]')).toBeVisible();
   await expect(page.getByTestId("cutout-status")).toHaveText(/Finding the subject/);
   await expect(page.locator(".cutout-chip")).toHaveCount(0);
   await expect(fx).toHaveAttribute("data-phase", "reveal", { timeout: 60_000 });
   await expect(fx).toHaveCount(0, { timeout: 10_000 });
-  await expect(page.getByTestId("cutout-globe")).toHaveCount(0);
+  await expect(page.locator('[data-testid="cutout-fx"][data-kind="particles"]')).toHaveCount(0);
   await expect(page.locator(".toast")).toContainText("Background removed");
   await expect(page.locator(".history-item").first()).toHaveText("Remove Background");
 });
@@ -142,4 +142,61 @@ test("photo export with several photos: a counter on the marble and the most rec
   await expect(marble.locator(".marble-count")).toHaveText(/^[123]\/3$/);
   await download;
   await expect(dialog).toHaveCount(0, { timeout: 30_000 });
+});
+
+test("remove background: one run at a time, survives leaving Develop, and lands on the right photo", async ({ page }) => {
+  await importPhoto(page);
+  await page.keyboard.press("d");
+  await expect(page.getByRole("slider", { name: "Exposure" })).toBeVisible();
+  await page.keyboard.press("m");
+  const button = page.getByRole("button", { name: "Remove BG" });
+  await button.click();
+  // A second click does nothing: the button is disabled while the first run goes.
+  await expect(button).toBeDisabled();
+  await button.click({ force: true });
+  await expect(page.locator('[data-testid="cutout-fx"][data-kind="particles"]')).toHaveCount(1);
+  // Leave for the Library mid-run: the animation goes away with the viewer.
+  await page.keyboard.press("g");
+  await expect(page.getByTestId("cutout-fx")).toHaveCount(0);
+  await expect(page.locator(".toast")).toContainText("Background removed", { timeout: 60_000 });
+  // Back in Develop: exactly one Remove Background, on this photo.
+  await page.keyboard.press("d");
+  await expect(page.locator(".history-item").filter({ hasText: "Remove Background" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Remove BG" })).toBeEnabled();
+});
+
+test("remove background: the overlay covers the photo to the pixel (no sliver at the edges)", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    // Loaded from the dev server inside the page.
+    const path = "/src/components/cutoutFx.ts";
+    type Bounds = (c: HTMLCanvasElement) => { x0: number; y0: number; x1: number; y1: number } | null;
+    const { photoBounds } = (await import(/* @vite-ignore */ path)) as { photoBounds: Bounds };
+    const out: { want: number[]; got: number[] }[] = [];
+    for (const [W, H, x0, y0, x1, y1] of [
+      [1000, 700, 13, 7, 613, 407],
+      [1801, 1103, 1, 211, 1800, 892],
+      [2400, 1500, 437, 3, 1963, 1497],
+    ]) {
+      const c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+      const g = c.getContext("2d")!;
+      g.fillStyle = "#fff";
+      g.fillRect(x0, y0, x1 - x0, y1 - y0);
+      const b = photoBounds(c)!;
+      out.push({ want: [x0, y0, x1, y1], got: [b.x0, b.y0, b.x1, b.y1] });
+    }
+    return out;
+  });
+  for (const { want, got } of result) {
+    // Covers every photo pixel…
+    expect(got[0]).toBeLessThanOrEqual(want[0]);
+    expect(got[1]).toBeLessThanOrEqual(want[1]);
+    expect(got[2]).toBeGreaterThanOrEqual(want[2]);
+    expect(got[3]).toBeGreaterThanOrEqual(want[3]);
+    // …and spills at most a few pixels past it.
+    expect(want[0] - got[0]).toBeLessThan(12);
+    expect(got[2] - want[2]).toBeLessThan(12);
+  }
 });

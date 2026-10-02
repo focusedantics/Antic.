@@ -2,11 +2,11 @@ import { createStore } from "zustand/vanilla";
 import { toast } from "@/app/state";
 import type { MenuItem } from "@/components/Menu";
 import { aiImage, describeAiStatus, prepareObjectSelection, selectObject, selectSemantic, selectSubject } from "@/core/ai/client";
-import { startCutoutFx } from "@/components/cutoutFx";
+import { runCutout } from "@/components/cutoutFx";
 import type { RasterRecord } from "@/core/catalog/db";
 import { addComponent, addMask, aiTargetLabels, newComponent, setCutout, updateComponent, updateMask } from "@/core/develop/masks";
 import type { MaskOperation, MaskShape } from "@/core/develop/recipe";
-import { develop, editRecipe } from "@/core/develop/session";
+import { develop, editRecipe, recipeFor, setRecipeFor } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 
 type Target = keyof typeof aiTargetLabels;
@@ -63,20 +63,34 @@ export async function aiSelect(target: Exclude<Target, "object">, maskId: string
  * with Add/Subtract brushes (restore/erase) and the AI edge controls.
  */
 export async function removeBackground() {
-  // The scan plays while the AI works (however long), then the background blows away.
-  const fx = startCutoutFx(developEngine().canvas, () => describeAiStatus("Finding the subject…"));
+  // The globe turns while the AI works (however long), then the background blows away.
+  // One run at a time; the result always lands on the photo it was started on.
+  const assetId = develop.getState().assetId;
   try {
-    const raster = await detect("subject");
-    await fx.reveal(() =>
-      editRecipe("Remove Background", (r) => {
-        const { recipe, mask } = addMask(r, aiShape("subject", raster), "Background removed");
-        queueMicrotask(() => develop.setState({ activeMaskId: mask.id, activeComponentId: mask.components[0].id, tool: "mask", maskOverlay: false }));
-        return setCutout(recipe, mask.id);
-      }),
+    const ran = await runCutout(
+      developEngine().canvas,
+      () => describeAiStatus("Finding the subject…"),
+      async () => {
+        const raster = await detect("subject");
+        return () => {
+          if (develop.getState().assetId === assetId) {
+            editRecipe("Remove Background", (r) => {
+              const { recipe, mask } = addMask(r, aiShape("subject", raster), "Background removed");
+              queueMicrotask(() => develop.setState({ activeMaskId: mask.id, activeComponentId: mask.components[0].id, tool: "mask", maskOverlay: false }));
+              return setCutout(recipe, mask.id);
+            });
+            return;
+          }
+          // Another photo is open now: apply it to the one that was analysed.
+          const base = assetId ? recipeFor(assetId) : null;
+          if (!assetId || !base) return;
+          const { recipe, mask } = addMask(base, aiShape("subject", raster), "Background removed");
+          setRecipeFor(assetId, setCutout(recipe, mask.id), "Remove Background");
+        };
+      },
     );
-    toast("Background removed. Add a brush to restore, subtract a brush to erase.");
+    if (ran) toast("Background removed. Add a brush to restore, subtract a brush to erase.");
   } catch (error) {
-    fx.cancel();
     reportError(error);
   }
 }

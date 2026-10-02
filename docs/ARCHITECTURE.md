@@ -336,18 +336,23 @@ so the click lands visibly. `holdAtLeast(start)` keeps a working animation up fo
 - Photo export reports stages (`exportAsset(…, onStage)`: reading the original,
   developing W × H, encoding, saving) with a paint between each. The dialog's byte
   estimate (a real export) only runs for outputs up to 12 MP and never during an export.
-- **Remove Background** (`components/cutoutFx.ts`, used by Develop and Composite). While
-  the AI runs, `components/particleGlobe.ts` (WebGL2 points) lifts the photo's own pixels
-  into a turning globe: one spring value morphs every particle between its place in the
-  picture and a Fibonacci-sphere point, with per-particle turbulence and depth shading;
-  the pointer tilts the globe and parts the particles; a dotted ring fills while the
-  model downloads the first time. A hidden live region carries the status for screen
-  readers; nothing is drawn as text over the picture. It turns for as long as the AI
-  takes and at least 1.5 s. Then the spring returns the particles to the photo (the exact
-  frame fades back in only in the last few percent of the return), the overlay freezes
-  that frame, applies the cutout underneath, finds the changed pixels by comparing
-  captures, and blows them away as particles that scatter from the pointer while the
-  outline glows. Reduced motion: no globe, a 250 ms crossfade.
+- **Remove Background** (`components/cutoutFx.ts`, used by Develop and Composite through
+  `runCutout`). One run at a time (`cutoutRun`; the buttons are disabled meanwhile), and
+  the result always lands on the photo the run started on. Everything moves on the GPU
+  in `components/particleGlobe.ts` (WebGL2 points): while the AI runs, the photo's
+  pixels (one averaged sample per particle, about one per 4 CSS px) lift into a turning
+  globe — one spring morphs every particle between its place in the picture and a
+  Fibonacci-sphere point, with per-particle turbulence and depth shading; the pointer
+  tilts the globe and parts the particles; a dotted ring fills while the model
+  downloads. A hidden live region carries the status. At least 1.5 s, as long as
+  needed. Then the spring returns the particles, the exact frame (a GPU copy of the
+  viewer canvas) is held on top while the cutout is applied underneath, the changed
+  particles are found by comparing two small samples, and the dissolve runs in the same
+  shader: background particles burst outward and scatter from the pointer, the outline
+  glows, subject particles vanish over the real cutout. The photo's bounds come from a
+  640 px probe, widened by one probe pixel so no edge peeks out. Leaving the viewer
+  (another workspace or photo) removes the animation at once; the result still lands.
+  Reduced motion or no WebGL2: a 250 ms crossfade.
 
 ## Export marble (`features/export/marble.ts`)
 
