@@ -1,4 +1,4 @@
-import type { DockItem, ShellProps } from "@/app/Shell";
+import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
@@ -90,15 +90,20 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       >
         Looks…
       </button>
-      <button type="button" className="btn small" disabled={!history?.status().canUndo} title="Undo (Ctrl+Z)" onClick={() => history?.undo()}>
+      <button type="button" className="btn small wide-only" disabled={!history?.status().canUndo} title="Undo (Ctrl+Z)" onClick={() => history?.undo()}>
         Undo
       </button>
-      <button type="button" className="btn small" disabled={!history?.status().canRedo} title="Redo (Ctrl+Shift+Z)" onClick={() => history?.redo()}>
+      <button type="button" className="btn small wide-only" disabled={!history?.status().canRedo} title="Redo (Ctrl+Shift+Z)" onClick={() => history?.redo()}>
         Redo
       </button>
-      <button type="button" className="btn small primary" title="Export (Ctrl+Shift+E)" onClick={onExport}>
+      <button type="button" className="btn small primary wide-only" title="Export (Ctrl+Shift+E)" onClick={onExport}>
         Export…
       </button>
+      <CompactActions>
+        <TopAction icon="undo" label="Undo" disabled={!history?.status().canUndo} onClick={() => history?.undo()} />
+        <TopAction icon="redo" label="Redo" disabled={!history?.status().canRedo} onClick={() => history?.redo()} />
+        <TopAction icon="export" label="Export" primary onClick={onExport} />
+      </CompactActions>
     </div>
   );
 }

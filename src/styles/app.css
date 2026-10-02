@@ -280,6 +280,7 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 }
 .menu button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 5px 10px; background: none; border: 0; border-radius: 3px; text-align: left; }
 .menu button:hover:not(:disabled) { background: var(--panel-3); }
+.menu-check { width: 12px; flex: none; color: var(--accent); }
 .menu button:disabled { color: var(--text-faint); cursor: default; }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .menu .shortcut { margin-left: auto; color: var(--text-faint); font-family: var(--mono); font-size: 10px; }
@@ -511,8 +512,18 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   gap: 4px; padding: env(safe-area-inset-top) 4px 0 max(10px, env(safe-area-inset-left)); min-height: calc(44px + env(safe-area-inset-top));
 }
 .topbar.compact .brand-mark { flex: none; }
-.topbar.compact .modules { margin-left: 0; flex: 1; min-width: 0; justify-content: center; gap: 0; overflow-x: auto; scrollbar-width: none; }
-.topbar.compact .module { padding: 10px 7px; font-size: 11px; letter-spacing: 0.04em; flex: none; }
+.workspace-switch { display: inline-flex; align-items: center; gap: 4px; padding: 10px 8px; font-size: 12px; color: var(--text); flex: none; }
+.workspace-switch svg { color: var(--text-faint); }
+.top-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.top-action {
+  width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--text); -webkit-tap-highlight-color: transparent;
+}
+.top-action:disabled { color: var(--text-faint); opacity: 0.45; }
+.top-action:active:not(:disabled) { background: var(--panel-3); }
+.top-action.primary { color: var(--accent-ink); background: var(--accent); width: 36px; height: 36px; margin: 0 2px 0 4px; }
+.top-action.primary:disabled { background: var(--panel-3); color: var(--text-faint); }
+.app[data-compact="true"] .wide-only { display: none; }
 .topbar.compact .progress-pill { max-width: 38vw; overflow: hidden; white-space: nowrap; }
 .topbar.compact .progress-bar { display: none; }
 .tool-btn.more { width: 40px; height: 40px; color: var(--text-dim); border-radius: 50%; flex: none; }
@@ -546,7 +557,31 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .app[data-compact="true"] .toolbar::-webkit-scrollbar { display: none; }
 .app[data-compact="true"] .toolbar > * { flex: none; }
 .app[data-compact="true"] .toolbar .filterbar { flex-wrap: nowrap; }
-.app[data-compact="true"] .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+/* Dialogs and the effects browser render outside .app, so they key off the root. */
+:root[data-compact="true"] .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+:root[data-compact="true"] .dialog-backdrop:has(.fx-browser) { align-items: stretch; }
+.fx-browser.compact {
+  width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0;
+  grid-template-columns: minmax(0, 1fr); padding-top: env(safe-area-inset-top);
+}
+.fx-browser.compact .fx-main { grid-template-rows: auto auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+.fx-browser.compact .fx-head > * { min-width: 0; }
+.fx-browser.compact .fx-head { padding: 8px 8px 8px 14px; gap: 6px; }
+.fx-browser.compact .fx-title { padding: 0; font-size: 14px; }
+.fx-browser.compact .fx-search { min-width: 0; width: 100%; }
+.fx-browser.compact .fx-head .segmented { flex: none; }
+.fx-browser.compact .fx-head .btn.icon { flex: none; }
+.fx-browser.compact .fx-sections {
+  display: flex; gap: 6px; padding: 8px 10px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line);
+}
+.fx-browser.compact .fx-sections::-webkit-scrollbar { display: none; }
+.fx-browser.compact .fx-nav-item {
+  flex: none; gap: 6px; padding: 7px 12px; border-radius: 16px; background: var(--panel-2); border: 1px solid var(--line); white-space: nowrap;
+}
+.fx-browser.compact .fx-items { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); }
+.fx-browser.compact .fx-items.grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.fx-browser.compact .fx-items.list .fx-thumb { width: 96px; }
+.fx-browser.compact .fx-foot { display: none; }
 .app[data-compact="true"] .toast { bottom: calc(64px + env(safe-area-inset-bottom)); max-width: calc(100vw - 24px); }
 
 /* Touch screens: bigger targets (Apple asks for 44 pt, Material for 48 dp); 16 px inputs stop iOS zooming in. */

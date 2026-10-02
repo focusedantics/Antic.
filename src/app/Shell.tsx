@@ -1,20 +1,23 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Icon, type IconName } from "@/components/icons";
 import { Filmstrip } from "@/features/library/Filmstrip";
 import { useStore } from "./hooks";
-import { layout, openSheet, type SheetSide } from "./layout";
+import { actionsSlot, layout, openSheet, type SheetSide } from "./layout";
 import { PANEL_LIMITS, prefs, setPrefs } from "./prefs";
 import { ui } from "./state";
 
 /**
  * A button in the phone dock. It opens the sheet with one side's panels; `onSelect`
  * can first pick a tool (Develop's Crop, Masks, Heal open the right side on that tool).
+ * Without a side it only runs `onSelect` (Composite's Effects opens the effects browser).
  */
 export type DockItem = {
   readonly id: string;
   readonly label: string;
   readonly icon: IconName;
-  readonly side: SheetSide;
+  readonly side?: SheetSide;
+  readonly disabled?: boolean;
   /** Shown as current while the sheet is open on its side (default: any time the side is open). */
   readonly active?: boolean;
   readonly onSelect?: () => void;
@@ -151,6 +154,25 @@ export function PanelToggles() {
 
 // ─── Phone ───────────────────────────────────────────────────────────────────
 
+/**
+ * A workspace's main actions (undo, redo, export). On a phone they move out of the
+ * long scrolling toolbar into the top bar, where Lightroom mobile keeps them; the
+ * toolbar's own buttons carry `wide-only` and hide. On a computer this renders nothing.
+ */
+export function CompactActions({ children }: { children: ReactNode }) {
+  const compact = useStore(layout, (s) => s.compact);
+  const slot = useStore(actionsSlot, (s) => s.element);
+  return compact && slot ? createPortal(children, slot) : null;
+}
+
+export function TopAction({ icon, label, onClick, disabled, primary, title }: { icon: IconName; label: string; onClick: () => void; disabled?: boolean; primary?: boolean; title?: string }) {
+  return (
+    <button type="button" className={`top-action${primary ? " primary" : ""}`} aria-label={label} title={title ?? label} disabled={disabled} onClick={onClick}>
+      <Icon name={icon} size={20} />
+    </button>
+  );
+}
+
 function CompactShell({ left, center, right, dock }: ShellProps) {
   const sheet = useStore(layout, (s) => s.sheet);
   const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
@@ -159,7 +181,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
     { id: "left", label: "Panels", icon: "folders", side: "left" },
     { id: "right", label: "Info", icon: "info", side: "right" },
   ];
-  const open = sheet ? items.find((i) => i.side === sheet && (i.active ?? true)) ?? items.find((i) => i.side === sheet) : null;
+  const open = sheet ? (items.find((i) => i.side === sheet && (i.active ?? true)) ?? items.find((i) => i.side === sheet)) : null;
   return (
     <main className="workspace compact">
       <section className="center">{center}</section>
@@ -171,17 +193,18 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
       {!sheet && showFilmstrip && workspace !== "video" && <Filmstrip />}
       <nav className="dock" aria-label="Panels">
         {items.map((item) => {
-          const current = sheet === item.side && (item.active ?? true);
+          const current = !!item.side && sheet === item.side && (item.active ?? true);
           return (
             <button
               key={item.id}
               type="button"
               className="dock-btn"
-              aria-pressed={current}
+              aria-pressed={item.side ? current : undefined}
+              disabled={item.disabled}
               onClick={() => {
                 if (current) return openSheet(null);
                 item.onSelect?.();
-                openSheet(item.side);
+                if (item.side) openSheet(item.side);
               }}
             >
               <Icon name={item.icon} />

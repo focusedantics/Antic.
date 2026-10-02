@@ -31,7 +31,8 @@ What we took:
 | Bottom toolbar of groups | Dock: Presets · Edit · Crop · Masks · Heal (Develop); Folders · Info (Library); Documents · Layers (Composite); Clips · Edit (Video) |
 | Sliders in a panel over the bottom; swipe to resize or close | Sheet with a grip: drag to resize, it snaps to 30/50/85 %; drag below 20 % or flick down to close |
 | Photo stays visible while editing | The viewer shrinks above the sheet, so every slider change is visible |
-| Fewer options, rest in ⋯ | Top bar keeps the four workspaces; import, filmstrip, glow and tour move to ⋯ |
+| Fewer options, rest in ⋯ | Top bar: a workspace switcher, then undo, redo and export (as Lightroom keeps them at the top), and ⋯ for import, filmstrip, glow and tour. The long toolbars keep the rest and scroll sideways |
+| Presets and effects as a scrolling grid | The effects browser goes full screen: search, a row of category chips, two columns of live previews |
 | Pinch and double tap on the photo | Pinch zooms and pans; a double tap toggles 100 % |
 | Double-tap a slider to reset | Double-click on a slider's label or track resets it; mobile browsers usually deliver a double tap as a double-click (not checked on every phone) |
 

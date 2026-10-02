@@ -246,7 +246,9 @@ the export match.
 A develop mask can be the photo's *cutout* (`mask.cutout`): its coverage multiplies the
 alpha channel. Remove Background creates an AI subject mask marked as the cutout, so the
 cutout is refined like any mask (add a brush to restore, subtract one to erase, feather or
-shift the AI edge) and flows into Library thumbnails, exports and compositions.
+shift the AI edge) and flows into Library thumbnails, exports and compositions. Restore
+background (Develop's Masks panel, Composite's layer properties) clears the cutout and
+keeps the mask, as one undoable step.
 
 ### Project files
 
@@ -470,9 +472,15 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   sheet's grip drags to resize and snaps to 30/50/85 % of the screen (or closes below
   20 % or on a downward flick). The viewer shrinks above the sheet, so edits stay
   visible. Develop's dock is Presets · Edit · Crop · Masks · Heal (tools open the
-  adjustments on that tool). The top bar keeps the workspaces and folds import, the
-  filmstrip, the glow and the tour into a ⋯ menu; toolbars scroll sideways instead of
-  wrapping. `(pointer: coarse)` raises touch targets (sliders 36 px, buttons 32–34 px,
+  adjustments on that tool; Composite's dock adds Effects, which opens the browser). The
+  top bar has a workspace switcher (a menu), the workspace's main actions, and a ⋯ menu
+  for import, the filmstrip, the glow and the tour. Main actions (undo, redo, export)
+  render through `<CompactActions>` into the top bar's slot (`actionsSlot`), and the
+  toolbar's own copies carry `wide-only` and hide; toolbars scroll sideways for the
+  rest. The effects browser goes full screen with a search, a row of category chips
+  and two columns of previews (240 px renders on lite devices), and does not raise the
+  keyboard by itself. Dialogs and the browser are portalled outside `.app`, so the
+  root carries `data-compact` for their styles. `(pointer: coarse)` raises touch targets (sliders 36 px, buttons 32–34 px,
   16 px inputs so iOS does not zoom). The Develop viewer adds touch gestures: two
   fingers pinch-zoom and pan (captured before tools), a double tap toggles 100 %.
 - **Device profile** (`lib/device.ts`, decided once per load; desktops get the full

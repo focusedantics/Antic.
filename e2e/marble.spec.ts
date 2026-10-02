@@ -104,6 +104,13 @@ test("remove background: a particle globe while the AI works, then the backgroun
   await expect(page.locator('[data-testid="cutout-fx"][data-kind="particles"]')).toHaveCount(0);
   await expect(page.locator(".toast")).toContainText("Background removed");
   await expect(page.locator(".history-item").first()).toHaveText("Remove Background");
+  // Like Composite, Develop can restore the background; the mask stays for later.
+  await page.getByRole("button", { name: "Restore BG" }).click();
+  await expect(page.locator(".history-item").first()).toHaveText("Restore background");
+  await expect(page.getByRole("button", { name: "Remove BG" })).toBeVisible();
+  await expect(page.locator(".mask-row, .row").filter({ hasText: "Background removed" }).first()).toBeVisible();
+  await page.keyboard.press("Control+z");
+  await expect(page.getByRole("button", { name: "Restore BG" })).toBeVisible();
 });
 
 test("photo export with several photos: a counter on the marble and the most recent photo first", async ({ page }) => {
@@ -162,7 +169,8 @@ test("remove background: one run at a time, survives leaving Develop, and lands 
   // Back in Develop: exactly one Remove Background, on this photo.
   await page.keyboard.press("d");
   await expect(page.locator(".history-item").filter({ hasText: "Remove Background" })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Remove BG" })).toBeEnabled();
+  // The background is gone, so the panel offers to restore it (enabled: the run is over).
+  await expect(page.getByRole("button", { name: "Restore BG" })).toBeEnabled();
 });
 
 test("remove background: the overlay covers the photo to the pixel (no sliver at the edges)", async ({ page }) => {

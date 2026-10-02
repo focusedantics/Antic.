@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "@/app/hooks";
+import { layout } from "@/app/layout";
+import { device } from "@/lib/device";
 import { effectLayer, insertLayer, layersBelow, locate, updateLayer } from "@/core/document/operations";
 import { composite, editDocument } from "@/core/document/session";
 import { EFFECTS, effectById, newEffect, PICKS } from "@/core/effects/registry";
@@ -68,6 +70,8 @@ function EffectsBrowser({ target }: { target: Target }) {
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
   const search = useRef<HTMLInputElement>(null);
+  // Phones: full screen, categories as a row of chips under the search, two columns.
+  const compact = useStore(layout, (s) => s.compact);
   const current = target.mode === "replace" ? locate(composite.getState().doc?.layers ?? [], target.layerId)?.layer : null;
   const currentId = target.mode === "custom" ? target.current : current?.kind === "effect" ? current.effect.id : null;
 
@@ -77,7 +81,8 @@ function EffectsBrowser({ target }: { target: Target }) {
   }, [section, view]);
 
   useEffect(() => {
-    search.current?.focus();
+    // On a phone the keyboard would cover the effects; search is a tap away.
+    if (!layout.getState().compact) search.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -102,7 +107,8 @@ function EffectsBrowser({ target }: { target: Target }) {
       try {
         const source = target.mode === "custom" ? await target.image() : layersBelow(doc!, anchor, target.mode === "replace");
         if (!source || cancelled) return;
-        await engine.effectPreviews(source, 360, order.map((e) => newEffect(e.id)!), (i, url) => {
+        // Smaller previews on phones: 48 renders, less GPU time and memory.
+        await engine.effectPreviews(source, device.lite ? 240 : 360, order.map((e) => newEffect(e.id)!), (i, url) => {
           urls.push(url);
           if (cancelled) URL.revokeObjectURL(url);
           else setPreviews((p) => ({ ...p, [order[i].id]: url }));
@@ -140,30 +146,35 @@ function EffectsBrowser({ target }: { target: Target }) {
     close();
   };
   const sections: Section[] = [OUR_PICKS, ALL, ANIMATED, ...EFFECT_CATEGORIES];
+  const categories = (
+    <nav className="fx-sections" aria-label="Effect categories">
+      {sections.map((s) => (
+        <button
+          key={s}
+          type="button"
+          className="fx-nav-item"
+          aria-current={!query && section === s ? "true" : undefined}
+          onClick={() => {
+            setQuery("");
+            setSection(s);
+          }}
+        >
+          <span>{s}</span>
+          <span className="faint num">{counts.get(s) ?? 0}</span>
+        </button>
+      ))}
+    </nav>
+  );
 
   return createPortal(
     <div className="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="fx-browser" role="dialog" aria-modal="true" aria-label="Effects">
-        <aside className="fx-nav">
-          <div className="fx-title">Effects</div>
-          <nav aria-label="Effect categories">
-            {sections.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className="fx-nav-item"
-                aria-current={!query && section === s ? "true" : undefined}
-                onClick={() => {
-                  setQuery("");
-                  setSection(s);
-                }}
-              >
-                <span>{s}</span>
-                <span className="faint num">{counts.get(s) ?? 0}</span>
-              </button>
-            ))}
-          </nav>
-        </aside>
+      <div className={`fx-browser${compact ? " compact" : ""}`} role="dialog" aria-modal="true" aria-label="Effects">
+        {!compact && (
+          <aside className="fx-nav">
+            <div className="fx-title">Effects</div>
+            {categories}
+          </aside>
+        )}
         <section className="fx-main">
           <header className="fx-head">
             <input
@@ -191,6 +202,7 @@ function EffectsBrowser({ target }: { target: Target }) {
               ✕
             </button>
           </header>
+          {compact && categories}
           <div className={`fx-items ${view}`} role="list">
             {list.map((def) => (
               <button

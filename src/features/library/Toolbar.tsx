@@ -1,3 +1,4 @@
+import { CompactActions, TopAction } from "@/app/Shell";
 import { useStore } from "@/app/hooks";
 import { type LibraryView, setFilter, setQuery, targetIds, ui } from "@/app/state";
 import { openExport } from "@/features/export/host";
@@ -153,9 +154,12 @@ export function LibraryToolbar({ count, total }: { count: number; total: number 
       <button type="button" className="btn small" title="Save and apply looks: develop settings, masks and effect layers" onClick={() => openLooks({ kind: "library", ids: targetIds() })}>
         Looks…
       </button>
-      <button type="button" className="btn small primary" title="Export the selected photos (Ctrl+Shift+E)" onClick={() => openExport(targetIds())}>
+      <button type="button" className="btn small primary wide-only" title="Export the selected photos (Ctrl+Shift+E)" onClick={() => openExport(targetIds())}>
         Export…
       </button>
+      <CompactActions>
+        <TopAction icon="export" label="Export" title="Export the selected photos" primary onClick={() => openExport(targetIds())} />
+      </CompactActions>
       {view === "grid" && (
         <input
           type="range"

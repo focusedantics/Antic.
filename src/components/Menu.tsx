@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { createPortal } from "react-dom";
 
 export type MenuItem =
-  | { label: string; onSelect: () => void; shortcut?: string; disabled?: boolean; danger?: boolean }
+  | { label: string; onSelect: () => void; shortcut?: string; disabled?: boolean; danger?: boolean; /** One of a set of choices, shown with a check when current. */ checked?: boolean }
   | "separator";
 
 type OpenMenu = { x: number; y: number; items: MenuItem[] };
@@ -58,7 +58,8 @@ export function MenuHost() {
           <button
             key={item.label}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+            aria-checked={item.checked}
             disabled={item.disabled}
             style={item.danger ? { color: "var(--danger)" } : undefined}
             onClick={() => {
@@ -66,6 +67,7 @@ export function MenuHost() {
               item.onSelect();
             }}
           >
+            {item.checked !== undefined && <span className="menu-check" aria-hidden="true">{item.checked ? "✓" : ""}</span>}
             {item.label}
             {item.shortcut && <span className="shortcut">{item.shortcut}</span>}
           </button>

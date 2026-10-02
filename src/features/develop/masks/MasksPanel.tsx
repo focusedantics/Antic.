@@ -370,9 +370,16 @@ export function MasksPanel() {
       title="Masks"
       actions={
         <>
-          <button type="button" className="btn small" title="Make everything but the subject transparent" disabled={removing} aria-busy={removing} onClick={() => void removeBackground()}>
-            Remove BG
-          </button>
+          {masks.some((m) => m.cutout) ? (
+            // Like Composite's "Restore background": the photo is opaque again; the mask stays to reuse.
+            <button type="button" className="btn small" title="Make the background visible again (the mask is kept)" disabled={removing} onClick={() => editRecipe("Restore background", (r) => setCutout(r, null))}>
+              Restore BG
+            </button>
+          ) : (
+            <button type="button" className="btn small" title="Make everything but the subject transparent" disabled={removing} aria-busy={removing} onClick={() => void removeBackground()}>
+              Remove BG
+            </button>
+          )}
           <button type="button" className="btn small" onClick={createMenu}>
             + Create
           </button>

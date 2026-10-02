@@ -1,4 +1,4 @@
-import type { DockItem, ShellProps } from "@/app/Shell";
+import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
@@ -491,18 +491,23 @@ function Toolbar({ onExport }: { onExport: () => void }) {
         Delete
       </button>
       <span className="spacer" />
-      <button type="button" className="btn small" disabled={!history?.status().canUndo} onClick={() => history?.undo()} title="Undo (Ctrl+Z)">
+      <button type="button" className="btn small wide-only" disabled={!history?.status().canUndo} onClick={() => history?.undo()} title="Undo (Ctrl+Z)">
         Undo
       </button>
-      <button type="button" className="btn small" disabled={!history?.status().canRedo} onClick={() => history?.redo()} title="Redo (Ctrl+Shift+Z)">
+      <button type="button" className="btn small wide-only" disabled={!history?.status().canRedo} onClick={() => history?.redo()} title="Redo (Ctrl+Shift+Z)">
         Redo
       </button>
       <button type="button" className="btn small" disabled={!edit} onClick={() => openLooks({ kind: "video" })}>
         Looks…
       </button>
-      <button type="button" className="btn small primary" disabled={!edit || !canCodec} onClick={onExport} title="Export (Ctrl+Shift+E)">
+      <button type="button" className="btn small primary wide-only" disabled={!edit || !canCodec} onClick={onExport} title="Export (Ctrl+Shift+E)">
         Export…
       </button>
+      <CompactActions>
+        <TopAction icon="undo" label="Undo" disabled={!history?.status().canUndo} onClick={() => history?.undo()} />
+        <TopAction icon="redo" label="Redo" disabled={!history?.status().canRedo} onClick={() => history?.redo()} />
+        <TopAction icon="export" label="Export" primary disabled={!edit || !canCodec} onClick={onExport} />
+      </CompactActions>
     </div>
   );
 }

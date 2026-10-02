@@ -17,7 +17,7 @@ import { Icon } from "@/components/icons";
 import { openMenu } from "@/components/Menu";
 import { startTour } from "@/features/tour/tour";
 import { useStore } from "./hooks";
-import { layout, openSheet } from "./layout";
+import { actionsSlot, layout, openSheet } from "./layout";
 import { PanelToggles, Shell } from "./Shell";
 import { prefs, setPrefs } from "./prefs";
 import { handleKey } from "./shortcuts";
@@ -67,6 +67,9 @@ function Toast() {
   );
 }
 
+// Stable, so the slot is registered once rather than on every render.
+const setActionsSlot = (element: HTMLDivElement | null) => actionsSlot.setState({ element });
+
 /** A phone's top bar: the mark, the workspaces, and a menu for everything else. */
 function CompactTopbar({ workspace }: { workspace: Workspace }) {
   const backdrop = useStore(prefs, (s) => s.backdrop);
@@ -74,14 +77,23 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
   return (
     <header className="topbar compact">
       <span className="brand-mark" aria-label="Focused" role="img" />
-      <nav className="modules" aria-label="Workspaces">
-        {modules.map((m) => (
-          <button key={m.id} type="button" className="module" aria-current={workspace === m.id ? "page" : undefined} onClick={() => setWorkspace(m.id)}>
-            {m.label}
-          </button>
-        ))}
-      </nav>
+      {/* The workspaces fold into one switcher so the actions fit beside it. */}
+      <button
+        type="button"
+        className="module workspace-switch"
+        aria-label={`Workspace: ${modules.find((m) => m.id === workspace)?.label}`}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          openMenu(r.left, r.bottom + 4, modules.map((m) => ({ label: m.label, checked: m.id === workspace, onSelect: () => setWorkspace(m.id) })));
+        }}
+      >
+        {modules.find((m) => m.id === workspace)?.label}
+        <Icon name="chevron" size={14} />
+      </button>
       <ImportStatus />
+      <span className="spacer" />
+      <div className="top-actions" ref={setActionsSlot} />
       <button
         type="button"
         className="tool-btn more"
@@ -112,6 +124,10 @@ export function App() {
   const compact = useStore(layout, (s) => s.compact);
   // A phone's panel sheet belongs to the workspace it was opened in.
   useEffect(() => openSheet(null), [workspace]);
+  // Dialogs and the effects browser render outside .app; they read the layout from the root.
+  useEffect(() => {
+    document.documentElement.dataset.compact = String(compact);
+  }, [compact]);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {

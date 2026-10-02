@@ -18,3 +18,6 @@ export const layout = createStore<{ compact: boolean; sheet: SheetSide | null }>
 media?.addEventListener("change", (e) => layout.setState({ compact: e.matches, sheet: null }));
 
 export const openSheet = (sheet: SheetSide | null) => layout.setState({ sheet });
+
+/** Where a phone's top bar shows the current workspace's actions (undo, redo, export); see `CompactActions`. */
+export const actionsSlot = createStore<{ element: HTMLElement | null }>(() => ({ element: null }));

@@ -1,4 +1,4 @@
-import type { DockItem, ShellProps } from "@/app/Shell";
+import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
@@ -309,10 +309,10 @@ function Toolbar({ onExport }: { onExport: () => void }) {
           1:1
         </button>
       </div>
-      <button type="button" className="btn small" disabled={!history?.status().canUndo} onClick={() => history?.undo()} title="Undo (Ctrl+Z)">
+      <button type="button" className="btn small wide-only" disabled={!history?.status().canUndo} onClick={() => history?.undo()} title="Undo (Ctrl+Z)">
         Undo
       </button>
-      <button type="button" className="btn small" disabled={!history?.status().canRedo} onClick={() => history?.redo()} title="Redo (Ctrl+Shift+Z)">
+      <button type="button" className="btn small wide-only" disabled={!history?.status().canRedo} onClick={() => history?.redo()} title="Redo (Ctrl+Shift+Z)">
         Redo
       </button>
       <button type="button" className="btn small" disabled={!doc} onClick={(e) => addLayerMenu(e.clientX, e.clientY)}>
@@ -324,9 +324,14 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       <button type="button" className="btn small" disabled={!doc} onClick={() => openLooks({ kind: "composite" })} title="Save this composition's effects and edits as a look, or apply one">
         Looks…
       </button>
-      <button type="button" className="btn small primary" disabled={!doc} onClick={onExport} title="Export (Ctrl+Shift+E)">
+      <button type="button" className="btn small primary wide-only" disabled={!doc} onClick={onExport} title="Export (Ctrl+Shift+E)">
         Export…
       </button>
+      <CompactActions>
+        <TopAction icon="undo" label="Undo" disabled={!history?.status().canUndo} onClick={() => history?.undo()} />
+        <TopAction icon="redo" label="Redo" disabled={!history?.status().canRedo} onClick={() => history?.redo()} />
+        <TopAction icon="export" label="Export" primary disabled={!doc} onClick={onExport} />
+      </CompactActions>
     </div>
   );
 }
@@ -410,9 +415,11 @@ function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
   return false;
 }
 
-const COMPOSITE_DOCK: DockItem[] = [
+/** Phones: the documents, the layers and their properties, and the effects browser. */
+const compositeDock = (hasDoc: boolean): DockItem[] => [
   { id: "documents", label: "Documents", icon: "documents", side: "left" },
   { id: "layers", label: "Layers", icon: "layers", side: "right" },
+  { id: "effects", label: "Effects", icon: "effects", disabled: !hasDoc, onSelect: () => openEffectsBrowser() },
 ];
 
 export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> }) {
@@ -477,7 +484,7 @@ export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> 
             </>
           ) : null
         }
-        dock={COMPOSITE_DOCK}
+        dock={compositeDock(!!doc)}
       />
       <EffectsBrowserHost />
       {dialog === "new" && <NewDocumentDialog onClose={() => setDialog(null)} />}

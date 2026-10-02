@@ -27,6 +27,12 @@ async function importPhoto(page: Page) {
   await page.locator(".cell").first().click();
 }
 
+/** Phones: the workspaces are one switcher in the top bar. */
+async function switchTo(page: Page, name: string) {
+  await page.getByRole("button", { name: /^Workspace:/ }).tap();
+  await page.getByRole("menuitemradio", { name }).tap();
+}
+
 test.describe("computer", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -103,7 +109,7 @@ test.describe("phone", () => {
     await importPhoto(page);
     // Phones start without the glow, and nothing scrolls sideways.
     await expect(page.locator(".app")).toHaveAttribute("data-backdrop", "off");
-    await page.getByRole("button", { name: "Develop" }).tap();
+    await switchTo(page, "Develop");
     const dock = page.getByRole("navigation", { name: "Panels" });
     await expect(dock.getByRole("button", { name: "Edit" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -147,7 +153,7 @@ test.describe("phone", () => {
 
   test("pinch zooms the photo, double tap fits it again", async ({ page }) => {
     await importPhoto(page);
-    await page.getByRole("button", { name: "Develop" }).tap();
+    await switchTo(page, "Develop");
     const view = page.locator(".develop-view");
     await expect(page.locator(".toolbar .dim.num").first()).toHaveText("Fit", { timeout: 30_000 });
     await page.waitForTimeout(500);
@@ -189,14 +195,66 @@ test.describe("phone", () => {
     await expect(page.getByRole("menuitem", { name: "Import Folder…" })).toBeVisible();
     await page.getByRole("menuitem", { name: /Glow background/ }).tap();
     await expect(page.locator(".app")).toHaveAttribute("data-backdrop", "on");
-    await page.getByRole("button", { name: "Develop" }).tap();
-    // The export button sits in the scrolling toolbar.
-    await page.getByRole("button", { name: "Export…" }).first().tap();
+    await switchTo(page, "Develop");
+    // Export sits in the top bar on a phone.
+    await page.getByRole("banner").getByRole("button", { name: "Export", exact: true }).tap();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByTestId("device-cap")).toContainText("4096 px");
     expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(390);
     // The marble is still there, holding the photo, but still.
     await expect(dialog.getByTestId("export-marble")).toBeVisible();
+  });
+  test("undo, redo and export live in the top bar, not in the scrolling toolbar", async ({ page }) => {
+    await importPhoto(page);
+    await switchTo(page, "Develop");
+    const bar = page.getByRole("banner");
+    const undo = bar.getByRole("button", { name: "Undo", exact: true });
+    await expect(undo).toBeDisabled();
+    await expect(bar.getByRole("button", { name: "Export", exact: true })).toBeVisible();
+    // The toolbar's own copies are hidden on a phone.
+    await expect(page.getByRole("toolbar", { name: "Develop view" }).getByRole("button", { name: "Undo" })).toBeHidden();
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+    const slider = page.getByTestId("sheet").getByRole("slider", { name: "Exposure" });
+    await slider.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(slider).not.toHaveAttribute("aria-valuenow", "0");
+    await undo.tap();
+    await expect(slider).toHaveAttribute("aria-valuenow", "0");
+    await bar.getByRole("button", { name: "Redo", exact: true }).tap();
+    await expect(slider).not.toHaveAttribute("aria-valuenow", "0");
+    // Each workspace brings its own; the workspace menu marks the current one.
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await expect(page.getByRole("menuitemradio", { name: "Develop" })).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("menuitemradio", { name: "Library" }).tap();
+    await expect(bar.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "Export", exact: true })).toBeVisible();
+  });
+
+  test("the effects browser fills the phone: search, category chips and two columns", async ({ page }) => {
+    await importPhoto(page);
+    await switchTo(page, "Composite");
+    await page.getByRole("button", { name: /Start from 1 selected/ }).tap();
+    const dock = page.getByRole("navigation", { name: "Panels" });
+    await expect(dock.getByRole("button", { name: "Effects" })).toBeEnabled({ timeout: 15_000 });
+    await dock.getByRole("button", { name: "Effects" }).tap();
+    const browser = page.getByRole("dialog", { name: "Effects" });
+    const box = (await browser.boundingBox())!;
+    expect(box.width).toBeLessThanOrEqual(390);
+    expect(box.height).toBeGreaterThan(600);
+    // The keyboard does not pop up by itself.
+    await expect(browser.getByRole("searchbox", { name: "Search effects" })).not.toBeFocused();
+    await expect(browser.getByRole("button", { name: "Close" })).toBeInViewport();
+    const cards = browser.locator(".fx-card");
+    const [a, b] = [(await cards.nth(0).boundingBox())!, (await cards.nth(1).boundingBox())!];
+    expect(Math.abs(a.y - b.y)).toBeLessThan(2); // side by side
+    expect(b.x + b.width).toBeLessThanOrEqual(390);
+    await browser.getByRole("button", { name: /^Animated/ }).tap();
+    await expect(browser.getByRole("button", { name: /^Animated/ })).toHaveAttribute("aria-current", "true");
+    await cards.first().tap();
+    await expect(browser).toHaveCount(0);
+    // The effect is a new layer over the photo.
+    await dock.getByRole("button", { name: "Layers" }).tap();
+    await expect(page.getByTestId("sheet").locator(".layer-row")).toHaveCount(2);
   });
 });
 
