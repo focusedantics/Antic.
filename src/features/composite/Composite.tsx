@@ -27,6 +27,7 @@ import { saveLook } from "@/core/looks/store";
 import { ExportDocumentDialog } from "./ExportDocument";
 import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { CompositeView, zoomComposite } from "./View";
+import { brush } from "@/features/develop/masks/brush";
 
 type ShellProps = { left: ReactNode; center: ReactNode; right: ReactNode };
 
@@ -376,6 +377,11 @@ function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
     return true;
   }
   if (mod) return false;
+  // Mask brush size while painting a layer mask.
+  if ((key === "[" || key === "]") && composite.getState().tool === "mask") {
+    brush.setState((st) => ({ size: key === "]" ? Math.min(0.4, st.size * 1.15) : Math.max(0.0005, st.size / 1.15) }));
+    return true;
+  }
   if (key === "delete" || key === "backspace") {
     deleteSelected();
     return true;

@@ -463,3 +463,89 @@ test("video: a 28.96 fps clip exports to both MP4 formats with every frame; time
     expect(mp4Samples(out.bytes).frames).toBe(60);
   }
 });
+
+test("composite: layer mask brush size and feather change what is painted", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
+  await page.locator(".cell").first().click();
+  await page.keyboard.press("c");
+  await page.getByRole("button", { name: /Start from 1 selected/ }).click();
+  await expect(page.locator(".layer-row")).toHaveCount(1);
+  // A red fill layer, hidden by an empty mask, revealed by brush dabs.
+  await page.getByRole("button", { name: "+ Layer" }).click();
+  await page.getByRole("menuitem", { name: "Solid Color" }).click();
+  await page.getByLabel("Fill color").fill("#ff0000");
+  await page.getByRole("button", { name: "Add layer mask" }).click();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Reveal: Brush" }).click();
+  const panel = page.getByTestId("mask-brush");
+  await expect(panel).toBeVisible();
+  const size = panel.getByRole("slider", { name: "Size" });
+  const feather = panel.getByRole("slider", { name: "Feather" });
+  const view = page.locator(".composite-view");
+  const box = (await view.boundingBox())!;
+  const rowA = box.y + box.height * 0.3;
+  const rowB = box.y + box.height * 0.7;
+  const dab = async (fx: number, y: number) => {
+    await page.mouse.move(box.x + box.width * fx, y);
+    await page.mouse.down();
+    await page.mouse.up();
+  };
+  const setFeather = async (key: "Home" | "End") => {
+    await feather.focus();
+    await page.keyboard.press(key);
+    await expect(feather).toHaveAttribute("aria-valuenow", key === "Home" ? "0" : "100");
+  };
+  const grow = async (times: number, key: "[" | "]") => {
+    await view.hover();
+    for (let i = 0; i < times; i++) await page.keyboard.press(key);
+  };
+  // Row A: size. A small hard dab, then a bigger hard one (] five times ≈ 2×).
+  await setFeather("Home");
+  const small = Number(await size.getAttribute("aria-valuenow"));
+  await dab(0.3, rowA);
+  await grow(5, "]");
+  expect(Number(await size.getAttribute("aria-valuenow"))).toBeGreaterThan(small * 1.8);
+  await dab(0.7, rowA);
+  // Row B: feather. Same (bigger) size, hard then fully feathered.
+  await dab(0.3, rowB);
+  await setFeather("End");
+  await dab(0.7, rowB);
+  await page.waitForTimeout(800);
+  const shot = (await view.screenshot()).toString("base64");
+  const rows = await page.evaluate(
+    async ([png, ya, yb]) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+      const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const g = c.getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      const measure = (y: number, from: number, to: number) => {
+        const row = g.getImageData(0, Math.round(y), bitmap.width, 1).data;
+        // Redness: red channel minus the larger of green/blue (the photo under it is not red).
+        const red = (x: number) => row[x * 4] - Math.max(row[x * 4 + 1], row[x * 4 + 2]);
+        let peak = 0;
+        for (let x = from; x < to; x++) peak = Math.max(peak, red(x));
+        let covered = 0;
+        let soft = 0;
+        for (let x = from; x < to; x++) {
+          const r = red(x) / Math.max(1, peak);
+          if (r > 0.5) covered++;
+          if (r > 0.08 && r < 0.85) soft++;
+        }
+        return { peak, covered, soft };
+      };
+      const w = bitmap.width;
+      const half = (y: number) => [measure(y, Math.floor(w * 0.1), Math.floor(w * 0.5)), measure(y, Math.floor(w * 0.5), Math.floor(w * 0.9))];
+      return { a: half(ya), b: half(yb) };
+    },
+    [shot, rowA - box.y, rowB - box.y] as const,
+  );
+  const [smallHard, bigHard] = rows.a;
+  const [hard, soft] = rows.b;
+  for (const m of [smallHard, bigHard, hard, soft]) expect(m.peak).toBeGreaterThan(60);
+  // Size: the bigger brush paints a dab about twice as wide.
+  expect(bigHard.covered).toBeGreaterThan(smallHard.covered * 1.7);
+  // Feather: same size, but a far softer edge.
+  expect(hard.soft).toBeLessThan(8);
+  expect(soft.soft).toBeGreaterThan(hard.soft * 4 + 10);
+});

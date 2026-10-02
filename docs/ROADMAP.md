@@ -133,7 +133,9 @@ Done:
   tone, vibrance, saturation, B&W) and groups.
 - Per layer: visibility, lock, opacity, fill opacity (Photoshop semantics for the special
   modes), 24 blend modes, clipping masks, transform (move, scale, rotate, flip, perspective),
-  crop, editable layer masks (brush, linear, radial; add/subtract; invert; density).
+  crop, editable layer masks (brush, linear, radial; add/subtract; invert; density). While
+  editing a mask: brush paint/erase, size (in canvas pixels, [ and ] to change), feather,
+  flow and density; radial gradients have size and feather.
 - GPU compositing in premultiplied display space following the W3C spec; groups isolate.
 - Tools: click-select topmost layer, drag handles, rotate knob, Ctrl-drag perspective,
   snapping to canvas, guides and other layers (Alt bypasses), rulers → guides, align and

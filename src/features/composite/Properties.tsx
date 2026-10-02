@@ -16,6 +16,7 @@ import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
 import { EffectParams } from "@/features/effects/EffectParams";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
+import { brush } from "@/features/develop/masks/brush";
 
 const set = (id: string, label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayer(d, id, change));
 
@@ -136,6 +137,7 @@ function MaskSection({ layer }: { layer: Layer }) {
     composite.setState({ maskLayerId: layer.id, maskComponentId: component.id, tool: "mask" });
   };
   const editing = maskLayerId === layer.id;
+  const active = mask.components.find((c) => c.id === maskComponentId) ?? null;
   return (
     <>
       <div className="subhead">Layer Mask</div>
@@ -178,6 +180,7 @@ function MaskSection({ layer }: { layer: Layer }) {
           </button>
         </div>
       ))}
+      {editing && active && <MaskToolControls layer={layer} component={active} />}
       <div className="row wrap" style={{ marginTop: 4 }}>
         <button type="button" className="btn small" onClick={(e) => openMenu(e.clientX, e.clientY, (["brush", "linear", "radial"] as const).map((k) => ({ label: `Reveal: ${shapeLabels[k]}`, onSelect: () => add(k, "add") })))}>
           Add
@@ -196,6 +199,86 @@ function MaskSection({ layer }: { layer: Layer }) {
       </p>
     </>
   );
+}
+
+/**
+ * Controls for the mask part being edited: the brush (paint/erase, size,
+ * feather, flow, density; tool settings shared with Develop) or a radial
+ * gradient's size and feather (stored in the mask).
+ */
+function MaskToolControls({ layer, component }: { layer: Layer; component: MaskComponent }) {
+  const b = useStore(brush, (st) => st);
+  const doc = useStore(composite, (st) => st.doc);
+  const shape = component.shape;
+  const setShape = (label: string, next: MaskComponent["shape"]) =>
+    set(layer.id, label, (l) => ({ ...l, mask: l.mask ? { ...l.mask, components: l.mask.components.map((c) => (c.id === component.id ? { ...c, shape: next } : c)) } : null }));
+  if (shape.kind === "brush") {
+    const docLong = doc ? Math.max(doc.width, doc.height) : 1000;
+    return (
+      <div className="mask-tool" data-testid="mask-brush">
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+          <div className="segmented" role="group" aria-label="Brush mode">
+            <button type="button" aria-pressed={!b.erase} onClick={() => brush.setState({ erase: false })}>
+              Paint
+            </button>
+            <button type="button" aria-pressed={b.erase} title="Erase (hold Alt)" onClick={() => brush.setState({ erase: true })}>
+              Erase
+            </button>
+          </div>
+          <button type="button" className="btn small" disabled={!shape.strokes.length} onClick={() => setShape("Clear brush", { kind: "brush", strokes: [] })}>
+            Clear
+          </button>
+        </div>
+        <Slider
+          label="Size"
+          value={Math.max(1, Math.round(b.size * docLong))}
+          min={1}
+          max={Math.round(docLong * 0.4)}
+          defaultValue={Math.round(docLong * 0.06)}
+          format={(v) => `${v}px`}
+          onChange={(v) => brush.setState({ size: Math.max(0.0005, v / docLong) })}
+        />
+        <Slider label="Feather" value={Math.round(b.feather * 100)} min={0} max={100} defaultValue={60} format={(v) => `${v}%`} onChange={(v) => brush.setState({ feather: v / 100 })} />
+        <Slider label="Flow" value={Math.round(b.flow * 100)} min={1} max={100} defaultValue={80} format={(v) => `${v}%`} onChange={(v) => brush.setState({ flow: v / 100 })} />
+        <Slider label="Density" value={Math.round(b.density * 100)} min={1} max={100} defaultValue={100} format={(v) => `${v}%`} onChange={(v) => brush.setState({ density: v / 100 })} />
+        <p className="faint" style={{ fontSize: 10, margin: "2px 0 0" }}>
+          Paint on the canvas. [ and ] change the size, Alt erases. Size and feather apply to new strokes.
+        </p>
+      </div>
+    );
+  }
+  if (shape.kind === "radial") {
+    const size = Math.round(Math.max(shape.radiusX, shape.radiusY) * 100);
+    return (
+      <div className="mask-tool" data-testid="mask-radial">
+        <Slider
+          label="Size"
+          value={size}
+          min={1}
+          max={300}
+          defaultValue={size}
+          format={(v) => `${v}%`}
+          onGestureStart={() => beginDocGesture("Mask size")}
+          onGestureEnd={endDocGesture}
+          onChange={(v) => {
+            const k = v / Math.max(1, size);
+            setShape("Mask size", { ...shape, radiusX: Math.max(0.005, shape.radiusX * k), radiusY: Math.max(0.005, shape.radiusY * k) });
+          }}
+        />
+        <Slider label="Feather" value={shape.feather} min={0} max={100} defaultValue={50} format={(v) => `${v}%`} onGestureStart={() => beginDocGesture("Mask feather")} onGestureEnd={endDocGesture} onChange={(v) => setShape("Mask feather", { ...shape, feather: v })} />
+        <p className="faint" style={{ fontSize: 10, margin: "2px 0 0" }}>
+          Drag on the canvas to place it.
+        </p>
+      </div>
+    );
+  }
+  if (shape.kind === "linear")
+    return (
+      <p className="faint mask-tool" style={{ fontSize: 10 }}>
+        Drag on the canvas: full at the start of the drag, fading to nothing at the end. A longer drag gives a softer edge.
+      </p>
+    );
+  return null;
 }
 
 function stopsCss(g: Gradient) {

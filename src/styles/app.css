@@ -438,3 +438,5 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 .look-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px; background: var(--panel-2); border: 1px solid transparent; }
 .look-row[aria-current="true"] { border-color: var(--accent); }
 .look-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mask-tool { margin: 6px 0 4px; padding: 8px; border-radius: 6px; background: var(--panel-2); }

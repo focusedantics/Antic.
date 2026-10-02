@@ -80,7 +80,7 @@ with import-by-copy and download-based export.
 | Develop | **1** fit · **2** 100 % · **3** 200 % · **5 / Y** cycle before/after · **\\** toggle before · **J** clipping · **R** crop · **M** masks · **B** brush mask · **Q** heal · **W** white balance selector · **Shift+U** auto white balance · **[ ]** brush size · **O** mask overlay · **Space** pan · **Ctrl+Z / Ctrl+Shift+Z** undo/redo · **Ctrl+Shift+C / V** copy/paste settings · **Ctrl+Shift+E** export |
 | Video | **Space** play/pause · **J / K / L** back 1 s / stop / play · **← / →** step a frame (Shift: 1 s) · **Home / End** start/end · **S** split · **R** reverse · **T** stutter · **Delete** delete segment · **Ctrl+D** duplicate · **Ctrl+C / X / V** copy, cut, paste at the playhead · **Ctrl+A** select all · **+ / − / 0** zoom the timeline in, out, to fit (or its − Fit + buttons, or Ctrl+scroll) · **Ctrl+Z** undo · **Ctrl+Shift+E** export |
 | Library | **Ctrl+Shift+E** export the selected photos |
-| Composite | **Shift+E** effects browser · **V** move · **1** fit · **2** 100 % · **arrows** nudge (Shift ×10) · **Ctrl+J** duplicate · **Ctrl+G / Ctrl+Shift+G** group/ungroup · **Ctrl+Alt+G** clipping mask · **Ctrl+[ ]** arrange · **Ctrl+;** guides · **Delete** delete layer · **Ctrl+Z** undo |
+| Composite | **Shift+E** effects browser · **V** move · **1** fit · **2** 100 % · **arrows** nudge (Shift ×10) · **Ctrl+J** duplicate · **Ctrl+G / Ctrl+Shift+G** group/ungroup · **Ctrl+Alt+G** clipping mask · **Ctrl+[ ]** arrange · **Ctrl+;** guides · **Delete** delete layer · **Ctrl+Z** undo · **[ / ]** mask brush size (while painting a mask) |
 
 ## Documentation
 
