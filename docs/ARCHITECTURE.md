@@ -347,7 +347,9 @@ return blank or stale pixels without any error.
   `.vid-editor` paint their old surround colours in CSS. With the glow off the screen is
   unchanged; with it on, image pixels are unchanged (they are opaque). Each workspace
   has a look in `looks.ts` (two colours, angle, size, speed, brightness); the glow
-  blends to the active workspace's look over about 1.2 s. It renders at a capped field
+  blends to the active workspace's look over about 1.2 s. It holds still while
+  anything calls `holdMotion()` (`lib/motion.ts`); the Video workspace does so while a
+  clip plays or exports, so playback has the GPU to itself. It renders at a capped field
   resolution and 30 fps (15 on software GL), pauses in hidden tabs, holds still under
   `prefers-reduced-motion`, and frees its context when switched off.
 - **Prefs** (`app/prefs.ts`): the glow on/off and whether the tour was finished, in

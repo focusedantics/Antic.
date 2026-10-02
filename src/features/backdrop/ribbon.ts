@@ -163,7 +163,11 @@ type Gl = {
   h: number;
 };
 
-export type RibbonOptions = { reducedMotion: boolean };
+export type RibbonOptions = {
+  reducedMotion: boolean;
+  /** Keep the current frame on screen and draw nothing (e.g. while a video plays). */
+  held?: boolean;
+};
 
 /**
  * Draws the glow into a canvas of its own inside `host` until `dispose()`.
@@ -318,7 +322,7 @@ export class RibbonGlow {
   private render = (now: number) => {
     this.raf = requestAnimationFrame(this.render);
     const g = this.g;
-    if (!g || document.hidden) {
+    if (!g || document.hidden || this.options.held) {
       this.last = -1;
       return;
     }

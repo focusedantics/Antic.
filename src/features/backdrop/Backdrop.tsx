@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useStore } from "@/app/hooks";
 import { prefs } from "@/app/prefs";
 import { ui } from "@/app/state";
+import { motion } from "@/lib/motion";
 import { LOOKS } from "./looks";
 import { RibbonGlow } from "./ribbon";
 
@@ -28,6 +29,7 @@ function Glow() {
   const glow = useRef<RibbonGlow | null>(null);
   const workspace = useStore(ui, (s) => s.workspace);
   const still = useSyncExternalStore(subscribeMotion, reducedMotion);
+  const held = useStore(motion, (s) => s.holds > 0);
 
   useEffect(() => {
     const g = new RibbonGlow(ref.current!, LOOKS[ui.getState().workspace], { reducedMotion: reducedMotion() });
@@ -38,7 +40,7 @@ function Glow() {
     };
   }, []);
   useEffect(() => glow.current?.setLook(LOOKS[workspace]), [workspace]);
-  useEffect(() => glow.current?.setOptions({ reducedMotion: still }), [still]);
+  useEffect(() => glow.current?.setOptions({ reducedMotion: still, held }), [still, held]);
 
   return <div ref={ref} className="backdrop" data-testid="backdrop" data-look={workspace} aria-hidden="true" />;
 }

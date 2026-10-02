@@ -15,6 +15,7 @@ import { DestinationPicker, initialDestination, ProgressBar, WatermarkEditor } f
 import { EffectsBrowserHost } from "@/features/effects/EffectsBrowser";
 import { formatBytes } from "@/features/library/format";
 import { openLooks } from "@/features/looks/LooksDialog";
+import { holdMotion } from "@/lib/motion";
 import "@/styles/video.css";
 import {
   copySelected,
@@ -437,6 +438,9 @@ export default function VideoWorkspace({ Shell }: { Shell: ComponentType<ShellPr
   const clips = useStore(video, (s) => s.clips);
   const [exporting, setExporting] = useState(false);
   const openedRef = useRef<string | null>(null);
+  const playing = useStore(player, (s) => s.playing);
+  // The glow backdrop holds still while the video plays or exports.
+  useEffect(() => (playing || exporting ? holdMotion() : undefined), [playing, exporting]);
 
   useEffect(() => {
     void refreshClips().then(() => {

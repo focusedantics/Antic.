@@ -60,3 +60,17 @@ describe("prefs", () => {
     expect(sanitizePrefs({ backdrop: false, tourDone: "yes" })).toEqual({ backdrop: false, tourDone: false });
   });
 });
+
+describe("motion holds", () => {
+  it("holds until every hold is released, and a release counts once", async () => {
+    const { holdMotion, motion } = await import("@/lib/motion");
+    const a = holdMotion();
+    const b = holdMotion();
+    expect(motion.getState().holds).toBe(2);
+    a();
+    a();
+    expect(motion.getState().holds).toBe(1);
+    b();
+    expect(motion.getState().holds).toBe(0);
+  });
+});
