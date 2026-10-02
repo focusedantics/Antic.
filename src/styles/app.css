@@ -540,12 +540,49 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .tool-icon:active:not(:disabled) { background: var(--panel-3); }
 .topbar.compact .progress-pill { max-width: 38vw; overflow: hidden; white-space: nowrap; }
 .topbar.compact .progress-bar { display: none; }
+/* Import (phone Library): Liquid Glass, centred in the top bar. Layers, back to front:
+   the newest photo seen through the glass (blurred, magnified, saturated: refraction),
+   a clear body with a warm tint, rim lights and a soft drop shadow, a specular arc, and
+   a faint chromatic fringe on the edge. */
+.topbar.compact { position: relative; }
 .import-pill {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 36px; padding: 0 14px 0 10px; border-radius: 18px;
-  border: 1px solid var(--accent); background: #3a3222; color: var(--accent-strong); font-size: 13px; font-weight: 600;
+  position: absolute; left: 50%; top: calc(env(safe-area-inset-top) + 22px); transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px 0 12px; border-radius: 19px;
+  isolation: isolate; overflow: hidden; z-index: 1;
+  border: 1px solid rgb(255 255 255 / 0.26);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0.05) 55%, rgb(240 184 76 / 0.14));
+  -webkit-backdrop-filter: blur(14px) saturate(180%); backdrop-filter: blur(14px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0.5px rgb(255 255 255 / 0.7),
+    inset 0 -1px 1px rgb(255 255 255 / 0.2),
+    inset 0 0 14px rgb(255 255 255 / 0.1),
+    0 8px 20px rgb(0 0 0 / 0.45),
+    0 1px 2px rgb(0 0 0 / 0.5);
+  color: #fff; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
   touch-action: manipulation;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
 }
-.import-pill:active { background: #4a3f2a; }
+.import-pill svg { color: var(--accent-strong); filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5)); }
+.import-pill .glass-behind {
+  position: absolute; inset: -40%; z-index: -2; pointer-events: none;
+  background: var(--glass-image, radial-gradient(circle at 30% 40%, #d9a441, transparent 60%), radial-gradient(circle at 75% 70%, #4f7fd0, transparent 55%), #2b2b2b) center / cover;
+  filter: blur(9px) saturate(1.8) brightness(0.75);
+  transform: scale(1.25);
+}
+.import-pill .glass-shine {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit;
+  background:
+    radial-gradient(120% 90% at 28% -20%, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0) 55%),
+    radial-gradient(80% 60% at 80% 130%, rgb(255 255 255 / 0.18), rgb(255 255 255 / 0) 60%);
+}
+.import-pill::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: linear-gradient(120deg, rgb(140 210 255 / 0.55), rgb(255 255 255 / 0) 35%, rgb(255 255 255 / 0) 65%, rgb(255 170 120 / 0.5));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.import-pill:active { transform: translate(-50%, -50%) scale(0.94); box-shadow: inset 0 1px 0.5px rgb(255 255 255 / 0.8), inset 0 0 18px rgb(255 255 255 / 0.18), 0 4px 12px rgb(0 0 0 / 0.45); }
+@media (prefers-reduced-motion: reduce) { .import-pill { transition: none; } }
 .tool-btn.more { width: 40px; height: 40px; color: var(--text-dim); border-radius: 50%; flex: none; }
 .workspace.compact { display: flex; flex-direction: column; min-height: 0; }
 .workspace.compact > .center { flex: 1 0 140px; min-height: 140px; }

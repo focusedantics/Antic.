@@ -1,3 +1,4 @@
+import { useImageUrl } from "./thumbs";
 import { type DragEvent, lazy, Suspense, useEffect, useState } from "react";
 import { ActivityBar } from "./ActivityBar";
 import { MenuHost } from "@/components/Menu";
@@ -67,11 +68,30 @@ function Toast() {
   );
 }
 
-/** A phone's Library: importing is the first thing to do, so it gets a clear button in the top bar (with progress while it runs). */
+/**
+ * A phone's Library: importing is the first thing to do, so it gets a clear
+ * button centred in the top bar (with progress while it runs), in Liquid Glass:
+ * the newest photo seen through the glass (blurred, magnified, saturated), with
+ * rim lights, a specular arc and a faint chromatic edge (app.css).
+ */
 function ImportPill() {
   const p = useStore(importProgress, (s) => s);
+  const newestId = useStore(catalog, (s) => {
+    let last: string | undefined;
+    for (const id of s.assets.keys()) last = id;
+    return last;
+  });
+  const url = useImageUrl(newestId ? catalog.getState().assets.get(newestId) : undefined, "thumb");
   return (
-    <button type="button" className="import-pill" aria-label="Import photos" onClick={() => void pickFiles()}>
+    <button
+      type="button"
+      className="import-pill"
+      aria-label="Import photos"
+      style={url ? ({ "--glass-image": `url("${url}")` } as React.CSSProperties) : undefined}
+      onClick={() => void pickFiles()}
+    >
+      <span className="glass-behind" aria-hidden="true" />
+      <span className="glass-shine" aria-hidden="true" />
       <Icon name="plus" size={18} />
       <span className="num">{p.active ? `${p.done}/${p.total}` : "Import"}</span>
     </button>
@@ -102,14 +122,7 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
         {modules.find((m) => m.id === workspace)?.label}
         <Icon name="chevron" size={14} />
       </button>
-      {workspace === "library" ? (
-        <>
-          <span className="spacer" />
-          <ImportPill />
-        </>
-      ) : (
-        <ImportStatus />
-      )}
+      {workspace === "library" ? <ImportPill /> : <ImportStatus />}
       <span className="spacer" />
       <div className="top-actions" ref={setActionsSlot} />
       <button

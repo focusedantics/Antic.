@@ -72,6 +72,8 @@ test.describe("iPhone", () => {
     await expect(pill).toBeVisible();
     const box = (await pill.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(36);
+    // Centred across the top bar (390 px wide).
+    expect(Math.abs(box.x + box.width / 2 - 195)).toBeLessThan(2);
     const buffer = await jpeg(page);
     for (const name of ["IMG_1.JPG", "IMG_2.JPG"]) {
       const [chooser] = await Promise.all([page.waitForEvent("filechooser"), pill.tap()]);
