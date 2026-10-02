@@ -2,7 +2,8 @@ import { type ComponentType, type ReactNode, useEffect, useRef, useState } from 
 import { useStore } from "@/app/hooks";
 import { registerShortcuts } from "@/app/shortcuts";
 import { toast } from "@/app/state";
-import { Dialog } from "@/components/Menu";
+import { Dialog, openMenu } from "@/components/Menu";
+import { domHits, useSweepSelect } from "@/components/sweep";
 import { Panel } from "@/components/Panel";
 import { getVideo } from "@/core/catalog/db";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
@@ -22,7 +23,9 @@ import {
   cutSelected,
   deleteSelected,
   duplicateSelected,
+  editor,
   insertClip,
+  insertClips,
   pasteAtPlayhead,
   POOPISMS,
   select,
@@ -55,9 +58,44 @@ export function pickVideos() {
   input.click();
 }
 
+/** Menu for the picked clips (right-click, or after a right-click sweep): open, insert, remove. */
+function clipMenu(x: number, y: number) {
+  const { clips, openId } = video.getState();
+  const picked = new Set(editor.getState().clipSelection);
+  const chosen = clips.filter((c) => picked.has(c.id));
+  if (!chosen.length) return;
+  const what = chosen.length > 1 ? `${chosen.length} clips` : `“${chosen[0].name}”`;
+  openMenu(x, y, [
+    ...(chosen.length === 1 ? [{ label: "Open", onSelect: () => void openClip(chosen[0].id) }] : []),
+    { label: `Insert ${what} at the playhead`, disabled: !openId, onSelect: () => insertClips(chosen.map((c) => ({ id: c.id, duration: c.duration }))) },
+    "separator",
+    {
+      label: `Remove ${what}…`,
+      danger: true,
+      onSelect: async () => {
+        if (!confirm(`Remove ${what} from Focused? Files you already exported are not affected.`)) return;
+        for (const c of chosen) await removeClip(c.id);
+        editor.setState({ clipSelection: [] });
+      },
+    },
+  ]);
+}
+
 function ClipsPanel() {
   const clips = useStore(video, (s) => s.clips);
   const openId = useStore(video, (s) => s.openId);
+  const picked = useStore(editor, (s) => s.clipSelection);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Right-click and hold, then drag down the list: pick several clips to insert or remove.
+  useSweepSelect(listRef, {
+    initial: () => editor.getState().clipSelection,
+    onSelect: (ids) => editor.setState({ clipSelection: ids }),
+    onDone: (ids, x, y) => {
+      if (ids.length) clipMenu(x, y);
+    },
+    hits: (box) => domHits(listRef.current, box),
+    scroller: () => listRef.current?.closest<HTMLElement>(".side") ?? null,
+  });
   return (
     <Panel
       id="vid-clips"
@@ -69,9 +107,34 @@ function ClipsPanel() {
       }
     >
       {!clips.length && <p className="faint">Import MP4 or MOV clips to cut, mix and poop them. Your originals are never changed.</p>}
+      <div ref={listRef} className="vid-clips">
       {clips.map((c) => (
-        <div key={c.id} className="row vid-clip">
-          <button type="button" className="doc-card" aria-current={c.id === openId} onClick={() => void openClip(c.id)} title="Open this clip's timeline">
+        <div
+          key={c.id}
+          className="row vid-clip"
+          data-sweep-id={c.id}
+          data-selected={picked.includes(c.id) || undefined}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (!picked.includes(c.id)) editor.setState({ clipSelection: [c.id] });
+            clipMenu(e.clientX, e.clientY);
+          }}
+        >
+          <button
+            type="button"
+            className="doc-card"
+            aria-current={c.id === openId}
+            aria-pressed={picked.includes(c.id)}
+            onClick={(e) => {
+              if (e.ctrlKey || e.metaKey) {
+                editor.setState({ clipSelection: picked.includes(c.id) ? picked.filter((id) => id !== c.id) : [...picked, c.id] });
+                return;
+              }
+              editor.setState({ clipSelection: [] });
+              void openClip(c.id);
+            }}
+            title="Open this clip's timeline (Ctrl+click to pick several)"
+          >
             {c.poster ? <img src={c.poster} alt="" /> : <span className="ph" />}
             <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
@@ -97,6 +160,7 @@ function ClipsPanel() {
           </button>
         </div>
       ))}
+      </div>
     </Panel>
   );
 }

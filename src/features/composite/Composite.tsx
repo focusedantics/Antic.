@@ -5,7 +5,7 @@ import { toast, ui } from "@/app/state";
 import { Dialog } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
 import { type DocumentRecord, getDocument } from "@/core/catalog/db";
-import { align, type Alignment, distribute, groupLayers, locate, moveTransform, nudgeLayer, ungroup, updateLayers } from "@/core/document/operations";
+import { align, type Alignment, distribute, locate, moveTransform, nudgeLayer, ungroup, updateLayers } from "@/core/document/operations";
 import {
   composite,
   compositeHistory,
@@ -19,7 +19,7 @@ import {
 import { openProject, saveProject } from "@/core/document/project";
 import { isAnimated } from "@/core/document/animation";
 import { newDocument } from "./actions";
-import { addLayerMenu, deleteSelected, duplicateSelected, LayersPanel } from "./LayersPanel";
+import { addLayerMenu, deleteSelected, duplicateSelected, groupSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
 import { openLooks } from "@/features/looks/LooksDialog";
 import { readLookFile } from "@/core/looks/look";
@@ -355,13 +355,7 @@ function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
     return true;
   }
   if (mod && key === "g") {
-    let id: string | null = null;
-    editDocument("Group layers", (d) => {
-      const r = groupLayers(d, selection);
-      id = r.id;
-      return r.doc;
-    });
-    if (id) composite.setState({ selection: [id] });
+    groupSelected();
     return true;
   }
   if (mod && (key === "]" || key === "[")) {

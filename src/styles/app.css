@@ -455,3 +455,10 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 }
 .tool-btn:hover { color: var(--text); background: var(--panel-3); }
 .tool-btn[aria-pressed="true"] { color: var(--accent); }
+
+/* ─── Sweep selection (right-click and hold, then drag) ──────────────────── */
+.sweep-box {
+  position: fixed; z-index: 44; pointer-events: none; border-radius: 2px;
+  border: 1px solid var(--accent); background: rgb(240 184 76 / 0.12);
+}
+html.sweeping, html.sweeping * { cursor: crosshair !important; }

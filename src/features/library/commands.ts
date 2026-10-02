@@ -187,6 +187,16 @@ export function assetMenu(x: number, y: number) {
   ]);
 }
 
+/** Sweep selection over photos (grid and filmstrip): live selection, then the batch menu. */
+export const sweepAssets = {
+  initial: () => [...ui.getState().selection],
+  onSelect: (ids: string[]) =>
+    ui.setState((s) => ({ selection: new Set(ids), activeId: ids.length && !ids.includes(s.activeId ?? "") ? ids[ids.length - 1] : s.activeId })),
+  onDone: (ids: string[], x: number, y: number) => {
+    if (ids.length) assetMenu(x, y);
+  },
+};
+
 export function compare(ids: string[]) {
   if (ids.length < 2) return;
   ui.setState({ activeId: ids[0], compareId: ids[1], libraryView: "compare", workspace: "library" });

@@ -10,6 +10,8 @@ import { apply } from "@/core/develop/geometry";
 import { clamp, type Point } from "@/lib/math";
 import { brush } from "@/features/develop/masks/brush";
 import { addAssetsToComposite } from "./actions";
+import { useSweepSelect } from "@/components/sweep";
+import { sweepLayers } from "./LayersPanel";
 
 const SNAP_PX = 7;
 
@@ -75,6 +77,25 @@ type Guides = { x: number | null; y: number | null };
 
 export function CompositeView() {
   const ref = useRef<HTMLDivElement>(null);
+  // Right-click and hold, then drag on the canvas: select every layer the box touches.
+  useSweepSelect(ref, {
+    ...sweepLayers,
+    accept: (target) => !target.closest(".ruler"),
+    hits: function* (box) {
+      const doc = composite.getState().doc;
+      if (!doc) return;
+      const engine = developEngine();
+      const a = engine.clientToDoc(box.left, box.top);
+      const b = engine.clientToDoc(box.right, box.bottom);
+      const area = { left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y) };
+      // The same layers a click can pick: visible pictures, text and shapes.
+      for (const l of flatten(doc.layers)) {
+        if (!l.visible || l.kind === "group" || l.kind === "adjustment" || l.kind === "effect" || l.kind === "fill") continue;
+        const r = layerBounds(l);
+        yield [l.id, area.left <= r.x + r.width && area.right >= r.x && area.top <= r.y + r.height && area.bottom >= r.y] as const;
+      }
+    },
+  });
   useRerenderOnFrame();
   const doc = useStore(composite, (s) => s.doc);
   const selection = useStore(composite, (s) => s.selection);

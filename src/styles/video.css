@@ -47,3 +47,4 @@
 .poop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .poop-grid .btn { justify-content: center; }
 .vid-clip { gap: 2px; }
+.vid-clip[data-selected] .doc-card { background: #3a3222; color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }

@@ -4,7 +4,8 @@ import { effectById } from "@/core/effects/registry";
 import type { Segment } from "@/core/video/model";
 import { beginVideoGesture, editVideo, endVideoGesture, video } from "@/core/video/session";
 import { formatClock } from "./format";
-import { editor, moveSelection, select } from "./actions";
+import { editor, moveSelection, segmentMenu, select } from "./actions";
+import { domHits, useSweepSelect } from "@/components/sweep";
 import { engine, player } from "./engine";
 
 const RULER = 22;
@@ -55,6 +56,15 @@ export function Timeline() {
   const selection = useStore(editor, (s) => s.selection);
   const zoom = useStore(editor, (s) => s.zoom);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Right-click and hold, then drag across the timeline: select segments for batch actions.
+  useSweepSelect(scrollRef, {
+    initial: () => editor.getState().selection,
+    onSelect: (ids) => select(ids),
+    onDone: (ids, x, y) => {
+      if (ids.length) segmentMenu(x, y);
+    },
+    hits: (box) => domHits(scrollRef.current, box),
+  });
   const thumbsRef = useRef<HTMLCanvasElement>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
   const [viewWidth, setViewWidth] = useState(800);
@@ -340,6 +350,12 @@ export function Timeline() {
                     aria-selected={selected.has(s.id)}
                     style={{ left, width: w, borderColor: colorOf(s.clip) }}
                     onPointerDown={(e) => grabSegment(e, s)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      if (!selected.has(s.id)) select([s.id]);
+                      segmentMenu(e.clientX, e.clientY);
+                    }}
+                    data-sweep-id={s.id}
                     title={`${i + 1}: ${formatClock(s.in, true)}–${formatClock(s.out, true)} of ${s.clip ? (clips.find((c) => c.id === s.clip)?.name ?? "another clip") : "this clip"}`}
                     data-testid="segment"
                   >

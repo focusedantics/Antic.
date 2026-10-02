@@ -45,7 +45,7 @@ export const STEPS: readonly TourStep[] = [
     chapter: 1,
     workspace: "library",
     title: "Find the keepers",
-    body: "Walk the grid with [[←]] [[→]]. [[E]] opens one big photo, [[G]] goes back. Rate [[1]]–[[5]], pick [[P]], reject [[X]], colour label [[6]]–[[9]]. [[Shift+C]] compares two, [[N]] surveys many. Right-click a photo for more.",
+    body: "Walk the grid with [[←]] [[→]]. [[E]] opens one big photo, [[G]] goes back. Rate [[1]]–[[5]], pick [[P]], reject [[X]], colour label [[6]]–[[9]]. [[Shift+C]] compares two, [[N]] surveys many. Right-click a photo for more; right-click and hold, then drag, to sweep-select many for batch delete or add.",
     targets: sel(".workspace .center"),
   },
   {

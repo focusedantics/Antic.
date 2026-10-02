@@ -81,6 +81,7 @@ with import-by-copy and download-based export.
 | Where | Keys |
 | --- | --- |
 | Everywhere | **G** Library grid · **E** Loupe · **N** Survey · **Shift+C** Compare · **D** Develop · **C** Composite · **←/→** previous/next photo · **P/X/U** pick/reject/unflag · **6–9** color labels · **Tab** hide panels · **Shift+F** filmstrip |
+| Mouse | **Right-click and hold, then drag** sweeps a box to select many: photos in the grid or filmstrip, layers in the Layers panel or on the Composite canvas, segments on the video timeline, clips in the Videos list. Release for the batch menu (delete, add to composite or a collection, insert at the playhead…). Shift/Ctrl adds to the selection; Esc cancels. A quick right-click still opens the normal menu. |
 | Tour | **→ / Enter** next · **←** back · **Esc** close |
 | Library | **0–5** rating · **Ctrl+A** select all · **Ctrl+G** stack · **Delete** remove |
 | Develop | **1** fit · **2** 100 % · **3** 200 % · **5 / Y** cycle before/after · **\\** toggle before · **J** clipping · **R** crop · **M** masks · **B** brush mask · **Q** heal · **W** white balance selector · **Shift+U** auto white balance · **[ ]** brush size · **O** mask overlay · **Space** pan · **Ctrl+Z / Ctrl+Shift+Z** undo/redo · **Ctrl+Shift+C / V** copy/paste settings · **Ctrl+Shift+E** export |

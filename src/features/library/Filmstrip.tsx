@@ -1,10 +1,11 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef } from "react";
 import { useStore } from "@/app/hooks";
+import { domHits, useSweepSelect } from "@/components/sweep";
 import { selectAsset, ui } from "@/app/state";
 import { catalog } from "@/core/catalog/store";
 import { Thumb } from "./Cell";
-import { assetMenu } from "./commands";
+import { assetMenu, sweepAssets } from "./commands";
 import { useResults } from "./results";
 
 export function Filmstrip() {
@@ -22,6 +23,7 @@ export function Filmstrip() {
     estimateSize: () => width + 4,
     overscan: 8,
   });
+  useSweepSelect(ref, { ...sweepAssets, hits: (box) => domHits(ref.current, box) });
   useEffect(() => {
     const index = activeId ? ids.indexOf(activeId) : -1;
     if (index >= 0) virtualizer.scrollToIndex(index, { align: "auto" });
@@ -64,6 +66,7 @@ export function Filmstrip() {
               <div
                 key={id}
                 className="film-cell"
+                data-sweep-id={id}
                 role="option"
                 aria-selected={selection.has(id)}
                 data-active={id === activeId}

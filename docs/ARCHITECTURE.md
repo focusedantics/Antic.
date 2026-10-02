@@ -364,6 +364,20 @@ return blank or stale pixels without any error.
   shortcuts); other keys reach the app. The welcome card opens once for a new visitor;
   the top bar's ? button replays the tour or any chapter, and ◐ toggles the glow.
 
+## Sweep selection (`components/sweep.ts`)
+
+`useSweepSelect(host, options)` turns right-click-and-hold (280 ms) or right-drag
+(6 px) inside `host` into a selection box. It holds back the browser's `contextmenu`
+(sent on press on macOS/Linux) until it knows: a quick click re-dispatches it to the
+original target, so existing context menus work unchanged; a sweep swallows it and
+calls `onDone` for a batch menu. Items are found by `hits(box)` — `domHits` for
+elements with `data-sweep-id`, or a geometric test (the Composite canvas tests
+`layerBounds` in document space). The box is anchored in the scroller's content
+coordinates and auto-scrolls at the edges; items a virtual list unmounts keep their
+caught state (`mergeCaught`). Selections go to the surfaces' existing stores
+(`ui.selection`, `composite.selection`, the video `editor` store's `selection` and
+`clipSelection`), so every existing action applies to them.
+
 ## Activity (`lib/activity.ts`)
 
 A counter of running work, plus "pulses" for instant changes. The engine's frame

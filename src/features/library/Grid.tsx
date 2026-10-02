@@ -1,11 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
+import { domHits, useSweepSelect } from "@/components/sweep";
 import { selectAsset, setQuery, ui } from "@/app/state";
 import { catalog } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { Cell } from "./Cell";
-import { assetMenu } from "./commands";
+import { assetMenu, sweepAssets } from "./commands";
 
 export function Grid({ ids, stacks }: { ids: string[]; stacks: Map<string, { count: number; expanded: boolean }> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -70,6 +71,8 @@ export function Grid({ ids, stacks }: { ids: string[]; stacks: Map<string, { cou
     },
     [ids],
   );
+  // Right-click and hold, then drag: sweep a box over photos for batch actions.
+  useSweepSelect(scrollRef, { ...sweepAssets, hits: (box) => domHits(scrollRef.current, box) });
   const onToggleStack = useCallback((stackId: string) => {
     const { expandedStacks } = ui.getState().query;
     setQuery({

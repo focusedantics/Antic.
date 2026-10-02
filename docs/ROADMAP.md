@@ -292,6 +292,14 @@ they are photo-specific.
   look per workspace that blends on switch, pointer swirl, on/off toggle (**◐**) that
   persists. Limits: the Originkit license still needs confirming (`docs/THIRD_PARTY.md`).
 
+## Sweep selection
+
+Right-click and hold, then drag, to box-select photos (grid, filmstrip), layers (Layers
+panel, Composite canvas), timeline segments and clips in the Videos list; the batch menu
+opens on release (remove, add to composite or a collection, duplicate, group, delete,
+cut/copy, insert clips at the playhead). The Videos list gained a selection (Ctrl+click
+or sweep) and a context menu; the timeline gained a segment context menu.
+
 ## Stage 7 — Retouching
 
 Done: Develop spot removal (heal and clone) as recipe data with automatic source search,
@@ -320,6 +328,7 @@ originals; reopening relinks by fingerprint or imports the included originals).
 - `npm run e2e` — Playwright in Chromium: Library → Develop → reload persistence; a brush
   mask; composite with an AI cutout (bundled model) and PNG export; effects browser → effect
   layer → edit, swap, undo and export; the tour (welcome, skip, chapters, keys, replay)
-  and the glow (per-workspace look, photo pixels unchanged, toggle persists).
+  and the glow (per-workspace look, photo pixels unchanged, toggle persists); sweep
+  selection on every surface (quick right-click, hold, Esc, batch delete and insert).
   `E2E_BACKDROP=on` runs the workflow tests with the glow on. Set `CHROMIUM_PATH` to use
   a preinstalled Chromium.

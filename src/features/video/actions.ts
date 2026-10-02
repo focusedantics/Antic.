@@ -1,12 +1,18 @@
 import { createStore } from "zustand/vanilla";
 import { toast } from "@/app/state";
+import { openMenu } from "@/components/Menu";
 import { defaultAudioFx, defaultVisualFx, newSegment, type Segment } from "@/core/video/model";
 import { editVideo, video } from "@/core/video/session";
 import { duplicateSegments, frameAt, insertSegments, moveSegments, removeSegments, segmentIndexAt, splitAt, updateSegments } from "@/core/video/timeline";
 import { engine, player } from "./engine";
 
-/** Editor UI state: which segments are selected, timeline zoom and the segment clipboard. */
-export const editor = createStore<{ selection: readonly string[]; zoom: number | null; clipboard: readonly Segment[] }>(() => ({ selection: [], zoom: null, clipboard: [] }));
+/** Editor UI state: selected segments and clips, timeline zoom and the segment clipboard. */
+export const editor = createStore<{ selection: readonly string[]; clipSelection: readonly string[]; zoom: number | null; clipboard: readonly Segment[] }>(() => ({
+  selection: [],
+  clipSelection: [],
+  zoom: null,
+  clipboard: [],
+}));
 
 export const selectedIds = () => new Set(editor.getState().selection);
 export const select = (ids: readonly string[]) => editor.setState({ selection: ids });
@@ -104,17 +110,36 @@ export function pasteAtPlayhead() {
 
 /** Inserts a whole clip (from the Videos list) at the playhead. */
 export function insertClip(clipId: string, duration: number) {
+  insertClips([{ id: clipId, duration }]);
+}
+
+/** Inserts whole clips at the playhead, in order, as one undo step. */
+export function insertClips(clips: readonly { id: string; duration: number }[]) {
   const { openId } = video.getState();
-  if (!openId) return;
+  if (!openId || !clips.length) return;
   const at = insertionIndex();
-  const seg = newSegment(clipId === openId ? null : clipId, 0, duration);
+  const segs = clips.map((c) => newSegment(c.id === openId ? null : c.id, 0, c.duration));
   let ids: string[] = [];
-  editVideo("Insert clip", (e) => {
-    const r = insertSegments(e, at, [seg]);
+  editVideo(clips.length > 1 ? `Insert ${clips.length} clips` : "Insert clip", (e) => {
+    const r = insertSegments(e, at, segs);
     ids = r.ids;
     return r.edit;
   });
   select(ids);
+}
+
+/** The segment menu (right-click, or after a right-click sweep): batch actions on the selection. */
+export function segmentMenu(x: number, y: number) {
+  const n = editor.getState().selection.length;
+  if (!n) return;
+  const many = n > 1 ? ` ${n} segments` : "";
+  openMenu(x, y, [
+    { label: `Duplicate${many}`, shortcut: "Ctrl+D", onSelect: duplicateSelected },
+    { label: `Copy${many}`, shortcut: "Ctrl+C", onSelect: copySelected },
+    { label: `Cut${many}`, shortcut: "Ctrl+X", onSelect: cutSelected },
+    "separator",
+    { label: `Delete${many}`, shortcut: "Del", danger: true, onSelect: deleteSelected },
+  ]);
 }
 
 export function moveSelection(ids: ReadonlySet<string>, to: number) {

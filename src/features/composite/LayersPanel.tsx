@@ -1,8 +1,9 @@
-import { type DragEvent, useState } from "react";
+import { type DragEvent, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
 import { Slider } from "@/components/Slider";
+import { domHits, useSweepSelect } from "@/components/sweep";
 import { BLEND_MODES, type BlendMode, type Layer } from "@/core/document/model";
 import {
   adjustmentLayer,
@@ -100,7 +101,28 @@ export function duplicateSelected() {
   if (ids.length) composite.setState({ selection: ids });
 }
 
-function layerMenu(layer: Layer, x: number, y: number) {
+export function groupSelected() {
+  const { selection } = composite.getState();
+  if (!selection.length) return;
+  let id: string | null = null;
+  editDocument("Group layers", (d) => {
+    const r = groupLayers(d, selection);
+    id = r.id;
+    return r.doc;
+  });
+  if (id) composite.setState({ selection: [id] });
+}
+
+/** The layer menu. With several layers selected (Ctrl-click or a right-click sweep) it leads with batch actions. */
+export function layerMenu(layer: Layer, x: number, y: number) {
+  const n = composite.getState().selection.length;
+  if (n > 1)
+    return openMenu(x, y, [
+      { label: `Duplicate ${n} layers`, shortcut: "Ctrl+J", onSelect: duplicateSelected },
+      { label: `Group ${n} layers`, shortcut: "Ctrl+G", onSelect: groupSelected },
+      "separator",
+      { label: `Delete ${n} layers`, shortcut: "Del", danger: true, onSelect: deleteSelected },
+    ]);
   openMenu(x, y, [
     { label: "Duplicate", shortcut: "Ctrl+J", onSelect: duplicateSelected },
     { label: layer.clip ? "Release Clipping Mask" : "Create Clipping Mask", shortcut: "Ctrl+Alt+G", onSelect: () => editDocument("Clipping mask", (d) => updateLayer(d, layer.id, (l) => ({ ...l, clip: !l.clip }))) },
@@ -116,6 +138,7 @@ function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
   const [over, setOver] = useState<"above" | "below" | "into" | null>(null);
   const select = (e: React.MouseEvent) => {
     const { selection } = composite.getState();
+    if (e.button === 2) return; // right button: the menu or a sweep decides
     if (e.metaKey || e.ctrlKey) composite.setState({ selection: selection.includes(layer.id) ? selection.filter((id) => id !== layer.id) : [...selection, layer.id] });
     else composite.setState({ selection: [layer.id] });
   };
@@ -146,6 +169,7 @@ function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
     <>
       <div
         className="layer-row"
+        data-sweep-id={layer.id}
         role="option"
         aria-selected={selected}
         data-drop={over ?? undefined}
@@ -218,6 +242,30 @@ function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
   );
 }
 
+/** Sweep selection over layers, then the batch menu. Shared by the layer list and the canvas. */
+export const sweepLayers = {
+  initial: () => composite.getState().selection,
+  onSelect: (ids: string[]) => composite.setState({ selection: ids }),
+  onDone: (ids: string[], x: number, y: number) => {
+    const doc = composite.getState().doc;
+    const last = doc && ids.length ? locate(doc.layers, ids[ids.length - 1])?.layer : null;
+    if (last) layerMenu(last, x, y);
+  },
+};
+
+function LayerList({ layers }: { layers: readonly Layer[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useSweepSelect(ref, { ...sweepLayers, hits: (box) => domHits(ref.current, box), scroller: () => ref.current?.closest<HTMLElement>(".side") ?? null });
+  return (
+    <div ref={ref} className="layer-list" role="listbox" aria-label="Layers" aria-multiselectable>
+      {layers.length === 0 && <p className="faint">Drag photos from the filmstrip onto the canvas, or add a layer.</p>}
+      {[...layers].reverse().map((l) => (
+        <LayerRow key={l.id} layer={l} depth={0} />
+      ))}
+    </div>
+  );
+}
+
 export function LayersPanel() {
   const doc = useStore(composite, (s) => s.doc);
   const selection = useStore(composite, (s) => s.selection);
@@ -277,14 +325,9 @@ export function LayersPanel() {
           )}
         </div>
       )}
-      <div className="layer-list" role="listbox" aria-label="Layers" aria-multiselectable>
-        {doc.layers.length === 0 && <p className="faint">Drag photos from the filmstrip onto the canvas, or add a layer.</p>}
-        {[...doc.layers].reverse().map((l) => (
-          <LayerRow key={l.id} layer={l} depth={0} />
-        ))}
-      </div>
+      <LayerList layers={doc.layers} />
       <p className="faint" style={{ fontSize: 10, marginTop: 6 }}>
-        Right-click a layer for clipping masks, layer masks and grouping. Drag to reorder.
+        Right-click a layer for clipping masks, layer masks and grouping; right-click and hold, then drag, to select several. Drag to reorder.
       </p>
     </Panel>
   );

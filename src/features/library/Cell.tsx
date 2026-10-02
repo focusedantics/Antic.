@@ -42,6 +42,7 @@ export const Cell = memo(function Cell({ id, index, width, height, selected, act
   return (
     <div
       className="cell"
+      data-sweep-id={id}
       role="option"
       aria-selected={selected}
       data-active={active}
