@@ -3,6 +3,8 @@ import { ActivityBar } from "./ActivityBar";
 import { MenuHost } from "@/components/Menu";
 import { ExportHost } from "@/features/export/host";
 import { LooksHost } from "@/features/looks/LooksDialog";
+import { Backdrop } from "@/features/backdrop/Backdrop";
+import { TopbarTools, TourHost } from "@/features/tour/TourHost";
 import { importProgress, itemsFromDataTransfer } from "@/core/catalog/import";
 import { catalog, loadCatalogIntoStore } from "@/core/catalog/store";
 import { pulseActivity } from "@/lib/activity";
@@ -12,6 +14,7 @@ import { LibraryLeftPanel } from "@/features/library/LeftPanel";
 import { LibraryRightPanel } from "@/features/library/RightPanel";
 import { importFolderInPlace, pickFiles, runImport } from "@/features/library/commands";
 import { useStore } from "./hooks";
+import { prefs } from "./prefs";
 import { handleKey } from "./shortcuts";
 import { setWorkspace, toast, ui, type Workspace } from "./state";
 
@@ -74,6 +77,7 @@ function Shell({ left, center, right }: { left: React.ReactNode; center: React.R
 export function App() {
   const workspace = useStore(ui, (s) => s.workspace);
   const showFilmstrip = useStore(ui, (s) => s.showFilmstrip);
+  const backdrop = useStore(prefs, (s) => s.backdrop);
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -98,6 +102,7 @@ export function App() {
   return (
     <div
       className="app"
+      data-backdrop={backdrop ? "on" : "off"}
       onDragOver={(e) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();
@@ -114,6 +119,7 @@ export function App() {
         if (items.length) await runImport(items);
       }}
     >
+      <Backdrop />
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden />
@@ -136,6 +142,7 @@ export function App() {
             </button>
           ))}
         </nav>
+        <TopbarTools />
       </header>
       {workspace === "library" && <Shell left={<LibraryLeftPanel />} center={<LibraryCenter />} right={<LibraryRightPanel />} />}
       {workspace === "develop" && (
@@ -159,6 +166,7 @@ export function App() {
       <ActivityBar />
       <ExportHost />
       <LooksHost />
+      <TourHost />
       <MenuHost />
     </div>
   );

@@ -440,3 +440,18 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 .look-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .mask-tool { margin: 6px 0 4px; padding: 8px; border-radius: 6px; background: var(--panel-2); }
+
+/* ─── Glow backdrop ──────────────────────────────────────────────────────── */
+/* Behind everything; panels stay opaque, so it shows only around the photo in each viewer. */
+.backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: var(--bg-canvas); }
+.backdrop canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.app[data-backdrop="on"] :is(.center, .develop-view, .composite-view, .vid-editor) { background: transparent; }
+.app[data-backdrop="on"] .empty-state { text-shadow: 0 1px 10px rgb(0 0 0 / 0.85); }
+
+.topbar-tools { display: flex; gap: 2px; margin-left: 6px; padding-left: 8px; border-left: 1px solid var(--line); }
+.tool-btn {
+  width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--text-faint); font-size: 13px; line-height: 1;
+}
+.tool-btn:hover { color: var(--text); background: var(--panel-3); }
+.tool-btn[aria-pressed="true"] { color: var(--accent); }

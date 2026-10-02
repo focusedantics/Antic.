@@ -401,7 +401,8 @@ ${common}
 uniform sampler2D uImage;
 uniform sampler2D uBefore;
 uniform mat3 uCanvasToImage;
-uniform vec3 uBackground;
+/** Outside the image: transparent, so the workspace backdrop (CSS or glow) shows. Premultiplied. */
+uniform vec4 uBackground;
 uniform int uClipping;
 uniform int uSplit;
 uniform float uSplitX;
@@ -413,7 +414,7 @@ void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uCanvasToImage * vec3(px, 1.0);
   vec2 uv = h.xy / h.z;
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = vec4(uBackground, 1.0); return; }
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = uBackground; return; }
   bool before = uSplit == 1 && px.x < uSplitX;
   vec4 c = before ? texture(uBefore, uv) : texture(uImage, uv);
   vec3 rgb = toDisplay(c.rgb);

@@ -357,7 +357,7 @@ export class DevelopEngine {
     if (!src || !recipe) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-      gl.clearColor(0.05, 0.05, 0.05, 1);
+      gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       return;
     }
@@ -396,9 +396,10 @@ export class DevelopEngine {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.05, 0.05, 0.05, 1);
+    gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    const background = [0.05, 0.05, 0.05];
+    // Transparent around the image: .develop-view paints the surround (or the glow backdrop shows through).
+    const background = [0, 0, 0, 0];
     const drawRegion = (region: (typeof regions)[number], image: Target, split: boolean) => {
       const m = this.canvasToOutput(region);
       this.gpu.pass("display", S.display, {
@@ -481,7 +482,7 @@ export class DevelopEngine {
     const { doc } = composite.getState();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.075, 0.075, 0.075, 1);
+    gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     if (!doc) return;
     const scale = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));

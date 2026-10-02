@@ -282,6 +282,16 @@ they are photo-specific.
   AI, imports, exports, previews and library changes. It completes and fades out after
   at least about 0.3 s, so instant changes still register.
 
+## Onboarding and backdrop
+
+- Guided tour (`features/tour`): welcome card on the first visit (Skip or Start), eight
+  chapters following the written tutorial, a spotlight on the real UI, chapter dots,
+  Skip chapter, Skip tour, Back/Next, keyboard control, and a return to the starting
+  workspace. Replay from the top bar's **?** menu, from the start or any chapter.
+- Glow backdrop (`features/backdrop`): Originkit's ribbon glow behind the viewers, a
+  look per workspace that blends on switch, pointer swirl, on/off toggle (**◐**) that
+  persists. Limits: the Originkit license still needs confirming (`docs/THIRD_PARTY.md`).
+
 ## Stage 7 — Retouching
 
 Done: Develop spot removal (heal and clone) as recipe data with automatic source search,
@@ -309,5 +319,7 @@ originals; reopening relinks by fingerprint or imports the included originals).
   effect registry/parameter sanitizing/effect layers.
 - `npm run e2e` — Playwright in Chromium: Library → Develop → reload persistence; a brush
   mask; composite with an AI cutout (bundled model) and PNG export; effects browser → effect
-  layer → edit, swap, undo and export. Set `CHROMIUM_PATH` to use
+  layer → edit, swap, undo and export; the tour (welcome, skip, chapters, keys, replay)
+  and the glow (per-workspace look, photo pixels unchanged, toggle persists).
+  `E2E_BACKDROP=on` runs the workflow tests with the glow on. Set `CHROMIUM_PATH` to use
   a preinstalled Chromium.

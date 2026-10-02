@@ -51,7 +51,16 @@ vite (MIT), @vitejs/plugin-react (MIT), typescript (Apache-2.0), vitest (MIT),
 | OpenLight | MIT | Fitted tone operators (exposure, white balance response, highlights, shadows, whites, blacks, contrast, vibrance) ported from WGSL to GLSL | `src/core/gpu/shaders/tone.glsl.ts` |
 | OpenLight | MIT | Oklab-based color mixer approach and hue anchor angles | `src/core/gpu/shaders/mixer.glsl.ts` |
 | Björn Ottosson, Oklab | Public domain | Oklab matrices | shaders |
+| [Originkit](https://www.originkit.dev/) "Ribbon Glow 2" | **Not confirmed** (see below) | Ribbon glow field and finish shaders, pointer swirl; reworked as a class with per-workspace looks | `src/features/backdrop/ribbon.ts` |
 | [Vercel agent-skills](https://github.com/vercel-labs/agent-skills) | MIT | Agent skills vendored into `.claude/skills/` | `.claude/skills/` |
+
+### Originkit license
+
+The ribbon glow shader was supplied as source by the project owner from
+originkit.dev. Its license could not be read from this environment (the site was not
+reachable), so it is not yet confirmed to be MIT/Apache/ISC/BSD-compatible. Confirm the
+terms on originkit.dev before redistributing builds; if they do not allow it, switch the
+glow off by default (`app/prefs.ts`) and replace `ribbon.ts`.
 
 ## Effects
 

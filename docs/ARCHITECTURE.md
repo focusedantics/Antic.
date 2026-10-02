@@ -336,6 +336,32 @@ within a 320 MB budget; anything beyond is freed on release. Before and after an
 retry once, then fail with a clear message. Drivers that run out of memory can otherwise
 return blank or stale pixels without any error.
 
+## Glow backdrop and guided tour (`features/backdrop`, `features/tour`)
+
+- **Backdrop.** `features/backdrop/ribbon.ts` draws an animated ribbon glow (adapted
+  from Originkit's "Ribbon Glow 2"; see `docs/THIRD_PARTY.md`) into its own WebGL2
+  canvas, fixed behind the whole app at `z-index: -1`. Panels stay opaque; the viewers
+  are transparent around the photo, so the glow shows only there. For that, the develop
+  `display` and `compositeDisplay` passes and the video renderer clear to and output
+  transparent pixels outside the image, and `.develop-view`, `.composite-view` and
+  `.vid-editor` paint their old surround colours in CSS. With the glow off the screen is
+  unchanged; with it on, image pixels are unchanged (they are opaque). Each workspace
+  has a look in `looks.ts` (two colours, angle, size, speed, brightness); the glow
+  blends to the active workspace's look over about 1.2 s. It renders at a capped field
+  resolution and 30 fps (15 on software GL), pauses in hidden tabs, holds still under
+  `prefers-reduced-motion`, and frees its context when switched off.
+- **Prefs** (`app/prefs.ts`): the glow on/off and whether the tour was finished, in
+  localStorage under `focused:prefs`, sanitized on read. They are viewer conveniences,
+  not edits.
+- **Tour.** `features/tour/steps.ts` lists the cards (the eight chapters of the
+  tutorial); `tour.ts` is the store (start, next, back, skip chapter, end).
+  `Tour.tsx` (lazy) spotlights the first on-screen element matching each step's
+  selectors, re-measured every frame, and places the card beside a small target,
+  inside a large one, or centred. The overlay ignores the pointer, so the app stays
+  usable during the tour. ←/→/Enter/Esc drive the tour (captured before app
+  shortcuts); other keys reach the app. The welcome card opens once for a new visitor;
+  the top bar's ? button replays the tour or any chapter, and ◐ toggles the glow.
+
 ## Activity (`lib/activity.ts`)
 
 A counter of running work, plus "pulses" for instant changes. The engine's frame

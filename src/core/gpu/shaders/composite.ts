@@ -223,7 +223,7 @@ void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uScreenToDoc * vec3(px, 1.0);
   vec2 d = h.xy / h.z;
-  if (d.x < 0.0 || d.y < 0.0 || d.x > uDocSize.x || d.y > uDocSize.y) { outColor = vec4(vec3(0.075), 1.0); return; }
+  if (d.x < 0.0 || d.y < 0.0 || d.x > uDocSize.x || d.y > uDocSize.y) { outColor = vec4(0.0); return; }
   vec4 c = texture(uImage, d / uDocSize);
   vec2 cell = floor(px / 8.0);
   vec3 checker = mod(cell.x + cell.y, 2.0) < 1.0 ? vec3(0.8) : vec3(0.62);

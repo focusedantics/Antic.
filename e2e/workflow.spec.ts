@@ -3,6 +3,15 @@ import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { createFile, MP4BoxBuffer } from "mp4box";
 
+/*
+ * The tour and the glow backdrop have their own spec (tour.spec.ts). Here the
+ * tour stays closed and the glow is off, so pixel checks see the viewer alone;
+ * E2E_BACKDROP=on runs every workflow with the glow behind it instead.
+ */
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript((backdrop) => localStorage.setItem("focused:prefs", JSON.stringify({ backdrop, tourDone: true })), process.env.E2E_BACKDROP === "on");
+});
+
 /** Draws a synthetic photo in the page and returns it as a file payload. */
 async function makeImage(page: Page, name: string, kind: "landscape" | "subject") {
   const base64 = await page.evaluate(async (k) => {

@@ -1,0 +1,41 @@
+/* Guided tour. Motion follows Material 3: emphasized decelerate for things arriving. */
+.tour { --ease-in: cubic-bezier(0.05, 0.7, 0.1, 1); position: fixed; inset: 0; z-index: 45; pointer-events: none; }
+.tour-spot {
+  position: fixed; border-radius: 8px; box-shadow: 0 0 0 200vmax rgb(0 0 0 / 0.45);
+  transition: left 360ms var(--ease-in), top 360ms var(--ease-in), width 360ms var(--ease-in), height 360ms var(--ease-in);
+}
+.tour-spot.on { outline: 2px solid var(--accent); outline-offset: 0; animation: tour-ring 1.8s ease-in-out infinite; }
+@keyframes tour-ring { 50% { outline-color: rgb(240 184 76 / 0.35); } }
+
+.tour-card {
+  position: fixed; width: min(360px, calc(100vw - 24px)); padding: 14px 16px 12px; pointer-events: auto;
+  background: rgb(28 28 28 / 0.96); border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.55); color: var(--text); user-select: text;
+  animation: tour-in 260ms var(--ease-in) both;
+}
+@keyframes tour-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.tour-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tour-chapter { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.tour-count { font-size: 10px; color: var(--text-faint); }
+.tour-close { margin-left: auto; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text-faint); }
+.tour-close:hover { color: var(--text); background: var(--panel-3); }
+.tour-card h2 { margin: 0 0 6px; font-size: 16px; font-weight: 650; }
+.tour-card p { margin: 0 0 12px; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
+.tour-card kbd {
+  display: inline-block; min-width: 18px; padding: 0 5px; margin: 0 1px; text-align: center;
+  font: 10.5px/17px var(--mono); color: var(--text); background: var(--panel-3);
+  border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px;
+}
+.tour-chapters { display: flex; gap: 6px; margin-bottom: 12px; }
+.tour-chapters button { width: 18px; height: 6px; padding: 0; border: 0; border-radius: 3px; background: var(--panel-3); transition: background 200ms, width 200ms var(--ease-in); }
+.tour-chapters button[data-done] { background: #6b5a32; }
+.tour-chapters button[aria-current="step"] { width: 30px; background: var(--accent); }
+.tour-chapters button:hover { background: var(--text-faint); }
+.tour-actions { display: flex; align-items: center; gap: 6px; }
+.tour-spacer { flex: 1; }
+.tour-hint { flex: 1; text-align: center; font-size: 10px; color: var(--text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot, .tour-chapters button { transition: none; }
+  .tour-spot.on, .tour-card { animation: none; }
+}
