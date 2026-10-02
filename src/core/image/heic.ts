@@ -329,3 +329,21 @@ export async function decodeHeic(bytes: Uint8Array): Promise<ImageBitmap> {
     if (decoder.state !== "closed") decoder.close();
   }
 }
+
+/**
+ * Any HEIC/HEIF photo as an upright bitmap: the browser's own decoder first
+ * (Safari has one, with every HEIF variant, orientation and HDR handled), then
+ * WebCodecs' HEVC decoder with the box parser above (Chrome, Edge).
+ */
+export async function decodeHeicImage(blob: Blob): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(blob, { imageOrientation: "from-image" });
+  } catch (native) {
+    if (!isHeicDecodingSupported()) throw native;
+    try {
+      return await decodeHeic(new Uint8Array(await blob.arrayBuffer()));
+    } catch {
+      throw new Error("This browser can't decode HEIC photos. Use Safari, or Chrome or Edge on a computer with HEVC support.");
+    }
+  }
+}

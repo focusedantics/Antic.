@@ -37,8 +37,21 @@ export async function fingerprint(file: Blob): Promise<string> {
   joined.set(new Uint8Array(head), 0);
   joined.set(new Uint8Array(tail), head.byteLength);
   new DataView(joined.buffer).setFloat64(head.byteLength + tail.byteLength, file.size);
+  // crypto.subtle exists only on secure pages: a phone opening the dev server over http:// has none.
+  if (!globalThis.crypto?.subtle) return `fnv-${fnv1a(joined)}`;
   const digest = await crypto.subtle.digest("SHA-256", joined);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** 64-bit FNV-1a (two 32-bit halves), for pages without crypto.subtle. */
+function fnv1a(bytes: Uint8Array): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x84222325;
+  for (let i = 0; i < bytes.length; i++) {
+    h1 = Math.imul(h1 ^ bytes[i], 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ bytes[bytes.length - 1 - i], 0x01000193) >>> 0;
+  }
+  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
 }
 
 function newAsset(item: ImportItem, original: OriginalRef, print: string): Asset | null {

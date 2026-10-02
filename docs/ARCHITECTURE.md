@@ -62,7 +62,7 @@ One IndexedDB database, `focused-catalog`:
 | --- | --- | --- |
 | `assets` | id | Asset records (small; loaded eagerly at start) |
 | `collections` | id | Collections and smart collections (rules) |
-| `originals` | asset id | Copied original bytes (import-by-copy only) |
+| `originals` | asset id | Copied original (import-by-copy only): a Blob, or `{ bytes, type }` on iPhone/iPad and wherever a Blob is refused (`StoredBytes`) |
 | `thumbs` | asset id | Thumbnail + preview blobs, revision they were rendered for |
 | `rasters` | id | Coverage rasters for AI masks (8-bit), referenced by recipes |
 | `presets` | id | Develop presets (recipe groups) |
@@ -75,13 +75,21 @@ Writes to asset records are batched (250 ms) and flushed on `pagehide`.
 ### Import (`core/catalog/import.ts`)
 
 Files come from the file picker, a folder picker, or drag and drop (folders are walked
-recursively). On Chromium, **Import Folder** uses the File System Access API and
+recursively). Every picker goes through `lib/files.ts` `chooseFiles`, which keeps the
+input in the document until it delivers: iOS Safari (every browser on iPhone and iPad)
+never reports files for a detached input. On iPhone and iPad the accept list is
+`image/*,video/*` (`pickerAccept`), so the photo library offers everything; HEIC
+arrives converted to JPEG (naming HEIC would make Safari convert every JPEG and PNG to
+HEIC instead). Failures and skipped files end in a toast, since the status pill's
+details are a tooltip. Without `crypto.subtle` (an http:// page) the fingerprint falls
+back to FNV-1a. On Chromium, **Import Folder** uses the File System Access API and
 *references* files in place; everything else is copied into the library. Each file is
 fingerprinted (size + SHA-256 of first/last 64 KB) to skip duplicates, appears in the
 grid immediately, and is analyzed by a pool of image workers (`core/image`):
 metadata via exifr, orientation, a thumbnail and a preview. For camera RAW the largest
 embedded JPEG is used (format-agnostic JPEG marker scan — 74 ms on a 30 MB ARW);
-without one, LibRaw decodes at half size.
+without one, LibRaw decodes at half size. HEIC goes to the browser's own decoder first
+(Safari), then to WebCodecs' HEVC decoder with our HEIF parser (`decodeHeicImage`).
 
 ## RAW decoding
 

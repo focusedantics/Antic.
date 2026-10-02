@@ -59,6 +59,7 @@ photo; the Before/After buttons stay in the toolbar).
 | Touch targets: Apple asks for 44 pt, Material for 48 dp. Inputs under 16 px make iOS zoom the page on focus. | `(pointer: coarse)` raises sliders to 36 px, buttons to 32–34 px, dock buttons to 50 px, and inputs to 16 px. |
 | Notches and home indicators; the URL bar changes the viewport height. | `viewport-fit=cover`, `env(safe-area-inset-*)` paddings, `100dvh`. |
 | Sheets inside a scrolling page fight the page's own scroll. | The page never scrolls (`minmax(0, 1fr)` rows); the sheet body scrolls with `overscroll-behavior: contain`; the grip has `touch-action: none`. |
+| iOS Safari drops the files of a file input that isn't in the document, can refuse to store photo-picker Files in IndexedDB, and converts photos according to the accept list. | Pickers stay in the document until they deliver (`chooseFiles`); originals are stored as bytes on iPhone and iPad; the photo library is asked for `image/*,video/*`. |
 | Battery and GPU on phones. | The glow starts off (it can be switched on), the export marble holds still, and Remove Background uses its crossfade instead of the particle globe. Computers keep all of them. |
 
 ## Computers: resizable and hideable panels
@@ -82,4 +83,5 @@ photo; the Before/After buttons stay in the toolbar).
 - Half-float render targets on iOS: https://bugs.webkit.org/show_bug.cgi?id=217107, https://web3dsurvey.com/webgl/extensions/EXT_color_buffer_half_float, https://web3dsurvey.com/webgl2/extensions/OES_texture_float_linear
 - Handling context loss: https://wikis.khronos.org/webgl/HandlingContextLost, https://discourse.threejs.org/t/context-lost-when-backgrounding-safari-on-ios-17-developer-beta-8/55772
 - Device Memory API: https://developer.chrome.com/blog/device-memory
+- iOS file inputs and storage: https://bugs.webkit.org/show_bug.cgi?id=201289, https://discourse.elm-lang.org/t/cross-browser-compatibility-fix-for-file-select-file-s-in-elm-file/3060, https://bugs.webkit.org/show_bug.cgi?id=188438, https://developer.apple.com/forums/thread/677374, https://bugs.webkit.org/show_bug.cgi?id=303803
 - Bottom sheets (snap points, grip, scroll containment): https://www.eleken.co/blog-posts/bottom-sheet-ui, https://www.techinterview.org/post/3233475371/build-bottom-sheet-component-mobile-web/

@@ -1,6 +1,6 @@
 import type { ExifSummary, FileKind } from "@/core/catalog/types";
 import { largestEmbeddedJpeg } from "./embedded-preview";
-import { decodeHeic, isHeicDecodingSupported } from "./heic";
+import { decodeHeicImage } from "./heic";
 import { decodeRaw } from "./libraw";
 import { readMetadata } from "./metadata";
 import { downscale, encodeJpeg, encodeWithAlpha, orient } from "./raster";
@@ -33,14 +33,7 @@ export async function analyzeFile(file: Blob, kind: FileKind): Promise<Analysis>
   const meta = await readMetadata(bytes);
   let bitmap: ImageBitmap | OffscreenCanvas;
   if (kind === "heic") {
-    if (isHeicDecodingSupported()) {
-      try {
-        bitmap = await decodeHeic(bytes);
-      } catch {
-        // Safari decodes HEIC natively; WebCodecs may lack HEVC on this machine.
-        bitmap = await createImageBitmap(file);
-      }
-    } else bitmap = await createImageBitmap(file);
+    bitmap = await decodeHeicImage(file);
   } else if (kind === "tiff") {
     bitmap = await decodeTiffToBitmap(bytes);
   } else {

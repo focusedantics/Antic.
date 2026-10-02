@@ -1,3 +1,4 @@
+import { chooseFiles, pickerAccept } from "@/lib/files";
 import { openLooks } from "@/features/looks/LooksDialog";
 import { isVideoFile } from "@/core/video/model";
 import { openExport } from "@/features/export/host";
@@ -5,6 +6,7 @@ import { selectAsset, setWorkspace, targetIds, toast, ui } from "@/app/state";
 import {
   canReferenceFiles,
   importItems,
+  importProgress,
   itemsFromDirectoryPicker,
   itemsFromFileList,
 } from "@/core/catalog/import";
@@ -25,16 +27,13 @@ import { acceptAttribute } from "@/core/image/formats";
 import { openMenu } from "@/components/Menu";
 import { currentOrder } from "./results";
 
-export function pickFiles(options: { directory?: boolean } = {}) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.multiple = true;
-  input.accept = `${acceptAttribute},video/mp4,video/quicktime,.mp4,.mov,.m4v,.focused`;
-  if (options.directory) (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
-  input.onchange = () => {
-    if (input.files?.length) void runImport(itemsFromFileList(input.files));
-  };
-  input.click();
+export async function pickFiles(options: { directory?: boolean } = {}) {
+  const files = await chooseFiles({
+    multiple: true,
+    directory: options.directory,
+    accept: pickerAccept(`${acceptAttribute},video/mp4,video/quicktime,.mp4,.mov,.m4v,.focused`, { images: true, videos: true }),
+  });
+  if (files.length) await runImport(itemsFromFileList(files));
 }
 
 export async function importFolderInPlace() {
@@ -96,7 +95,15 @@ export async function runImport(items: Parameters<typeof importItems>[0]) {
   }
   if (!photos.length) return;
   const source = ui.getState().query.source;
+  const before = importProgress.getState();
+  const wasRunning = before.active;
   await importItems(photos, { collectionId: source.kind === "collection" ? source.id : undefined });
+  // Say what went wrong in words: the status pill's details are a tooltip, which phones can't show.
+  const after = importProgress.getState();
+  const failed = after.failed - (wasRunning ? before.failed : 0);
+  const skipped = after.skipped - (wasRunning ? before.skipped : 0);
+  if (failed > 0) toast(`${failed} photo${failed === 1 ? "" : "s"} could not be imported. ${after.errors.at(-1) ?? ""}`.trim(), "error");
+  else if (skipped > 0) toast(`${skipped} file${skipped === 1 ? " isn't a" : "s aren't"} supported photo format${skipped === 1 ? "" : "s"} and ${skipped === 1 ? "was" : "were"} skipped.`, "error");
 }
 
 export function rate(rating: number) {

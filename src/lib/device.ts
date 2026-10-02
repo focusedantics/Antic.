@@ -84,3 +84,9 @@ export const device: DeviceProfile = detect();
 
 /** Device pixels per CSS pixel for viewer canvases: the screen's, capped on lite devices. */
 export const viewDpr = () => Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, device.dprCap);
+
+/** iPhone, iPad or iPod (iPadOS reports a Mac with a touch screen). Every browser there uses WebKit. */
+export function appleTouch(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}

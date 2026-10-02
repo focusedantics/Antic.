@@ -1,3 +1,4 @@
+import { chooseFiles, pickerAccept } from "@/lib/files";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
@@ -45,20 +46,15 @@ import { Viewer } from "./Viewer";
 
 const canCodec = typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined";
 
-export function pickVideos() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.multiple = true;
-  input.accept = "video/mp4,video/quicktime,video/x-m4v,.mp4,.mov,.m4v";
-  input.onchange = async () => {
-    if (!input.files?.length) return;
-    try {
-      await importVideos([...input.files]);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
-    }
-  };
-  input.click();
+export async function pickVideos() {
+  // On iPhone, video/* hands over the originals (HEVC included) rather than a re-compressed copy.
+  const files = await chooseFiles({ multiple: true, accept: pickerAccept("video/mp4,video/quicktime,video/x-m4v,.mp4,.mov,.m4v", { videos: true }) });
+  if (!files.length) return;
+  try {
+    await importVideos(files);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  }
 }
 
 /** Menu for the picked clips (right-click, or after a right-click sweep): open, insert, remove. */

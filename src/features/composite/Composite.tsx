@@ -1,3 +1,4 @@
+import { chooseFiles, pickerAccept } from "@/lib/files";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useState } from "react";
 import { useStore } from "@/app/hooks";
@@ -132,31 +133,25 @@ async function saveProjectFile() {
   }
 }
 
-function openProjectFile() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = ".focused,application/zip";
-  input.onchange = async () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    try {
-      // A .focused file is either a look (reusable edits) or a project.
-      const look = await readLookFile(file);
-      if (look) {
-        await saveLook(look);
-        toast(`Added the look “${look.name}”.`);
-        openLooks({ kind: "composite" });
-        return;
-      }
-      const { document: doc, missing } = await openProject(file);
-      openDocument(doc);
-      if (missing.length) toast(`Opened. ${missing.length} photo(s) were not in the library or the file: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`, "error");
-      else toast(`Opened “${doc.name}”.`);
-    } catch (error) {
-      toast(`Could not open the project: ${error instanceof Error ? error.message : error}`, "error");
+async function openProjectFile() {
+  const [file] = await chooseFiles({ accept: pickerAccept(".focused,application/zip", {}) });
+  if (!file) return;
+  try {
+    // A .focused file is either a look (reusable edits) or a project.
+    const look = await readLookFile(file);
+    if (look) {
+      await saveLook(look);
+      toast(`Added the look “${look.name}”.`);
+      openLooks({ kind: "composite" });
+      return;
     }
-  };
-  input.click();
+    const { document: doc, missing } = await openProject(file);
+    openDocument(doc);
+    if (missing.length) toast(`Opened. ${missing.length} photo(s) were not in the library or the file: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`, "error");
+    else toast(`Opened “${doc.name}”.`);
+  } catch (error) {
+    toast(`Could not open the project: ${error instanceof Error ? error.message : error}`, "error");
+  }
 }
 
 function DocumentsPanel({ onNew }: { onNew: () => void }) {

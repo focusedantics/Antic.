@@ -1,3 +1,4 @@
+import { appleTouch } from "@/lib/device";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import type { RecipeClip } from "@/core/develop/operations";
 import type { DevelopRecipe } from "@/core/develop/recipe";
@@ -70,7 +71,7 @@ export type DocumentRecord = {
 interface FocusedDB extends DBSchema {
   assets: { key: string; value: Asset; indexes: { fingerprint: string } };
   collections: { key: string; value: Collection };
-  originals: { key: string; value: Blob };
+  originals: { key: string; value: Blob | StoredBytes };
   thumbs: { key: string; value: ThumbRecord };
   rasters: { key: string; value: RasterRecord; indexes: { assetId: string } };
   presets: { key: string; value: PresetRecord };
@@ -78,7 +79,7 @@ interface FocusedDB extends DBSchema {
   documents: { key: string; value: DocumentRecord };
   settings: { key: string; value: unknown };
   videos: { key: string; value: VideoRecord };
-  videoFiles: { key: string; value: Blob };
+  videoFiles: { key: string; value: Blob | StoredBytes };
   looks: { key: string; value: unknown };
 }
 
@@ -160,12 +161,34 @@ export async function findByFingerprint(fingerprint: string) {
   return (await catalogDb()).getFromIndex("assets", "fingerprint", fingerprint);
 }
 
+/**
+ * A file kept as plain bytes. iOS Safari (every browser on iPhone and iPad) can
+ * refuse to store a File from the photo picker ("Error preparing Blob/File data
+ * to be stored"), and has lost such Blobs after a reload; an ArrayBuffer always
+ * stores and reads back.
+ */
+export type StoredBytes = { readonly bytes: ArrayBuffer; readonly type: string };
+
+const toBytes = async (blob: Blob): Promise<StoredBytes> => ({ bytes: await blob.arrayBuffer(), type: blob.type });
+const toBlob = (v: Blob | StoredBytes | undefined): Blob | undefined => (!v ? undefined : v instanceof Blob ? v : new Blob([v.bytes], { type: v.type }));
+
+/** Largest file copied into memory to store it as bytes (videos can be gigabytes). */
+const BYTES_LIMIT = 600e6;
+
 export async function putOriginal(id: AssetId, blob: Blob) {
-  await (await catalogDb()).put("originals", blob, id);
+  const db = await catalogDb();
+  // On iPhone and iPad, photos go in as bytes from the start; elsewhere only when a Blob is refused.
+  if (appleTouch() && blob.size <= BYTES_LIMIT) return void (await db.put("originals", await toBytes(blob), id));
+  try {
+    await db.put("originals", blob, id);
+  } catch (error) {
+    if (blob.size > BYTES_LIMIT) throw error;
+    await db.put("originals", await toBytes(blob), id);
+  }
 }
 
-export async function getStoredOriginal(id: AssetId) {
-  return (await catalogDb()).get("originals", id);
+export async function getStoredOriginal(id: AssetId): Promise<Blob | undefined> {
+  return toBlob(await (await catalogDb()).get("originals", id));
 }
 
 export async function putThumb(id: AssetId, record: ThumbRecord) {
@@ -232,13 +255,22 @@ export async function getVideo(id: string) {
 }
 export async function putVideo(record: VideoRecord, file?: Blob) {
   const db = await catalogDb();
-  const tx = db.transaction(["videos", "videoFiles"], "readwrite");
-  await tx.objectStore("videos").put(record);
-  if (file) await tx.objectStore("videoFiles").put(file, record.id);
-  await tx.done;
+  const write = async (value?: Blob | StoredBytes) => {
+    const tx = db.transaction(["videos", "videoFiles"], "readwrite");
+    await tx.objectStore("videos").put(record);
+    if (value) await tx.objectStore("videoFiles").put(value, record.id);
+    await tx.done;
+  };
+  try {
+    await write(file);
+  } catch (error) {
+    // iOS can refuse picker files as Blobs (see StoredBytes); store the bytes when they fit in memory.
+    if (!file || file.size > BYTES_LIMIT) throw error;
+    await write(await toBytes(file));
+  }
 }
-export async function getVideoFile(id: string) {
-  return (await catalogDb()).get("videoFiles", id);
+export async function getVideoFile(id: string): Promise<Blob | undefined> {
+  return toBlob(await (await catalogDb()).get("videoFiles", id));
 }
 export async function deleteVideo(id: string) {
   const db = await catalogDb();

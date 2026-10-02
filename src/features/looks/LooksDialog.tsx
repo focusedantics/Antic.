@@ -1,3 +1,4 @@
+import { chooseFiles, pickerAccept } from "@/lib/files";
 import { useEffect, useState } from "react";
 import { createStore } from "zustand/vanilla";
 import { useStore } from "@/app/hooks";
@@ -141,28 +142,22 @@ function LooksDialog({ context }: { context: LooksContext }) {
     }
   };
 
-  const importFile = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".focused,application/zip";
-    input.multiple = true;
-    input.onchange = async () => {
-      for (const file of input.files ?? []) {
-        try {
-          const look = await readLookFile(file);
-          if (!look) {
-            toast(`${file.name} is a project, not a look. Open it with Composite → Open .focused…`, "error");
-            continue;
-          }
-          await saveLook(look);
-          setFresh(look.id);
-          toast(`Added the look “${look.name}”.`);
-        } catch (error) {
-          toast(`${file.name}: ${error instanceof Error ? error.message : error}`, "error");
+  const importFile = async () => {
+    const files = await chooseFiles({ multiple: true, accept: pickerAccept(".focused,application/zip", {}) });
+    for (const file of files) {
+      try {
+        const look = await readLookFile(file);
+        if (!look) {
+          toast(`${file.name} is a project, not a look. Open it with Composite → Open .focused…`, "error");
+          continue;
         }
+        await saveLook(look);
+        setFresh(look.id);
+        toast(`Added the look “${look.name}”.`);
+      } catch (error) {
+        toast(`${file.name}: ${error instanceof Error ? error.message : error}`, "error");
       }
-    };
-    input.click();
+    }
   };
 
   const usable = (look: Look) => (context.kind === "video" ? !!look.video : !!(look.develop || look.layers));

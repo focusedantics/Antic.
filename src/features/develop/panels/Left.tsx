@@ -1,3 +1,4 @@
+import { chooseFiles, pickerAccept } from "@/lib/files";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useStore } from "@/app/hooks";
 import { toast, ui } from "@/app/state";
@@ -145,21 +146,17 @@ function PresetsPanel() {
             type="button"
             className="btn ghost small"
             title="Import presets"
-            onClick={() => {
-              const input = document.createElement("input");
-              input.type = "file";
-              input.accept = ".json,application/json";
-              input.onchange = async () => {
-                try {
-                  const list = parsePresetFile(await input.files![0].text());
-                  for (const p of list) await putPreset(p);
-                  toast(`Imported ${list.length} preset${list.length === 1 ? "" : "s"}.`);
-                  reload();
-                } catch (error) {
-                  toast(String(error), "error");
-                }
-              };
-              input.click();
+            onClick={async () => {
+              const [file] = await chooseFiles({ accept: pickerAccept(".json,application/json", {}) });
+              if (!file) return;
+              try {
+                const list = parsePresetFile(await file.text());
+                for (const p of list) await putPreset(p);
+                toast(`Imported ${list.length} preset${list.length === 1 ? "" : "s"}.`);
+                reload();
+              } catch (error) {
+                toast(String(error), "error");
+              }
             }}
           >
             ⇪

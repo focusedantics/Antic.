@@ -2,7 +2,7 @@ import { track } from "@/lib/activity";
 import { readOriginal } from "@/core/catalog/originals";
 import type { Asset } from "@/core/catalog/types";
 import type { SourceData } from "@/core/gpu/pipeline";
-import { decodeHeic, isHeicDecodingSupported } from "@/core/image/heic";
+import { decodeHeicImage } from "@/core/image/heic";
 import { decodeTiffInWorker } from "@/core/image/image-workers";
 import { decodeRaw, isRawDecodingAvailable } from "@/core/image/libraw";
 import { asShotFromCamera } from "@/lib/colorimetry";
@@ -49,12 +49,8 @@ async function decodeSource(asset: Asset, signal?: AbortSignal): Promise<LoadedS
     return { data: decoded, info: { raw: false }, quality: "rendered" };
   }
   let bitmap: ImageBitmap;
-  if (asset.kind === "heic" && isHeicDecodingSupported()) {
-    try {
-      bitmap = await decodeHeic(new Uint8Array(await blob.arrayBuffer()));
-    } catch {
-      bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
-    }
+  if (asset.kind === "heic") {
+    bitmap = await decodeHeicImage(blob);
   } else {
     bitmap = await createImageBitmap(blob, { imageOrientation: "from-image", premultiplyAlpha: "none", colorSpaceConversion: "default" });
   }
