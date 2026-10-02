@@ -144,7 +144,9 @@ test.describe("phone", () => {
     // Crop is a tool: it opens the adjustments on the crop tool.
     await dock.getByRole("button", { name: "Crop" }).tap();
     await expect(dock.getByRole("button", { name: "Crop" })).toHaveAttribute("aria-pressed", "true");
-    await expect(sheet.getByRole("button", { name: "Crop" }).first()).toHaveAttribute("aria-pressed", "true");
+    // The sheet holds just the crop tool (the dock already picks the tool).
+    await expect(sheet.getByRole("button", { name: "Crop", expanded: true })).toBeVisible();
+    await expect(sheet.getByRole("slider", { name: "Exposure" })).toHaveCount(0);
     // Tapping the current tool again closes the sheet.
     await dock.getByRole("button", { name: "Crop" }).tap();
     await expect(sheet).toHaveCount(0);
@@ -228,6 +230,104 @@ test.describe("phone", () => {
     await page.getByRole("menuitemradio", { name: "Library" }).tap();
     await expect(bar.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
     await expect(bar.getByRole("button", { name: "Export", exact: true })).toBeVisible();
+  });
+
+  test("Edit is Lightroom's short panel: about three spaced sliders, groups beneath, the histogram floating over the photo", async ({ page }) => {
+    await importPhoto(page);
+    await switchTo(page, "Develop");
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+    const sheet = page.getByTestId("sheet");
+    const exposure = sheet.getByRole("slider", { name: "Exposure" });
+    await expect(exposure).toBeVisible({ timeout: 30_000 });
+    await expect(sheet.getByRole("tab", { name: "Light" })).toHaveAttribute("aria-selected", "true");
+
+    // Short: three sliders show, the photo keeps most of the screen.
+    const scroll = (await sheet.locator(".deck-scroll").boundingBox())!;
+    const shown = await sheet.getByRole("slider").evaluateAll(
+      (els, box) => els.filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.height > 0 && r.top >= box.y - 1 && r.bottom <= box.y + box.height + 1;
+      }).length,
+      scroll,
+    );
+    expect(shown).toBe(3);
+    expect((await sheet.boundingBox())!.height).toBeLessThan(664 * 0.42);
+    expect((await page.locator(".develop-view").boundingBox())!.height).toBeGreaterThan(250);
+
+    // Each slider: its name and value on one line, a wide track beneath.
+    const row = sheet.locator(".slider").filter({ has: page.getByRole("slider", { name: "Exposure" }) });
+    const label = (await row.locator("label").boundingBox())!;
+    const value = (await row.getByRole("textbox", { name: "Exposure value" }).boundingBox())!;
+    const track = (await exposure.boundingBox())!;
+    expect(Math.abs(label.y + label.height / 2 - (value.y + value.height / 2))).toBeLessThan(3);
+    expect(value.x).toBeGreaterThan(label.x + 150);
+    expect(track.y).toBeGreaterThanOrEqual(label.y + label.height - 1);
+    expect(track.width).toBeGreaterThan(330);
+
+    // The histogram floats, small, in the photo's top-left corner (and is not in the sheet).
+    const view = (await page.locator(".develop-view").boundingBox())!;
+    const histogram = page.getByTestId("floating-histogram");
+    await expect(histogram).toBeVisible();
+    const h = (await histogram.boundingBox())!;
+    expect(h.x - view.x).toBeLessThan(20);
+    expect(h.y - view.y).toBeLessThan(20);
+    expect(h.width).toBeLessThan(160);
+    expect(await histogram.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
+    await expect(sheet.getByRole("img", { name: "Histogram" })).toHaveCount(0);
+
+    // Groups switch the sliders, like Lightroom's Light, Color, Effects…
+    await sheet.getByRole("tab", { name: "Color" }).tap();
+    await expect(sheet.getByRole("slider", { name: "Temp" })).toBeVisible();
+    await expect(exposure).toHaveCount(0);
+    await sheet.getByRole("tab", { name: "Effects" }).tap();
+    await expect(sheet.getByRole("slider", { name: "Clarity" })).toBeVisible();
+    await sheet.getByRole("tab", { name: "Light" }).tap();
+
+    // Crop needs the corner: the histogram steps aside there, and comes back for Edit.
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Crop" }).tap();
+    await expect(histogram).toHaveCount(0);
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+    await expect(histogram).toBeVisible();
+
+    // It can be hidden from the menu, and stays hidden.
+    await page.getByRole("button", { name: "More" }).tap();
+    await page.getByRole("menuitem", { name: "Hide the histogram" }).tap();
+    await expect(histogram).toHaveCount(0);
+    await page.reload();
+    await switchTo(page, "Develop");
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+    await expect(page.getByTestId("sheet").getByRole("slider", { name: "Exposure" })).toBeVisible({ timeout: 30_000 });
+    await expect(histogram).toHaveCount(0);
+  });
+
+  test("a finger drags a slider sideways from where it is; taps and vertical swipes leave it alone", async ({ page }) => {
+    await importPhoto(page);
+    await switchTo(page, "Develop");
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+    const slider = page.getByTestId("sheet").getByRole("slider", { name: "Contrast" });
+    await expect(slider).toBeVisible({ timeout: 30_000 });
+    const box = (await slider.boundingBox())!;
+    const gesture = (points: [number, number][]) =>
+      slider.evaluate((el, pts) => {
+        const fire = (type: string, [x, y]: [number, number]) =>
+          el.dispatchEvent(new PointerEvent(type, { pointerId: 11, pointerType: "touch", isPrimary: true, button: 0, buttons: 1, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+        fire("pointerdown", pts[0]);
+        for (const p of pts.slice(1)) fire("pointermove", p);
+        fire("pointerup", pts[pts.length - 1]);
+      }, points);
+    // A tap far right of the thumb: no jump.
+    const y = box.y + box.height / 2;
+    await gesture([[box.x + box.width - 10, y]]);
+    await expect(slider).toHaveAttribute("aria-valuenow", "0");
+    // A vertical swipe that drifts sideways afterwards is still a scroll.
+    await gesture([[box.x + 40, y], [box.x + 42, y - 20], [box.x + 120, y - 30]]);
+    await expect(slider).toHaveAttribute("aria-valuenow", "0");
+    // A sideways drag starting far from the thumb moves the value by the distance dragged.
+    await gesture([[box.x + 20, y], [box.x + 30, y], [box.x + 30 + box.width / 4, y]]);
+    await expect(slider).toHaveAttribute("aria-valuenow", "50");
+    // One drag is one history step.
+    await page.getByRole("banner").getByRole("button", { name: "Undo", exact: true }).tap();
+    await expect(slider).toHaveAttribute("aria-valuenow", "0");
   });
 
   test("the effects browser fills the phone: search, category chips and two columns", async ({ page }) => {

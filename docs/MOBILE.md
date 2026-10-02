@@ -29,8 +29,12 @@ What we took:
 | Lightroom mobile | Focused on a phone |
 | --- | --- |
 | Bottom toolbar of groups | Dock: Presets · Edit · Crop · Masks · Heal (Develop); Folders · Info (Library); Documents · Layers (Composite); Clips · Edit (Video) |
-| Sliders in a panel over the bottom; swipe to resize or close | Sheet with a grip: drag to resize, it snaps to 30/50/85 %; drag below 20 % or flick down to close |
-| Photo stays visible while editing | The viewer shrinks above the sheet, so every slider change is visible |
+| Edit: a short panel of about three sliders, the groups (Light, Color, Effects, Detail, Optics…) in a row beneath | Edit opens one group at a time in a sheet just tall enough for three sliders: Light · Curve · Color · Mixer · Grading · Effects · Detail · Optics, in a scrolling row of icons under the sliders. Like Lightroom, Texture/Clarity/Dehaze are in Effects and Vibrance/Saturation (and B&W) in Color |
+| Each slider: name and value on one line, a wide track beneath | The same in every phone sheet: 58 px rows, a thin track the width of the screen, a large white thumb |
+| Drag a slider anywhere; swipe up and down to scroll | A finger moves the value from where it was by the distance dragged sideways; a tap changes nothing and a vertical swipe scrolls the panel, so scrolling never nudges a slider |
+| Histogram floating, small, at the top of the photo | Top-left corner, translucent glass, touches pass through; the corners light when shadows or highlights clip. It shows while editing (not in Crop, Masks or Heal, which need the corner) and can be hidden from ⋯ |
+| Sliders in a panel over the bottom; swipe to resize or close | Sheet with a grip: drag to resize, it snaps to 30/50/85 % (Edit: its own height, then 50/85 %); drag below 20 % or flick down to close |
+| Photo stays visible while editing | The viewer shrinks above the sheet, so every slider change is visible; Edit's short panel leaves the photo most of the screen |
 | Fewer options, rest in ⋯ | Top bar: a workspace switcher, then undo, redo and export (as Lightroom keeps them at the top), and ⋯ for import, filmstrip, glow and tour. The long toolbars keep the rest and scroll sideways |
 | Presets and effects as a scrolling grid | The effects browser goes full screen: search, a row of category chips, two columns of live previews |
 | Pinch and double tap on the photo | Pinch zooms and pans; a double tap toggles 100 % |
@@ -56,7 +60,7 @@ photo; the Before/After buttons stay in the toolbar).
 | WebGL contexts are lost when Safari is backgrounded. | Already handled (`webglcontextlost` → `restore()`), and freeing memory when hidden makes it rarer. |
 | Phones report a device pixel ratio of 3; rendering the viewer at 3× costs 2.25× the pixels of 2× with little visible gain. | Viewer canvases render at most 2 device pixels per CSS pixel. |
 | `deviceMemory` exists only in Chromium; Safari does not expose memory. | The profile also uses the user agent (iPhone, Android, iPadOS reporting a touch Mac) and the screen. |
-| Touch targets: Apple asks for 44 pt, Material for 48 dp. Inputs under 16 px make iOS zoom the page on focus. | `(pointer: coarse)` raises sliders to 36 px, buttons to 32–34 px, dock buttons to 50 px, and inputs to 16 px. |
+| Touch targets: Apple asks for 44 pt, Material for 48 dp. Inputs under 16 px make iOS zoom the page on focus. | `(pointer: coarse)` raises sliders to 36 px (58 px rows in a phone sheet), buttons to 32–34 px, dock buttons to 50 px, and inputs (slider values too) to 16 px. |
 | Notches and home indicators; the URL bar changes the viewport height. | `viewport-fit=cover`, `env(safe-area-inset-*)` paddings, `100dvh`. |
 | Sheets inside a scrolling page fight the page's own scroll. | The page never scrolls (`minmax(0, 1fr)` rows); the sheet body scrolls with `overscroll-behavior: contain`; the grip has `touch-action: none`. |
 | iOS Safari drops the files of a file input that isn't in the document, can refuse to store photo-picker Files in IndexedDB, and converts photos according to the accept list. | Pickers stay in the document until they deliver (`chooseFiles`); originals are stored as bytes on iPhone and iPad; the photo library is asked for `image/*,video/*`. |

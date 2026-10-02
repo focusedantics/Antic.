@@ -1,6 +1,7 @@
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect } from "react";
 import { useStore } from "@/app/hooks";
+import { layout } from "@/app/layout";
 import { registerShortcuts } from "@/app/shortcuts";
 import { ui } from "@/app/state";
 import { catalog } from "@/core/catalog/store";
@@ -12,6 +13,7 @@ import { showInDevelop } from "./loader";
 import { autoWhiteBalance, BasicPanel } from "./panels/Basic";
 import { ColorGradingPanel, ColorMixerPanel } from "./panels/Color";
 import { DetailPanel, EffectsPanel, LensPanel } from "./panels/Detail";
+import { EditDeck } from "./panels/EditDeck";
 import { HistogramView } from "./panels/Histogram";
 import { copySettings, DevelopLeftPanel, pasteSettings } from "./panels/Left";
 import { ToneCurvePanel } from "./panels/ToneCurve";
@@ -130,7 +132,12 @@ function ToolStrip() {
 function RightPanel() {
   const tool = useStore(develop, (s) => s.tool);
   const hasRecipe = useStore(develop, (s) => !!s.recipe);
+  const compact = useStore(layout, (s) => s.compact);
   if (!hasRecipe) return null;
+  // Phones: the dock picks the tool, the histogram floats over the photo, and each
+  // sheet holds one thing (Edit: the adjustment groups; Crop, Masks, Heal: that tool).
+  if (compact)
+    return tool === "crop" ? <CropPanel /> : tool === "mask" ? <MasksPanel /> : tool === "heal" ? <HealPanel /> : <EditDeck />;
   return (
     <>
       <HistogramView />
@@ -255,7 +262,7 @@ export default function Develop({ Shell }: { Shell: ComponentType<ShellProps> })
   const pick = (t: DevelopTool) => () => develop.setState({ tool: t });
   const dock: DockItem[] = [
     { id: "presets", label: "Presets", icon: "presets", side: "left" },
-    { id: "edit", label: "Edit", icon: "edit", side: "right", active: tool === "adjust", onSelect: pick("adjust") },
+    { id: "edit", label: "Edit", icon: "edit", side: "right", active: tool === "adjust", fit: true, onSelect: pick("adjust") },
     { id: "crop", label: "Crop", icon: "crop", side: "right", active: tool === "crop", onSelect: pick("crop") },
     { id: "masks", label: "Masks", icon: "masks", side: "right", active: tool === "mask", onSelect: pick("mask") },
     { id: "heal", label: "Heal", icon: "heal", side: "right", active: tool === "heal", onSelect: pick("heal") },

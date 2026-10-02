@@ -1,4 +1,4 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useRef } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon, type IconName } from "@/components/icons";
 import { Filmstrip } from "@/features/library/Filmstrip";
@@ -20,6 +20,12 @@ export type DockItem = {
   readonly disabled?: boolean;
   /** Shown as current while the sheet is open on its side (default: any time the side is open). */
   readonly active?: boolean;
+  /**
+   * The sheet opens at its content's own height rather than the remembered one, and
+   * without a title row: Develop's Edit shows about three sliders, so the photo
+   * stays in view (dragging the grip up still makes it taller).
+   */
+  readonly fit?: boolean;
   readonly onSelect?: () => void;
 };
 
@@ -186,7 +192,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
     <main className="workspace compact">
       <section className="center">{center}</section>
       {sheet && open && (
-        <Sheet title={open.label} onClose={() => openSheet(null)}>
+        <Sheet key={open.fit ? `fit-${open.id}` : "sheet"} title={open.label} fit={open.fit} onClose={() => openSheet(null)}>
           {sheet === "left" ? left : right}
         </Sheet>
       )}
@@ -220,10 +226,19 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
 const SNAPS = [0.3, 0.5, 0.85];
 
 /** A panel over the bottom of the screen: drag the grip to resize (it snaps), down to close. */
-function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const height = useStore(prefs, (s) => s.sheetHeight);
+function Sheet({ title, fit = false, onClose, children }: { title: string; fit?: boolean; onClose: () => void; children: ReactNode }) {
+  const remembered = useStore(prefs, (s) => s.sheetHeight);
+  // A fitted sheet starts at its content's height; dragging it taller lasts until it closes.
+  const [stretched, setStretched] = useState<number | null>(null);
+  const height = fit ? stretched : remembered;
   const ref = useRef<HTMLDivElement>(null);
   const [min, max] = PANEL_LIMITS.sheet;
+  // The content's own height as a share of the screen, measured while it is fitted.
+  const natural = useRef<number>(SNAPS[0]);
+  useLayoutEffect(() => {
+    if (fit && height === null && ref.current) natural.current = ref.current.getBoundingClientRect().height / window.innerHeight;
+  });
+  const setHeight = (share: number | null) => (fit ? setStretched(share) : share !== null && setPrefs({ sheetHeight: share }));
 
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
     const el = ref.current!;
@@ -247,9 +262,15 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
       const share = px / window.innerHeight;
       const flickDown = (ev.clientY - startY) / Math.max(1, performance.now() - startT) > 0.9;
       if (Math.abs(ev.clientY - startY) < 4) return; // a tap on the grip
-      if (share < 0.2 || (flickDown && share < height)) return onClose();
+      if (share < 0.2 || (flickDown && share < startH / window.innerHeight)) return onClose();
+      if (fit) {
+        // Back near the content's height: fit it again.
+        const fitted = natural.current;
+        const snap = [fitted, ...SNAPS.filter((x) => x > fitted + 0.05)].reduce((a, b) => (Math.abs(b - share) < Math.abs(a - share) ? b : a));
+        return setHeight(snap === fitted ? null : snap);
+      }
       const snap = SNAPS.reduce((a, b) => (Math.abs(b - share) < Math.abs(a - share) ? b : a));
-      setPrefs({ sheetHeight: Math.min(max, Math.max(min, snap)) });
+      setHeight(Math.min(max, Math.max(min, snap)));
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", up);
@@ -259,12 +280,21 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.key === "ArrowUp") setPrefs({ sheetHeight: SNAPS.find((s) => s > height + 0.01) ?? SNAPS[SNAPS.length - 1] });
-    else if (height <= SNAPS[0] + 0.01) onClose();
-    else setPrefs({ sheetHeight: [...SNAPS].reverse().find((s) => s < height - 0.01) ?? SNAPS[0] });
+    const now = height ?? natural.current;
+    if (e.key === "ArrowUp") setHeight(SNAPS.find((s) => s > now + 0.01) ?? SNAPS[SNAPS.length - 1]);
+    else if (fit && height !== null) setHeight([...SNAPS].reverse().find((s) => s < height - 0.01 && s > natural.current + 0.05) ?? null);
+    else if (fit || now <= SNAPS[0] + 0.01) onClose();
+    else setHeight([...SNAPS].reverse().find((s) => s < now - 0.01) ?? SNAPS[0]);
   };
   return (
-    <section ref={ref} className="sheet" style={{ "--sheet": height } as React.CSSProperties} aria-label={title} data-testid="sheet">
+    <section
+      ref={ref}
+      className="sheet"
+      style={height === null ? undefined : ({ "--sheet": height } as React.CSSProperties)}
+      data-fit={fit ? (height === null ? "content" : "stretched") : undefined}
+      aria-label={title}
+      data-testid="sheet"
+    >
       <div
         className="sheet-grip"
         role="separator"
@@ -272,19 +302,21 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
         aria-label="Resize the panel"
         aria-valuemin={Math.round(min * 100)}
         aria-valuemax={Math.round(max * 100)}
-        aria-valuenow={Math.round(height * 100)}
+        aria-valuenow={height === null ? undefined : Math.round(height * 100)}
         tabIndex={0}
         onPointerDown={down}
         onKeyDown={keyDown}
       >
         <span aria-hidden="true" />
       </div>
-      <div className="sheet-head">
-        <strong>{title}</strong>
-        <button type="button" className="btn ghost small" aria-label="Close the panel" onClick={onClose}>
-          ✕
-        </button>
-      </div>
+      {!fit && (
+        <div className="sheet-head">
+          <strong>{title}</strong>
+          <button type="button" className="btn ghost small" aria-label="Close the panel" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className="sheet-body side">{children}</div>
     </section>
   );

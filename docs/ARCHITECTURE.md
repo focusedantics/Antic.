@@ -501,13 +501,25 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   bottom dock in thumb reach opens one side's panels in a sheet (`layout.sheet`); the
   sheet's grip drags to resize and snaps to 30/50/85 % of the screen (or closes below
   20 % or on a downward flick). The viewer shrinks above the sheet, so edits stay
-  visible. Develop's dock is Presets · Edit · Crop · Masks · Heal (tools open the
-  adjustments on that tool; Composite's dock adds Effects, which opens the browser). The
+  visible. Develop's dock is Presets · Edit · Crop · Masks · Heal (Crop, Masks and Heal
+  open a sheet holding just that tool; Composite's dock adds Effects, which opens the
+  browser). Edit opens `EditDeck` in a *fitted* sheet (`DockItem.fit`): Lightroom
+  mobile's short panel, one group at a time (Light, Curve, Color, Mixer, Grading,
+  Effects, Detail, Optics) with about three sliders showing and the groups in a row
+  beneath; its height is the content's, dragging the grip up stretches it until it
+  closes. The groups reuse the desktop panels' bodies (`ToneSliders`,
+  `WhiteBalance`, `DetailControls`…; each `…Panel` is that body in a collapsible
+  `Panel`). Sliders in a phone sheet put the name and value on one line over a wide
+  track; a finger drags a slider sideways from where it is (`Slider`'s touch path: a tap
+  does nothing, a vertical swipe scrolls, `touch-action: pan-y`). The histogram floats,
+  small and translucent, in the photo's top-left corner (`FloatingHistogram`, only while
+  editing, so crop handles and brushes keep the corner; `prefs.showHistogram`, toggled in
+  the ⋯ menu); it lets touches through to the photo. The
   top bar has a workspace switcher (a menu), the workspace's main actions (in the Library a
   centred Liquid Glass Import button that shows progress while it runs; the newest photo is
   refracted through it), and a ⋯ menu (menus on phones are Liquid Glass too: a
   backdrop blur of the photo behind, rim lights, 48 px rows with icons in the system font)
-  for import, the filmstrip, the glow and the tour. Main actions (undo, redo, export)
+  for import, the filmstrip, the histogram (Develop), the glow and the tour. Main actions (undo, redo, export)
   render through `<CompactActions>` into the top bar's slot (`actionsSlot`), and the
   toolbar's own copies carry `wide-only` and hide; toolbars scroll sideways for the
   rest (Composite's becomes large icons with alignment in a menu). Held sideways

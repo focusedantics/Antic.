@@ -8,11 +8,11 @@ import { RecipeSlider } from "../edit";
 
 const plain = (v: number) => formatSigned(v).replace("+", "");
 
-export function DetailPanel() {
+export function DetailControls() {
   const raw = useStore(develop, (s) => s.info?.raw ?? false);
   const d = defaultDetail(raw);
   return (
-    <Panel id="dev-detail" title="Detail" defaultOpen={false}>
+    <>
       <p className="faint" style={{ fontSize: 10, margin: "0 0 6px" }}>
         Sharpening and noise reduction show fully at 100% zoom (press 2).
       </p>
@@ -25,24 +25,36 @@ export function DetailPanel() {
       <RecipeSlider group="detail" field="noiseLuminance" range={detailRanges.noiseLuminance} defaultValue={d.noiseLuminance} format={plain} />
       <RecipeSlider group="detail" field="noiseDetail" range={detailRanges.noiseDetail} defaultValue={d.noiseDetail} format={plain} />
       <RecipeSlider group="detail" field="noiseColor" range={detailRanges.noiseColor} defaultValue={d.noiseColor} format={plain} />
-    </Panel>
+    </>
   );
 }
 
-export function LensPanel() {
+export const DetailPanel = () => (
+  <Panel id="dev-detail" title="Detail" defaultOpen={false}>
+    <DetailControls />
+  </Panel>
+);
+
+export function LensControls() {
   return (
-    <Panel id="dev-lens" title="Lens Corrections" defaultOpen={false}>
+    <>
       <div className="subhead">Manual</div>
       <RecipeSlider group="optics" field="distortion" range={opticsRanges.distortion} />
       <RecipeSlider group="optics" field="vignetting" range={opticsRanges.vignetting} />
       <RecipeSlider group="optics" field="vignettingMidpoint" range={opticsRanges.vignettingMidpoint} defaultValue={50} format={plain} />
-    </Panel>
+    </>
   );
 }
 
-export function EffectsPanel() {
+export const LensPanel = () => (
+  <Panel id="dev-lens" title="Lens Corrections" defaultOpen={false}>
+    <LensControls />
+  </Panel>
+);
+
+export function EffectsControls() {
   return (
-    <Panel id="dev-effects" title="Effects" defaultOpen={false}>
+    <>
       <div className="subhead">Post-Crop Vignetting</div>
       <RecipeSlider group="effects" field="vignetteAmount" range={effectsRanges.vignetteAmount} />
       <RecipeSlider group="effects" field="vignetteMidpoint" range={effectsRanges.vignetteMidpoint} defaultValue={50} format={plain} />
@@ -52,6 +64,12 @@ export function EffectsPanel() {
       <RecipeSlider group="effects" field="grainAmount" range={effectsRanges.grainAmount} format={plain} />
       <RecipeSlider group="effects" field="grainSize" range={effectsRanges.grainSize} defaultValue={25} format={plain} />
       <RecipeSlider group="effects" field="grainRoughness" range={effectsRanges.grainRoughness} defaultValue={50} format={plain} />
-    </Panel>
+    </>
   );
 }
+
+export const EffectsPanel = () => (
+  <Panel id="dev-effects" title="Effects" defaultOpen={false}>
+    <EffectsControls />
+  </Panel>
+);

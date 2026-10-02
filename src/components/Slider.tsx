@@ -62,9 +62,47 @@ export function Slider({
     return quantize(min + ((clientX - rect.left) / rect.width) * (max - min));
   };
 
+  // Fingers: a sideways drag anywhere on the track moves the value from where it was
+  // (like Lightroom mobile); a tap does nothing and a vertical swipe scrolls the panel
+  // (the track allows `pan-y`), so scrolling past sliders never changes them.
+  const touchDrag = (e: PointerEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startValue = value;
+    const width = trackRef.current!.getBoundingClientRect().width || 1;
+    let from: number | null = null;
+    const move = (ev: globalThis.PointerEvent) => {
+      if (from === null) {
+        const dx = Math.abs(ev.clientX - startX);
+        const dy = Math.abs(ev.clientY - startY);
+        if (dy > 10 && dy > dx) return end();
+        if (dx < 6 || dx < dy) return;
+        from = ev.clientX;
+        try {
+          target.setPointerCapture(ev.pointerId);
+        } catch {
+          // Already released: the gesture still works on this element.
+        }
+        onGestureStart?.();
+      }
+      onChange(quantize(startValue + ((ev.clientX - from) / width) * (max - min)));
+    };
+    const end = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", end);
+      target.removeEventListener("pointercancel", end);
+      if (from !== null) onGestureEnd?.();
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+  };
+
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (disabled || e.button !== 0) return;
     if (e.detail === 2) return; // double-click is handled below
+    if (e.pointerType === "touch") return touchDrag(e);
     e.currentTarget.setPointerCapture(e.pointerId);
     e.currentTarget.focus();
     onGestureStart?.();

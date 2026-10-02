@@ -1,10 +1,13 @@
 import { viewDpr } from "@/lib/device";
 import { useEffect, useRef } from "react";
 import { useStore } from "@/app/hooks";
+import { layout } from "@/app/layout";
+import { prefs } from "@/app/prefs";
 import { develop } from "@/core/develop/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { clamp } from "@/lib/math";
 import { MaskOverlay } from "./masks/MaskOverlay";
+import { FloatingHistogram } from "./panels/Histogram";
 import { CropOverlay } from "./tools/Crop";
 import { HealOverlay } from "./tools/Heal";
 
@@ -34,6 +37,10 @@ export function DevelopView() {
   const tool = useStore(develop, (s) => s.tool);
   const compare = useStore(develop, (s) => s.compare);
   const split = useStore(develop, (s) => s.splitPosition);
+  // Phones float the histogram over the photo while editing (crop, masks and heal need the corner).
+  const compact = useStore(layout, (s) => s.compact);
+  const showHistogram = useStore(prefs, (s) => s.showHistogram);
+  const floatHistogram = compact && showHistogram && tool === "adjust";
   const status = useStore(develop, (s) => (s.error ? `error:${s.error}` : s.loading ? (s.source === "preview" ? "preview" : "loading") : ""));
   useEffect(() => {
     const engine = developEngine();
@@ -194,8 +201,9 @@ export function DevelopView() {
       {status === "preview" && <div className="develop-status">Showing the camera preview while the original decodes…</div>}
       {status === "loading" && <div className="develop-status">Decoding original…</div>}
       {status.startsWith("error:") && <div className="develop-status error">{status.slice(6)}</div>}
+      {floatHistogram && <FloatingHistogram />}
       {compare !== "off" && (
-        <div className="develop-status" style={{ bottom: "auto", top: 10 }}>
+        <div className="develop-status compare-label" style={{ bottom: "auto", top: 10 }}>
           {compare === "split" ? "Before | After" : "Before · After"}
         </div>
       )}

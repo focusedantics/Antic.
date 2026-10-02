@@ -2,11 +2,9 @@ import { useEffect, useRef } from "react";
 import { useStore } from "@/app/hooks";
 import { develop } from "@/core/develop/session";
 
-/** Live histogram of the developed photo, with clipping indicators. */
-export function HistogramView() {
+/** Draws the photo's histogram into a canvas, again whenever it changes. */
+function useHistogramCanvas() {
   const histogram = useStore(develop, (s) => s.histogram);
-  const clipping = useStore(develop, (s) => s.clipping);
-  const source = useStore(develop, (s) => s.source);
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -42,6 +40,14 @@ export function HistogramView() {
       ctx.stroke();
     }
   }, [histogram]);
+  return { ref, histogram };
+}
+
+/** Live histogram of the developed photo, with clipping indicators. */
+export function HistogramView() {
+  const { ref, histogram } = useHistogramCanvas();
+  const clipping = useStore(develop, (s) => s.clipping);
+  const source = useStore(develop, (s) => s.source);
   const pct = (v: number) => (v * 100 >= 0.1 ? `${(v * 100).toFixed(1)}%` : "0%");
   return (
     <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--line)" }}>
@@ -71,6 +77,22 @@ export function HistogramView() {
       <div className="row faint" style={{ fontSize: 10, marginTop: 4 }}>
         <span>{source === "preview" ? "Camera preview (decoding original…)" : source === "raw" ? "RAW · linear Rec.2020" : source === "rendered" ? "Rendered file" : ""}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A phone's histogram: small and translucent in the photo's top corner, as in
+ * Lightroom mobile, so it stays in view while the sliders take the bottom. It lets
+ * touches through to the photo; the corners light up when shadows or highlights clip.
+ */
+export function FloatingHistogram() {
+  const { ref, histogram } = useHistogramCanvas();
+  return (
+    <div className="histogram-float" data-testid="floating-histogram">
+      <canvas ref={ref} aria-label="Histogram" role="img" />
+      <span className="clip low" data-on={(histogram?.clippedLow ?? 0) > 0.001} aria-hidden="true" />
+      <span className="clip high" data-on={(histogram?.clippedHigh ?? 0) > 0.001} aria-hidden="true" />
     </div>
   );
 }

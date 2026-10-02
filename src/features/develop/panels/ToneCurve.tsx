@@ -1,4 +1,6 @@
 import { type PointerEvent, useRef, useState } from "react";
+import { createStore } from "zustand/vanilla";
+import { useStore } from "@/app/hooks";
 import { Panel } from "@/components/Panel";
 import { Slider } from "@/components/Slider";
 import { identityCurve } from "@/core/develop/defaults";
@@ -12,6 +14,8 @@ import { useRecipe } from "../edit";
 type Channel = "master" | "red" | "green" | "blue";
 const channelColor: Record<Channel, string> = { master: "#dcdcdc", red: "#e0524a", green: "#5bbf4b", blue: "#4f7fe8" };
 const GAP = 1 / 256;
+/** The channel being edited, shared by the curve and the panel header's Reset. */
+const curveChannel = createStore<{ channel: Channel }>(() => ({ channel: "master" }));
 
 function setCurve(channel: Channel, curve: Curve, label = "Tone Curve") {
   editRecipe(label, (r) => ({ ...r, toneCurve: { ...r.toneCurve, [channel]: curve } }));
@@ -108,29 +112,29 @@ function CurveGraph({ tc, channel }: { tc: ToneCurve; channel: Channel }) {
   );
 }
 
-export function ToneCurvePanel() {
+/** The curve and its sliders. `inlineReset` puts Reset beside the channels (a phone has no panel header). */
+export function ToneCurveControls({ inlineReset = false }: { inlineReset?: boolean }) {
   const recipe = useRecipe();
-  const [channel, setChannel] = useState<Channel>("master");
+  const channel = useStore(curveChannel, (s) => s.channel);
   if (!recipe) return null;
   const tc = recipe.toneCurve;
   const setParam = (field: keyof ParametricCurve, value: number) =>
     editRecipe(parametricRanges[field].label, (r) => ({ ...r, toneCurve: { ...r.toneCurve, parametric: { ...r.toneCurve.parametric, [field]: value } } }));
   return (
-    <Panel
-      id="dev-curve"
-      title="Tone Curve"
-      actions={
-        <button type="button" className="btn ghost small" onClick={() => setCurve(channel, identityCurve, "Reset curve")}>
-          Reset
-        </button>
-      }
-    >
-      <div className="segmented" style={{ marginBottom: 8 }} role="group" aria-label="Curve channel">
-        {(["master", "red", "green", "blue"] as const).map((c) => (
-          <button key={c} type="button" aria-pressed={channel === c} onClick={() => setChannel(c)} style={{ color: c === "master" ? undefined : channelColor[c] }}>
-            {c === "master" ? "RGB" : c[0].toUpperCase()}
+    <>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <div className="segmented" role="group" aria-label="Curve channel">
+          {(["master", "red", "green", "blue"] as const).map((c) => (
+            <button key={c} type="button" aria-pressed={channel === c} onClick={() => curveChannel.setState({ channel: c })} style={{ color: c === "master" ? undefined : channelColor[c] }}>
+              {c === "master" ? "RGB" : c[0].toUpperCase()}
+            </button>
+          ))}
+        </div>
+        {inlineReset && (
+          <button type="button" className="btn ghost small" style={{ marginLeft: "auto" }} onClick={() => setCurve(channel, identityCurve, "Reset curve")}>
+            Reset
           </button>
-        ))}
+        )}
       </div>
       <CurveGraph tc={tc} channel={channel} />
       <p className="faint" style={{ fontSize: 10, margin: "4px 0 8px" }}>
@@ -150,6 +154,24 @@ export function ToneCurvePanel() {
             onChange={(v) => setParam(f, v)}
           />
         ))}
+    </>
+  );
+}
+
+export function ToneCurvePanel() {
+  const recipe = useRecipe();
+  if (!recipe) return null;
+  return (
+    <Panel
+      id="dev-curve"
+      title="Tone Curve"
+      actions={
+        <button type="button" className="btn ghost small" onClick={() => setCurve(curveChannel.getState().channel, identityCurve, "Reset curve")}>
+          Reset
+        </button>
+      }
+    >
+      <ToneCurveControls />
     </Panel>
   );
 }

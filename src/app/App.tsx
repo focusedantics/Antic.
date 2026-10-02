@@ -105,6 +105,7 @@ const setActionsSlot = (element: HTMLDivElement | null) => actionsSlot.setState(
 function CompactTopbar({ workspace }: { workspace: Workspace }) {
   const backdrop = useStore(prefs, (s) => s.backdrop);
   const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
+  const showHistogram = useStore(prefs, (s) => s.showHistogram);
   return (
     <header className="topbar compact">
       <span className="brand-mark" aria-label="Focused" role="img" />
@@ -137,6 +138,7 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
             { label: "Import Photos…", icon: "plus", onSelect: () => pickFiles() },
             { label: "Import Folder…", icon: "folders", onSelect: () => void importFolderInPlace() },
             "separator",
+            ...(workspace === "develop" ? [{ label: showHistogram ? "Hide the histogram" : "Show the histogram", icon: "histogram" as const, onSelect: () => setPrefs({ showHistogram: !showHistogram }) }] : []),
             ...(workspace !== "video" ? [{ label: showFilmstrip ? "Hide the filmstrip" : "Show the filmstrip", icon: "panel-bottom" as const, onSelect: () => setPrefs({ showFilmstrip: !showFilmstrip }) }] : []),
             { label: backdrop ? "Glow background: on" : "Glow background: off", icon: "animate", onSelect: () => setPrefs({ backdrop: !backdrop }) },
             { label: "Replay the tour", icon: "info", onSelect: () => startTour(1) },

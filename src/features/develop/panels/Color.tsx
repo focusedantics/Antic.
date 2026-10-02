@@ -20,7 +20,7 @@ function hueTrack(i: number, channel: MixerChannel) {
   return `linear-gradient(90deg, #111, ${c} 50%, #eee)`;
 }
 
-export function ColorMixerPanel() {
+export function ColorMixerControls() {
   const recipe = useRecipe();
   const [channel, setChannel] = useState<MixerChannel>("hue");
   if (!recipe) return null;
@@ -31,7 +31,7 @@ export function ColorMixerPanel() {
       colorMixer: { ...r.colorMixer, [channel]: r.colorMixer[channel].map((v, j) => (j === i ? value : v)) },
     }));
   return (
-    <Panel id="dev-mixer" title="Color Mixer">
+    <>
       <div className="segmented" style={{ marginBottom: 8 }} role="group" aria-label="Mixer channel">
         {(["hue", "saturation", "luminance"] as const).map((c) => (
           <button key={c} type="button" aria-pressed={channel === c} onClick={() => setChannel(c)}>
@@ -53,9 +53,15 @@ export function ColorMixerPanel() {
           onChange={(v) => set(i, v)}
         />
       ))}
-    </Panel>
+    </>
   );
 }
+
+export const ColorMixerPanel = () => (
+  <Panel id="dev-mixer" title="Color Mixer">
+    <ColorMixerControls />
+  </Panel>
+);
 
 function Wheel({ label, wheel, onChange }: { label: string; wheel: GradeWheel; onChange: (w: GradeWheel, label: string) => void }) {
   const size = 104;
@@ -120,15 +126,15 @@ function Wheel({ label, wheel, onChange }: { label: string; wheel: GradeWheel; o
   );
 }
 
-export function ColorGradingPanel() {
+export function ColorGradingControls() {
   const recipe = useRecipe();
   if (!recipe) return null;
   const g = recipe.colorGrading;
   const set = (key: keyof ColorGrading, value: ColorGrading[keyof ColorGrading], label: string) =>
     editRecipe(label, (r) => ({ ...r, colorGrading: { ...r.colorGrading, [key]: value } }));
   return (
-    <Panel id="dev-grading" title="Color Grading" defaultOpen={false}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+    <>
+      <div className="grade-wheels" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <Wheel label="Shadows" wheel={g.shadows} onChange={(w, l) => set("shadows", w, l)} />
         <Wheel label="Highlights" wheel={g.highlights} onChange={(w, l) => set("highlights", w, l)} />
         <Wheel label="Midtones" wheel={g.midtones} onChange={(w, l) => set("midtones", w, l)} />
@@ -136,6 +142,12 @@ export function ColorGradingPanel() {
       </div>
       <Slider label="Blending" value={g.blending} min={0} max={100} defaultValue={50} onGestureStart={() => beginGesture("Blending")} onGestureEnd={endGesture} onChange={(v) => set("blending", v, "Blending")} />
       <Slider label="Balance" value={g.balance} min={-100} max={100} defaultValue={0} onGestureStart={() => beginGesture("Balance")} onGestureEnd={endGesture} onChange={(v) => set("balance", v, "Balance")} />
-    </Panel>
+    </>
   );
 }
+
+export const ColorGradingPanel = () => (
+  <Panel id="dev-grading" title="Color Grading" defaultOpen={false}>
+    <ColorGradingControls />
+  </Panel>
+);

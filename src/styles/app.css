@@ -683,6 +683,62 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .fx-browser.compact .fx-items.grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .fx-browser.compact .fx-items.list .fx-thumb { width: 96px; }
 .fx-browser.compact .fx-foot { display: none; }
+/* Develop's Edit on a phone (EditDeck), like Lightroom mobile: a short panel showing
+   about three sliders, so most of the screen stays photo, with the groups in a row
+   beneath. Sliders there put the name and value on one line and a wide track under it. */
+.sheet[data-fit] { --deck-row: 58px; }
+.sheet[data-fit="content"] { height: auto; }
+.sheet[data-fit] .sheet-grip { height: 20px; }
+.sheet[data-fit] .sheet-body { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; border-top: 0; }
+.edit-deck { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.deck-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 6px; }
+.sheet[data-fit="content"]:not([data-dragging]) .deck-scroll { flex: none; height: calc(3 * var(--deck-row) + 6px); }
+.deck-scroll > .row, .deck-scroll > .segmented, .deck-scroll > p { margin-top: 6px; }
+.deck-scroll .subhead { margin: 12px 0 0; font-size: 12px; }
+.deck-scroll .row > .dim:first-child { font-size: 15px; color: var(--text-dim); }
+.deck-tabs {
+  flex: none; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; scroll-padding: 0 12px;
+  padding: 4px 8px 2px; border-top: 1px solid var(--line);
+}
+.deck-tabs::-webkit-scrollbar { display: none; }
+.deck-tab {
+  flex: 1 0 auto; min-width: 56px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 6px 5px;
+  background: none; border: 0; border-radius: 10px; color: var(--text-dim); font-size: 11px; letter-spacing: 0.02em;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.deck-tab[aria-selected="true"] { color: var(--accent-strong); background: #ffffff0a; }
+.deck-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+:root[data-compact="true"] .sheet .slider {
+  grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 22px 32px; grid-template-areas: "label value" "track track";
+  height: var(--deck-row, 58px); align-content: end; row-gap: 0; column-gap: 8px;
+}
+:root[data-compact="true"] .sheet .slider label { grid-area: label; font-size: 15px; line-height: 22px; }
+:root[data-compact="true"] .sheet .slider-value {
+  grid-area: value; width: 64px; height: 22px; padding: 0; font-size: 16px; color: var(--text); border: 0; border-radius: 4px;
+}
+:root[data-compact="true"] .sheet .slider-track { grid-area: track; height: 32px; touch-action: pan-y; }
+:root[data-compact="true"] .sheet .slider-track::before { top: 15px; height: 2px; background: var(--track, rgb(255 255 255 / 0.28)); }
+:root[data-compact="true"] .sheet .slider-fill { top: 15px; background: rgb(255 255 255 / 0.75); }
+:root[data-compact="true"] .sheet .slider-thumb {
+  top: 5px; width: 22px; height: 22px; margin-left: -11px; border: 0; background: #f4f4f4;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.6), 0 0 0 0.5px rgb(0 0 0 / 0.3);
+}
+:root[data-compact="true"] .sheet .slider-track:focus-visible .slider-thumb { box-shadow: 0 0 0 3px var(--focus); }
+/* The histogram floats in the photo's corner, small and translucent; touches pass through. */
+.histogram-float {
+  position: absolute; z-index: 2; top: 10px; left: 10px; width: 132px; height: 70px; padding: 5px; border-radius: 12px;
+  background: rgb(18 18 18 / 0.36); border: 1px solid rgb(255 255 255 / 0.14);
+  -webkit-backdrop-filter: blur(12px) saturate(150%); backdrop-filter: blur(12px) saturate(150%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.12);
+  pointer-events: none;
+}
+.histogram-float canvas { display: block; width: 100%; height: 100%; }
+.histogram-float .clip { position: absolute; top: 4px; width: 0; height: 0; border: 5px solid transparent; opacity: 0; transition: opacity 0.2s; }
+.histogram-float .clip.low { left: 4px; border-top-color: #6aa0ff; border-left-color: #6aa0ff; border-top-left-radius: 3px; }
+.histogram-float .clip.high { right: 4px; border-top-color: #ff6a5a; border-right-color: #ff6a5a; border-top-right-radius: 3px; }
+.histogram-float .clip[data-on="true"] { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .histogram-float .clip { transition: none; } }
+.app[data-compact="true"] .compare-label { left: auto; right: 12px; }
 .app[data-compact="true"] .toast { bottom: calc(64px + env(safe-area-inset-bottom)); max-width: calc(100vw - 24px); }
 
 /* Touch screens: bigger targets (Apple asks for 44 pt, Material for 48 dp); 16 px inputs stop iOS zooming in. */
@@ -695,7 +751,7 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   .panel-head { padding: 13px 12px; font-size: 12px; }
   .input, select.input { height: 34px; font-size: 16px; }
   .slider { height: 36px; grid-template-columns: 86px 1fr 46px; }
-  .slider-track { height: 36px; }
+  .slider-track { height: 36px; touch-action: pan-y; }
   .slider-track::before, .slider-fill { top: 17px; }
   .slider-thumb { top: 9px; width: 18px; height: 18px; margin-left: -9px; }
   .tool-btn { width: 36px; height: 36px; }
@@ -712,6 +768,7 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
     border-top: 0; border-left: 1px solid var(--line-strong); border-radius: 0; box-shadow: -8px 0 24px #0008;
   }
   .workspace.compact > .sheet .sheet-grip { display: none; }
+  .workspace.compact > .sheet[data-fit="content"]:not([data-dragging]) .deck-scroll { flex: 1 1 auto; height: auto; }
   .workspace.compact > .sheet .sheet-head { padding-top: 8px; }
   .workspace.compact > .dock {
     grid-column: 3; grid-row: 1 / span 2; flex-direction: column; justify-content: flex-start; overflow-y: auto;

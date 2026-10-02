@@ -33,7 +33,7 @@ export function autoWhiteBalance() {
 const toMired = (k: number) => -1e6 / k;
 const fromMired = (m: number) => Math.round(-1e6 / m / 50) * 50;
 
-function WhiteBalance() {
+export function WhiteBalance() {
   const recipe = useRecipe();
   const info = useStore(develop, (s) => s.info);
   if (!recipe || !info) return null;
@@ -117,45 +117,79 @@ function WhiteBalance() {
   );
 }
 
-export function BasicPanel() {
+/** Colour or black and white (on a phone it heads the Color group, like Lightroom's B&W). */
+export function ProfileControls() {
   const recipe = useRecipe();
   const info = useStore(develop, (s) => s.info);
   if (!recipe) return null;
   const setProfile = (profile: Profile) => editRecipe(`Profile: ${profile === "color" ? "Color" : "Monochrome"}`, (r) => ({ ...r, profile }));
   return (
-    <Panel id="dev-basic" title="Basic">
-      <div className="row" style={{ marginBottom: 8 }}>
-        <span className="dim" style={{ width: 78 }}>
-          Profile
-        </span>
-        <div className="segmented">
-          <button type="button" aria-pressed={recipe.profile === "color"} onClick={() => setProfile("color")}>
-            Color
-          </button>
-          <button type="button" aria-pressed={recipe.profile === "monochrome"} onClick={() => setProfile("monochrome")}>
-            B&W
-          </button>
-        </div>
-        {info?.raw && (
-          <span className="faint" title="Camera RAW gets a filmic base tone curve, like a camera profile">
-            + base curve
-          </span>
-        )}
+    <div className="row" style={{ marginBottom: 8 }}>
+      <span className="dim" style={{ width: 78 }}>
+        Profile
+      </span>
+      <div className="segmented">
+        <button type="button" aria-pressed={recipe.profile === "color"} onClick={() => setProfile("color")}>
+          Color
+        </button>
+        <button type="button" aria-pressed={recipe.profile === "monochrome"} onClick={() => setProfile("monochrome")}>
+          B&W
+        </button>
       </div>
-      <WhiteBalance />
-      <div className="subhead">Tone</div>
+      {info?.raw && (
+        <span className="faint" title="Camera RAW gets a filmic base tone curve, like a camera profile">
+          + base curve
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function ToneSliders() {
+  return (
+    <>
       <RecipeSlider group="basic" field="exposure" range={basicRanges.exposure} />
       <RecipeSlider group="basic" field="contrast" range={basicRanges.contrast} />
       <RecipeSlider group="basic" field="highlights" range={basicRanges.highlights} />
       <RecipeSlider group="basic" field="shadows" range={basicRanges.shadows} />
       <RecipeSlider group="basic" field="whites" range={basicRanges.whites} />
       <RecipeSlider group="basic" field="blacks" range={basicRanges.blacks} />
-      <div className="subhead">Presence</div>
+    </>
+  );
+}
+
+/** Texture, Clarity, Dehaze (Lightroom mobile files them under Effects). */
+export function PresenceSliders() {
+  return (
+    <>
       <RecipeSlider group="basic" field="texture" range={basicRanges.texture} />
       <RecipeSlider group="basic" field="clarity" range={basicRanges.clarity} />
       <RecipeSlider group="basic" field="dehaze" range={basicRanges.dehaze} />
+    </>
+  );
+}
+
+export function SaturationSliders() {
+  return (
+    <>
       <RecipeSlider group="basic" field="vibrance" range={basicRanges.vibrance} />
       <RecipeSlider group="basic" field="saturation" range={basicRanges.saturation} />
+    </>
+  );
+}
+
+export function BasicPanel() {
+  const recipe = useRecipe();
+  if (!recipe) return null;
+  return (
+    <Panel id="dev-basic" title="Basic">
+      <ProfileControls />
+      <WhiteBalance />
+      <div className="subhead">Tone</div>
+      <ToneSliders />
+      <div className="subhead">Presence</div>
+      <PresenceSliders />
+      <SaturationSliders />
     </Panel>
   );
 }

@@ -59,4 +59,10 @@ describe("layout prefs", () => {
     expect(sanitizePrefs({ leftWidth: 40, rightWidth: 9000, sheetHeight: 3, showLeft: "no" })).toMatchObject({ leftWidth: 180, rightWidth: 560, sheetHeight: 0.9, showLeft: true });
     expect(sanitizePrefs({ leftWidth: 300.4, rightWidth: Number.NaN, sheetHeight: 0.1, showRight: false })).toMatchObject({ leftWidth: 300, rightWidth: null, sheetHeight: 0.25, showRight: false });
   });
+
+  it("shows a phone's floating histogram unless it was hidden", () => {
+    expect(sanitizePrefs(null).showHistogram).toBe(true);
+    expect(sanitizePrefs({ showHistogram: false }).showHistogram).toBe(false);
+    expect(sanitizePrefs({ showHistogram: "no" }).showHistogram).toBe(true);
+  });
 });

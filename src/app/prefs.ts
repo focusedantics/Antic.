@@ -20,6 +20,8 @@ export type Prefs = {
   readonly rightWidth: number | null;
   /** Height of a phone's panel sheet, as a share of the screen. */
   readonly sheetHeight: number;
+  /** The histogram floating over the photo in a phone's Develop. */
+  readonly showHistogram: boolean;
 };
 
 export const PANEL_LIMITS = { left: [180, 480], right: [240, 560], sheet: [0.25, 0.9] } as const;
@@ -35,6 +37,7 @@ const defaults: Prefs = {
   leftWidth: null,
   rightWidth: null,
   sheetHeight: 0.45,
+  showHistogram: true,
 };
 
 const bool = (v: unknown, f: boolean) => (typeof v === "boolean" ? v : f);
@@ -51,6 +54,7 @@ export function sanitizePrefs(v: unknown): Prefs {
     showFilmstrip: bool(o.showFilmstrip, defaults.showFilmstrip),
     leftWidth: width(o.leftWidth, PANEL_LIMITS.left),
     rightWidth: width(o.rightWidth, PANEL_LIMITS.right),
+    showHistogram: bool(o.showHistogram, defaults.showHistogram),
     sheetHeight: typeof o.sheetHeight === "number" && Number.isFinite(o.sheetHeight) ? Math.min(sMax, Math.max(sMin, o.sheetHeight)) : defaults.sheetHeight,
   };
 }

@@ -1,5 +1,5 @@
 /** Small line icons for the phone dock and the panel toggles (inherit the text colour). */
-export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate";
+export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram";
 
 const paths: Record<IconName, React.ReactNode> = {
   presets: (
@@ -127,6 +127,41 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M10 8.5v7l6-3.5z" fill="currentColor" />
     </>
   ),
+  light: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" />
+    </>
+  ),
+  color: <path d="M12 3.5s6.5 7 6.5 11a6.5 6.5 0 0 1-13 0c0-4 6.5-11 6.5-11z" />,
+  curve: (
+    <>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2" />
+      <path d="M6 18c5 0 4-12 12-12" />
+    </>
+  ),
+  mixer: (
+    <>
+      <circle cx="9" cy="9" r="5" />
+      <circle cx="15" cy="9" r="5" />
+      <circle cx="12" cy="14.5" r="5" />
+    </>
+  ),
+  grade: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="15" cy="9.5" r="2" fill="currentColor" />
+      <path d="M12 12l3-2.5" />
+    </>
+  ),
+  detail: <path d="M12 4 21 19H3z" />,
+  optics: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5 15 12M20.5 12 12 15M12 20.5 9 12M3.5 12 12 9" />
+    </>
+  ),
+  histogram: <path d="M3 20h18M4 20c2-9 3-13 5-13s2 7 4 7 2-9 4-9 2.5 9 3 15" />,
   more: (
     <>
       <circle cx="5" cy="12" r="1.6" fill="currentColor" />
