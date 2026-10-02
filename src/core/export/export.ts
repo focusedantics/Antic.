@@ -7,6 +7,7 @@ import { recipeFor } from "@/core/develop/session";
 import { loadSource } from "@/core/develop/source-loader";
 import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
 import { buildExif, insertExif } from "./exif";
+import { type ExportFrame, frameLayout } from "./frame";
 import type { Watermark } from "./watermark";
 
 export type ExportFormat = "jpeg" | "png" | "webp";
@@ -68,11 +69,11 @@ export type ExportStage = (label: string, fraction: number) => void;
  * read-back are synchronous GPU work, so it lets the browser paint before each
  * heavy step: the dialog shows what is happening instead of freezing first.
  */
-export function exportAsset(id: AssetId, settings: ExportSettings, watermark?: Watermark, onStage?: ExportStage): Promise<ExportResult> {
-  return track(renderExport(id, settings, watermark, onStage));
+export function exportAsset(id: AssetId, settings: ExportSettings, watermark?: Watermark, onStage?: ExportStage, frame?: ExportFrame): Promise<ExportResult> {
+  return track(renderExport(id, settings, watermark, onStage, frame));
 }
 
-async function renderExport(id: AssetId, settings: ExportSettings, watermark?: Watermark, onStage?: ExportStage): Promise<ExportResult> {
+async function renderExport(id: AssetId, settings: ExportSettings, watermark?: Watermark, onStage?: ExportStage, frame?: ExportFrame): Promise<ExportResult> {
   const asset = getAsset(id);
   const recipe = recipeFor(id);
   if (!asset || !recipe) throw new Error("Photo not found");
@@ -90,18 +91,20 @@ async function renderExport(id: AssetId, settings: ExportSettings, watermark?: W
   const pixels = engine.exportPixels(source, recipe, Math.max(size.width, size.height));
   onStage?.(`Encoding ${settings.format.toUpperCase()}…`, 0.65);
   await nextPaint();
-  let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background, watermark);
+  let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background, watermark, frame);
+  // A frame placed around the photo makes the file larger than the photo.
+  const out = frameLayout(pixels.width, pixels.height, frame);
   onStage?.("Saving…", 0.95);
   if (settings.format === "jpeg" && settings.metadata !== "none") {
     const exif =
       settings.metadata === "all" ? asset.exif : { copyright: asset.exif.copyright, artist: asset.exif.artist };
     const payload = buildExif(exif, {
       captureTime: settings.metadata === "all" ? asset.captureTime : undefined,
-      width: pixels.width,
-      height: pixels.height,
+      width: out.width,
+      height: out.height,
     });
     blob = new Blob([insertExif(new Uint8Array(await blob.arrayBuffer()), payload) as BlobPart], { type: "image/jpeg" });
   }
   const base = asset.fileName.replace(/\.[^.]+$/, "");
-  return { name: `${base}${settings.suffix}.${extension[settings.format]}`, blob, width: pixels.width, height: pixels.height };
+  return { name: `${base}${settings.suffix}.${extension[settings.format]}`, blob, width: out.width, height: out.height };
 }

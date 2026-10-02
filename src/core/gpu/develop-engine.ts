@@ -1,6 +1,7 @@
 import { beginActivity } from "@/lib/activity";
 import { similarImages } from "./verify";
-import { drawWatermark, type Watermark, watermarkFont } from "@/core/export/watermark";
+import { composeExport, type ExportFrame } from "@/core/export/frame";
+import { type Watermark, watermarkFont } from "@/core/export/watermark";
 import { getRaster, getSetting, getThumb, putSetting, putThumb } from "@/core/catalog/db";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
@@ -812,23 +813,28 @@ export class DevelopEngine {
   }
 }
 
-export async function encodePixels(pixels: ImageData, type: string, quality: number, background?: string, watermark?: Watermark): Promise<Blob> {
+/**
+ * Encodes export pixels: flattened for JPEG (no alpha), then framed and
+ * watermarked (`composeExport`; the watermark sits inside the frame).
+ */
+export async function encodePixels(pixels: ImageData, type: string, quality: number, background?: string, watermark?: Watermark, frame?: ExportFrame): Promise<Blob> {
   const canvas = new OffscreenCanvas(pixels.width, pixels.height);
   const ctx = canvas.getContext("2d")!;
   ctx.putImageData(pixels, 0, 0);
-  let out = canvas;
-  if (type === "image/jpeg") {
+  const flatten = (src: OffscreenCanvas) => {
     // JPEG has no alpha: flatten against the chosen background.
-    const flat = new OffscreenCanvas(pixels.width, pixels.height);
+    const flat = new OffscreenCanvas(src.width, src.height);
     const fctx = flat.getContext("2d")!;
     fctx.fillStyle = background ?? "#ffffff";
     fctx.fillRect(0, 0, flat.width, flat.height);
-    fctx.drawImage(canvas, 0, 0);
-    out = flat;
-  }
-  if (watermark?.enabled) {
-    await loadFonts([watermarkFont(watermark)]);
-    drawWatermark(out.getContext("2d")!, out.width, out.height, watermark);
+    fctx.drawImage(src, 0, 0);
+    return flat;
+  };
+  let out = type === "image/jpeg" ? flatten(canvas) : canvas;
+  if (watermark?.enabled || frame?.enabled) {
+    if (watermark?.enabled) await loadFonts([watermarkFont(watermark)]);
+    out = composeExport(out, frame, watermark);
+    if (type === "image/jpeg" && frame?.enabled) out = flatten(out);
   }
   return out.convertToBlob({ type, quality });
 }

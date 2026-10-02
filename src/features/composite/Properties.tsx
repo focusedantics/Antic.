@@ -625,7 +625,7 @@ function ImageSection({ layer }: { layer: Extract<Layer, { kind: "image" }> }) {
               return;
             }
             const { removeBackgroundFor } = await import("./cutout");
-            await removeBackgroundFor(layer.assetId);
+            await removeBackgroundFor(layer.assetId, layer.id);
           }}
         >
           Remove Background

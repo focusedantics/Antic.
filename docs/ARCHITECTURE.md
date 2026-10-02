@@ -324,6 +324,18 @@ selections again for AI mask components, and builds compositions through
 with fflate (store only), or a directory handle. Watermarks are drawn with Canvas 2D after readback (photos and compositions) or uploaded
 once as an overlay texture (video frames).
 
+Frames (`core/export/frame.ts`) are data like the watermark (`ExportFrame`, read through
+`sanitizeFrame`, the last one remembered per browser). `frameLayout` gives the finished
+size and the opening: *inside* draws over the image's edges at the same size, *around*
+(and Polaroid, with its deeper bottom edge) grows the file by the band. `composeExport`
+is the one place a still is finished: it draws the photo (clipped to the rounded
+opening), the band — Glass: the photo itself blurred, slightly magnified and tinted
+inside the band, with a bevel, rim lights and an inner shadow; Solid/Polaroid: a mat —
+and then the watermark inside the opening. Photo export (`encodePixels`), composition
+stills and the animated `Flattener` (GIF/MP4) all go through it. Video stamps only a
+solid inside frame (`drawFrameOverlay`) into the same overlay texture as its watermark,
+so the clip keeps its size and a still-frame copy path is never framed by mistake.
+
 ## Pacing and working animations (`lib/pacing.ts`)
 
 Work of unknown length (exports, AI, decoding) answers within a frame and never looks
@@ -337,7 +349,8 @@ so the click lands visibly. `holdAtLeast(start)` keeps a working animation up fo
   developing W × H, encoding, saving) with a paint between each. The dialog's byte
   estimate (a real export) only runs for outputs up to 12 MP and never during an export.
 - **Remove Background** (`components/cutoutFx.ts`, used by Develop and Composite through
-  `runCutout`). One run at a time (`cutoutRun`; the buttons are disabled meanwhile), and
+  `runCutout`; Composite passes the layer's on-screen rectangle as `area`, so the globe
+  is made of that layer's pixels, not the whole composition). One run at a time (`cutoutRun`; the buttons are disabled meanwhile), and
   the result always lands on the photo the run started on. Everything moves on the GPU
   in `components/particleGlobe.ts` (WebGL2 points): while the AI runs, the photo's
   pixels (one averaged sample per particle, about one per 4 CSS px) lift into a turning

@@ -7,6 +7,7 @@ import { docAnimation, isAnimated, loopFrames } from "@/core/document/animation"
 import { sanitizeDocument } from "@/core/document/operations";
 import { composite } from "@/core/document/session";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
+import { type ExportFrame, frameLayout, rememberedFrame, rememberFrame } from "@/core/export/frame";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "@/features/export/ExportParts";
 import type { MarbleMood } from "@/features/export/marble";
@@ -24,6 +25,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(doc ? [doc.id] : []));
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
+  const [frame, setFrame] = useState<ExportFrame>(rememberedFrame);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
   const [item, setItem] = useState(0);
   const [mood, setMood] = useState<MarbleMood>("idle");
@@ -58,11 +60,14 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
   const animated = isAnimated(doc);
   const animation = docAnimation(doc);
   const moving = ANIMATED_FORMATS.has(o.format);
-  const size = exportSize(doc, o);
+  // The frame can make the file bigger than the canvas.
+  const canvasSize = exportSize(doc, o);
+  const size = frameLayout(canvasSize.width, canvasSize.height, frame);
 
   const run = async () => {
     remembered = o;
     rememberWatermark(watermark);
+    rememberFrame(frame);
     const controller = new AbortController();
     cancelled.current = controller;
     const sink = new ExportSink(destination, `Focused compositions (${chosen.length}).zip`);
@@ -81,7 +86,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
         setItem(i + 1);
         try {
           const target = id === doc.id ? doc : sanitizeDocument((await getDocument(id))?.data);
-          const blob = await exportDocument(target, o, watermark, (fraction, stage) => setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${stage}` }), controller.signal);
+          const blob = await exportDocument(target, o, watermark, (fraction, stage) => setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${stage}` }), controller.signal, frame);
           await sink.add(`${name}.${extension(o.format)}`, blob);
           done++;
         } catch (error) {
@@ -204,7 +209,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
       {moving && animated && (
         <p className="dim">
           One seamless {animation.duration} s loop at {animation.fps} fps (change it in the Loop settings of an animated effect or text layer).
-          {o.format === "gif" && size.scale < o.scale ? " GIFs are limited to 1600 px on the long side." : ""}
+          {o.format === "gif" && canvasSize.scale < o.scale ? " GIFs are limited to 1600 px on the long side." : ""}
         </p>
       )}
       {!moving && animated && (
@@ -241,7 +246,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
         </label>
       )}
       <DestinationPicker count={chosen.length} value={destination} onChange={setDestination} />
-      <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={thumbs[chosen[0] ?? doc.id] ?? null} />
+      <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={thumbs[chosen[0] ?? doc.id] ?? null} frame={frame} onFrame={setFrame} />
     </Dialog>
   );
 }

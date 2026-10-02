@@ -1,5 +1,6 @@
 import { ArrayBufferTarget as Mp4Target, Muxer as Mp4Muxer } from "mp4-muxer";
 import { ArrayBufferTarget as MkvTarget, Muxer as MkvMuxer } from "webm-muxer";
+import { drawFrameOverlay, type ExportFrame, frameLayout } from "@/core/export/frame";
 import { drawWatermark, type Watermark, watermarkFont } from "@/core/export/watermark";
 import { loadFonts } from "@/core/text/fonts";
 import { track } from "@/lib/activity";
@@ -83,11 +84,23 @@ export function exportEdit(
   onProgress: (p: ExportProgress) => void,
   signal: AbortSignal,
   watermark?: Watermark,
+  frame?: ExportFrame,
 ): Promise<ExportResult> {
-  return track(run(own, edit, loadClip, onProgress, signal, watermark));
+  return track(run(own, edit, loadClip, onProgress, signal, watermark, frame));
 }
 
-async function run(own: ClipMedia, edit: VideoEdit, loadClip: (id: string) => Promise<ClipMedia | null>, onProgress: (p: ExportProgress) => void, signal: AbortSignal, watermark?: Watermark): Promise<ExportResult> {
+async function run(
+  own: ClipMedia,
+  edit: VideoEdit,
+  loadClip: (id: string) => Promise<ClipMedia | null>,
+  onProgress: (p: ExportProgress) => void,
+  signal: AbortSignal,
+  watermark?: Watermark,
+  frame?: ExportFrame,
+): Promise<ExportResult> {
+  // Video takes solid frames over the picture's edges (stamped like the watermark); glass needs the picture under it.
+  const framed = !!frame?.enabled && frame.style !== "glass";
+  const stamped = !!watermark?.enabled || framed;
   if (typeof VideoDecoder === "undefined" || typeof VideoEncoder === "undefined") throw new Error("Video export needs WebCodecs (a recent Chrome, Edge, Firefox or Safari).");
   onProgress({ done: 0, total: 1, stage: "Reading video…" });
   const format = FORMATS.find((f) => f.id === edit.output.format)!;
@@ -111,7 +124,7 @@ async function run(own: ClipMedia, edit: VideoEdit, loadClip: (id: string) => Pr
   const keepsSize = size.width === own.info.width && size.height === own.info.height;
 
   // An untouched clip saved as MP4: copy the original frames.
-  if (format.extension === "mp4" && keepsSize && !watermark?.enabled && isUntouched(edit, own.info)) {
+  if (format.extension === "mp4" && keepsSize && !stamped && isUntouched(edit, own.info)) {
     const copied = copyVideo(own.media, edit.output.audio ? own.media.audio : null);
     if (copied) {
       onProgress({ done: 1, total: 1, stage: "Copying the original frames…" });
@@ -212,10 +225,19 @@ async function run(own: ClipMedia, edit: VideoEdit, loadClip: (id: string) => Pr
   };
   const canvas = new OffscreenCanvas(size.width, size.height);
   const renderer = new VideoRenderer(canvas);
-  if (watermark?.enabled) {
-    await loadFonts([watermarkFont(watermark)]);
+  if (stamped) {
     const stamp = new OffscreenCanvas(size.width, size.height);
-    drawWatermark(stamp.getContext("2d")!, size.width, size.height, watermark);
+    const sctx = stamp.getContext("2d")!;
+    if (framed && frame) drawFrameOverlay(sctx, size.width, size.height, frame);
+    if (watermark?.enabled) {
+      await loadFonts([watermarkFont(watermark)]);
+      // The watermark sits inside the frame's opening.
+      const L = frameLayout(size.width, size.height, framed && frame ? { ...frame, style: "solid", placement: "inside" } : null);
+      sctx.save();
+      sctx.translate(L.inner.x, L.inner.y);
+      drawWatermark(sctx, L.inner.w, L.inner.h, watermark);
+      sctx.restore();
+    }
     renderer.setOverlay(stamp);
   }
   const globalFx = edit.effect && edit.effectMix > 0 ? [{ effect: edit.effect, mix: edit.effectMix }] : [];
@@ -235,7 +257,7 @@ async function run(own: ClipMedia, edit: VideoEdit, loadClip: (id: string) => Pr
       const duration = Math.round(step);
       let out: VideoFrame | null = null;
       // Shown as it is: hand the decoder's own YUV to the encoder.
-      const plain = ref.clip === own.id && hasPlainPictures(seg) && !globalFx.length && !watermark?.enabled && keepsSize && stored.exact;
+      const plain = ref.clip === own.id && hasPlainPictures(seg) && !globalFx.length && !stamped && keepsSize && stored.exact;
       if (plain) {
         const vis = { x: 0, y: 0, width: stored.init.codedWidth, height: stored.init.codedHeight };
         const planes = visibleI420(stored.data, stored.init.format, stored.init.layout ?? [], vis);

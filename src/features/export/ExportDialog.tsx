@@ -8,6 +8,7 @@ import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
 import { defaultExportSettings, exportAsset, type ExportSettings, exportSize } from "@/core/export/export";
+import { type ExportFrame, frameLayout, rememberedFrame, rememberFrame } from "@/core/export/frame";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { formatBytes } from "@/features/library/format";
@@ -35,6 +36,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(ids));
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
+  const [frame, setFrame] = useState<ExportFrame>(rememberedFrame);
   const [progress, setProgress] = useState<{ done: number; total: number; label: string; item?: number } | null>(null);
   const [mood, setMood] = useState<MarbleMood>("idle");
   const cancelled = useRef(false);
@@ -71,9 +73,13 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
     };
   }, [chosen[0], s]);
 
+  // The finished file's size: the frame can make it bigger than the photo.
+  const framed = estimate && frameLayout(estimate.width, estimate.height, frame);
+
   const run = async () => {
     remembered = s;
     rememberWatermark(watermark);
+    rememberFrame(frame);
     cancelled.current = false;
     const sink = new ExportSink(destination, `Focused export (${chosen.length} photos).zip`);
     let done = 0;
@@ -92,6 +98,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         try {
           const result = await exportAsset(id, s, watermark, (stage, fraction) =>
             setProgress({ done: i + fraction, total: chosen.length, label: `${prefix}${name} · ${stage}`, item: i + 1 }),
+            frame,
           );
           await sink.add(result.name, result.blob);
           done++;
@@ -130,7 +137,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
           <span className="dim num" style={{ marginRight: "auto" }}>
             {busy ??
               (estimate
-                ? `${estimate.width} × ${estimate.height} px${estimate.bytes ? ` · ${formatBytes(estimate.bytes)}` : ""}${ids.length > 1 ? " (first photo)" : ""}`
+                ? `${framed!.width} × ${framed!.height} px${estimate.bytes ? ` · ${formatBytes(estimate.bytes)}` : ""}${ids.length > 1 ? " (first photo)" : ""}`
                 : "")}
           </span>
           <button
@@ -156,7 +163,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         progress={progress}
         current={progress?.item}
         title={chosen.length === 1 ? (getAsset(chosen[0])?.fileName ?? "Photo") : `${chosen.length} photos`}
-        details={`${s.format.toUpperCase()}${estimate ? ` · ${estimate.width} × ${estimate.height} px${ids.length > 1 ? " (first)" : ""}` : ""}${estimate?.bytes ? ` · about ${formatBytes(estimate.bytes)}` : ""}`}
+        details={`${s.format.toUpperCase()}${framed ? ` · ${framed.width} × ${framed.height} px${ids.length > 1 ? " (first)" : ""}` : ""}${estimate?.bytes ? ` · about ${formatBytes(estimate.bytes)}` : ""}`}
       />
       {ids.length > 1 && (
         <div className="field">
@@ -245,7 +252,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         <input className="input" placeholder="e.g. -web" value={s.suffix} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => set({ suffix: e.target.value.replace(/[\\/:*?"<>|]/g, "") })} />
       </label>
       <DestinationPicker count={chosen.length} value={destination} onChange={setDestination} />
-      <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={previewUrl} />
+      <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={previewUrl} frame={frame} onFrame={setFrame} />
       <p className="faint" style={{ fontSize: 11, margin: 0 }}>
         Colors are exported in sRGB. Existing files are never overwritten.
       </p>

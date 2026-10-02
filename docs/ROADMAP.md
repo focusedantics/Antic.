@@ -276,6 +276,10 @@ they are photo-specific.
   - a watermark (`core/export/watermark.ts`): text, seven font families, bold/italic,
     color, size and margin relative to the short side, opacity, shadow, nine positions
     or tiled. For video it is burned into every frame.
+  - a frame (`core/export/frame.ts`) in the same section: Glass (the photo frosted and
+    magnified through a pane with tint, frost, rim light), Solid or Polaroid, inside the
+    image's edges or around it (the file grows), width, corners and shadow. The live
+    preview and the stated size include it. Video takes a solid inside frame.
   - a progress bar with Stop.
 - File names never collide within one export run.
 - Exports answer at once: the dialog shows each stage (reading, developing W × H,
@@ -354,6 +358,8 @@ originals; reopening relinks by fingerprint or imports the included originals).
   mask; composite with an AI cutout (bundled model) and PNG export; effects browser → effect
   layer → edit, swap, undo and export; the tour (welcome, skip, chapters, keys, replay)
   and the glow (per-workspace look, photo pixels unchanged, toggle persists); sweep
-  selection on every surface (quick right-click, hold, Esc, batch delete and insert).
+  selection on every surface (quick right-click, hold, Esc, batch delete and insert);
+  export frames (framed-around PNG size, remembered settings) and Remove Background's
+  particle globe on a composition layer.
   `E2E_BACKDROP=on` runs the workflow tests with the glow on. Set `CHROMIUM_PATH` to use
   a preinstalled Chromium.

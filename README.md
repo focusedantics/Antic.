@@ -35,7 +35,8 @@ one asset system and one effects library:
 - **Export**: progress bars with a glass marble that holds a preview of what is being
   exported; pick several photos, compositions or videos; save to
   Downloads, one ZIP or a folder on your computer (Chrome/Edge); add a text watermark with font, size, opacity, color, shadow and
-  one of nine positions, or tile it across the image.
+  one of nine positions, or tile it across the image; frame the output in frosted glass,
+  a solid mat or a Polaroid border, over the edges or around them.
 - **Video**: a YouTube Poop editor. Scrub frame by frame with sound, then cut, rearrange
   and mix clips. Treat each piece with stutter, reverse, dance, stare-down, speed and
   pitch, ear rape, sus, echo, reverb, chorus, vibrato, bitcrush, mirror, invert, rainbow,

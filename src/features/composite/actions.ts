@@ -9,6 +9,7 @@ import { createDocument, flatten, imageLayer, insertLayer } from "@/core/documen
 import { composite, editDocument, openDocument, setDocumentThumbnailer } from "@/core/document/session";
 import { docAnimation, isAnimated, loopFrames } from "@/core/document/animation";
 import { encodeGif, encodeLoopVideo } from "@/core/export/animated";
+import { type ExportFrame, frameLayout } from "@/core/export/frame";
 import { fontShorthand } from "@/core/text/draw";
 import { loadFonts } from "@/core/text/fonts";
 import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
@@ -107,11 +108,11 @@ export function exportSize(doc: CompositeDocument, options: Pick<DocExport, "for
 
 export type DocProgress = (fraction: number, stage: string) => void;
 
-export function exportDocument(doc: CompositeDocument, options: DocExport, watermark?: Watermark, onProgress?: DocProgress, signal?: AbortSignal): Promise<Blob> {
-  return track(renderDocumentExport(doc, options, watermark, onProgress ?? (() => {}), signal ?? new AbortController().signal));
+export function exportDocument(doc: CompositeDocument, options: DocExport, watermark?: Watermark, onProgress?: DocProgress, signal?: AbortSignal, frame?: ExportFrame): Promise<Blob> {
+  return track(renderDocumentExport(doc, options, watermark, onProgress ?? (() => {}), signal ?? new AbortController().signal, frame));
 }
 
-async function renderDocumentExport(doc: CompositeDocument, options: DocExport, watermark: Watermark | undefined, onProgress: DocProgress, signal: AbortSignal): Promise<Blob> {
+async function renderDocumentExport(doc: CompositeDocument, options: DocExport, watermark: Watermark | undefined, onProgress: DocProgress, signal: AbortSignal, frame?: ExportFrame): Promise<Blob> {
   const engine = developEngine();
   // Wait for every photo in the composition to be decoded at full quality.
   for (let i = 0; i < 600 && usedAssets(doc).some((id) => !engine.hasSource(id) || engine.hasSource(id, "preview")); i++) {
@@ -127,7 +128,7 @@ async function renderDocumentExport(doc: CompositeDocument, options: DocExport, 
     const time = isAnimated(doc) ? Math.min(Math.max(0, options.time), animation.duration) % animation.duration : 0;
     const pixels = engine.exportDocument(doc, scale, time);
     const type = options.format === "png" ? "image/png" : options.format === "webp" ? "image/webp" : "image/jpeg";
-    return encodePixels(pixels, type, options.quality, options.background, watermark);
+    return encodePixels(pixels, type, options.quality, options.background, watermark, frame);
   }
 
   // Animated: one seamless loop. A composition without animated effects is a single frame (GIF) or a still clip (MP4).
@@ -144,9 +145,11 @@ async function renderDocumentExport(doc: CompositeDocument, options: DocExport, 
       if (!isAnimated(doc)) still = pixels;
       return pixels;
     };
+    const framed = frameLayout(width, height, frame);
     const common = {
-      width,
-      height,
+      width: framed.width,
+      height: framed.height,
+      frame,
       fps: animation.fps,
       frames: times.length,
       background: doc.background ?? options.background,

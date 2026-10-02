@@ -114,10 +114,16 @@ export function classify(before: Grid, after: Grid, box: Rect): { kinds: Uint8Ar
  * function that applies the result, or null when there is nothing to apply.
  * Resolves false when another run was already going.
  */
-export async function runCutout(canvas: HTMLCanvasElement | null, status: CutoutStatus, work: () => Promise<(() => void) | null>): Promise<boolean> {
+export async function runCutout(
+  canvas: HTMLCanvasElement | null,
+  status: CutoutStatus,
+  work: () => Promise<(() => void) | null>,
+  /** The part of the viewer the photo occupies (canvas px), e.g. one layer of a composition. */
+  area?: Rect | null,
+): Promise<boolean> {
   if (cutoutRun.getState().running) return false;
   cutoutRun.setState({ running: true });
-  const fx = startCutoutFx(canvas, status);
+  const fx = startCutoutFx(canvas, status, area);
   try {
     const apply = await work();
     if (!apply) {
@@ -134,13 +140,16 @@ export async function runCutout(canvas: HTMLCanvasElement | null, status: Cutout
   }
 }
 
-export function startCutoutFx(canvas: HTMLCanvasElement | null, status: CutoutStatus): CutoutFx {
+export function startCutoutFx(canvas: HTMLCanvasElement | null, status: CutoutStatus, area?: Rect | null): CutoutFx {
   const host = canvas?.parentElement;
   if (!canvas || !host) return { reveal: async (apply) => apply(), cancel: () => {} };
   const started = performance.now();
   const still = prefersReducedMotion();
   const scale = canvas.width / Math.max(1, canvas.clientWidth); // canvas px per CSS px
-  const box = photoBounds(canvas) ?? { x0: 0, y0: 0, x1: canvas.width, y1: canvas.height };
+  const visible = photoBounds(canvas) ?? { x0: 0, y0: 0, x1: canvas.width, y1: canvas.height };
+  // Only the given area (say, one layer), where it is on screen.
+  const clipped = area && { x0: Math.max(visible.x0, Math.floor(area.x0)), y0: Math.max(visible.y0, Math.floor(area.y0)), x1: Math.min(visible.x1, Math.ceil(area.x1)), y1: Math.min(visible.y1, Math.ceil(area.y1)) };
+  const box = clipped && clipped.x1 - clipped.x0 > 8 && clipped.y1 - clipped.y0 > 8 ? clipped : visible;
   const place = (el: HTMLElement) =>
     Object.assign(el.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
 

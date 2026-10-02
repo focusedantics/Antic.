@@ -3,7 +3,8 @@ import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
 import { Slider } from "@/components/Slider";
 import { canChooseFolder, chooseFolder, type Destination, describeDestination } from "@/core/export/destination";
-import { drawWatermark, type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition, watermarkFont } from "@/core/export/watermark";
+import { composeExport, type ExportFrame, FRAME_STYLES, type FramePlacement, type FrameStyle } from "@/core/export/frame";
+import { type Watermark, WATERMARK_FONTS, WATERMARK_POSITIONS, type WatermarkPosition, watermarkFont } from "@/core/export/watermark";
 import { ensureFont, fontLoads } from "@/core/text/fonts";
 import { Marble, type MarbleMood, previewBitmap } from "./marble";
 
@@ -245,7 +246,29 @@ const positionLabels: Record<WatermarkPosition, string> = {
 };
 
 /** Watermark controls with a live preview on `previewUrl`. */
-export function WatermarkEditor({ value, onChange, previewUrl }: { value: Watermark; onChange: (w: Watermark) => void; previewUrl?: string | null }) {
+/** What a destination can frame with: video only takes solid frames over the picture's edges. */
+export type FrameOptions = { readonly styles: readonly FrameStyle[]; readonly placements: readonly FramePlacement[]; readonly note?: string };
+const ALL_FRAMES: FrameOptions = { styles: ["glass", "solid", "polaroid"], placements: ["inside", "around"] };
+
+/**
+ * The watermark and the frame, with one live preview of both on the first
+ * picture (drawn by the same `composeExport` the export uses).
+ */
+export function WatermarkEditor({
+  value,
+  onChange,
+  previewUrl,
+  frame,
+  onFrame,
+  frameOptions = ALL_FRAMES,
+}: {
+  value: Watermark;
+  onChange: (w: Watermark) => void;
+  previewUrl?: string | null;
+  frame?: ExportFrame;
+  onFrame?: (f: ExportFrame) => void;
+  frameOptions?: FrameOptions;
+}) {
   const set = (patch: Partial<Watermark>) => onChange({ ...value, ...patch });
   const canvas = useRef<HTMLCanvasElement>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -256,29 +279,33 @@ export function WatermarkEditor({ value, onChange, previewUrl }: { value: Waterm
     img.src = previewUrl;
   }, [previewUrl]);
   const fontGeneration = useStore(fontLoads, (f) => f.generation);
+  const framing = !!frame?.enabled;
   useEffect(() => {
     const c = canvas.current;
-    if (!c || !value.enabled) return;
+    if (!c || !(value.enabled || framing)) return;
     const w = image?.naturalWidth || 3;
     const h = image?.naturalHeight || 2;
-    const scale = Math.min(460 / w, 200 / h);
-    c.width = Math.max(1, Math.round(w * scale));
-    c.height = Math.max(1, Math.round(h * scale));
-    const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "#444";
-    ctx.fillRect(0, 0, c.width, c.height);
-    if (image) ctx.drawImage(image, 0, 0, c.width, c.height);
-    ensureFont(watermarkFont(value));
-    drawWatermark(ctx, c.width, c.height, value);
-  }, [image, value, fontGeneration]);
+    // The picture at preview size, then exactly what the export does to it.
+    const scale = Math.min(420 / w, 190 / h);
+    const base = new OffscreenCanvas(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
+    const bctx = base.getContext("2d")!;
+    bctx.fillStyle = "#444";
+    bctx.fillRect(0, 0, base.width, base.height);
+    if (image) bctx.drawImage(image, 0, 0, base.width, base.height);
+    if (value.enabled) ensureFont(watermarkFont(value));
+    const done = composeExport(base, frame, value);
+    c.width = done.width;
+    c.height = done.height;
+    c.getContext("2d")!.drawImage(done, 0, 0);
+  }, [image, value, frame, framing, fontGeneration]);
   return (
     <div className="watermark-editor">
+      {(value.enabled || framing) && <canvas ref={canvas} className="watermark-preview" aria-label="Watermark and frame preview" />}
       <label className="check">
         <input type="checkbox" checked={value.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Add a watermark
       </label>
       {value.enabled && (
         <>
-          <canvas ref={canvas} className="watermark-preview" aria-label="Watermark preview" />
           <label className="field">
             <span>Text</span>
             <input className="input" value={value.text} maxLength={120} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => set({ text: e.target.value })} />
@@ -332,6 +359,61 @@ export function WatermarkEditor({ value, onChange, previewUrl }: { value: Waterm
           </div>
         </>
       )}
+      {frame && onFrame && <FrameControls value={frame} onChange={onFrame} options={frameOptions} />}
     </div>
+  );
+}
+
+/** The frame part of the watermark section. */
+function FrameControls({ value, onChange, options }: { value: ExportFrame; onChange: (f: ExportFrame) => void; options: FrameOptions }) {
+  const set = (patch: Partial<ExportFrame>) => onChange({ ...value, ...patch });
+  const glass = value.style === "glass";
+  const styles = FRAME_STYLES.filter((f) => options.styles.includes(f.id));
+  const placements = value.style === "polaroid" ? [] : options.placements;
+  return (
+    <>
+      <label className="check" style={{ marginTop: 8 }}>
+        <input type="checkbox" checked={value.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Frame the image
+      </label>
+      {value.enabled && (
+        <>
+          <div className="row wrap">
+            {styles.length > 1 && (
+              <div className="segmented" role="group" aria-label="Frame style">
+                {styles.map((f) => (
+                  <button key={f.id} type="button" aria-pressed={value.style === f.id} onClick={() => set({ style: f.id })}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {placements.length > 1 && (
+              <div className="segmented" role="group" aria-label="Frame placement">
+                <button type="button" aria-pressed={value.placement === "inside"} title="Over the image's edges; the size stays the same" onClick={() => set({ placement: "inside" })}>
+                  Inside
+                </button>
+                <button type="button" aria-pressed={value.placement === "around"} title="Around the image; the file grows by the frame" onClick={() => set({ placement: "around" })}>
+                  Around
+                </button>
+              </div>
+            )}
+            <label className="field" style={{ alignSelf: "flex-end" }}>
+              <input type="color" value={value.color} onChange={(e) => set({ color: e.target.value })} aria-label={glass ? "Glass tint" : "Frame color"} title={glass ? "Glass tint" : "Frame color"} />
+            </label>
+          </div>
+          <Slider label="Frame width" value={value.width} min={0.5} max={20} step={0.1} defaultValue={4} origin={0.5} format={(v) => `${v.toFixed(1)}%`} onChange={(v) => set({ width: v })} />
+          <Slider label="Corners" value={Math.round(value.roundness * 100)} min={0} max={100} defaultValue={60} origin={0} format={(v) => `${v}%`} onChange={(v) => set({ roundness: v / 100 })} />
+          {glass && (
+            <>
+              <Slider label="Tint" value={Math.round(value.tint * 100)} min={0} max={100} defaultValue={30} origin={0} format={(v) => `${v}%`} onChange={(v) => set({ tint: v / 100 })} />
+              <Slider label="Frost" value={Math.round(value.frost * 100)} min={0} max={100} defaultValue={50} origin={0} format={(v) => `${v}%`} onChange={(v) => set({ frost: v / 100 })} />
+              <Slider label="Rim light" value={Math.round(value.rim * 100)} min={0} max={100} defaultValue={70} origin={0} format={(v) => `${v}%`} onChange={(v) => set({ rim: v / 100 })} />
+            </>
+          )}
+          <Slider label="Frame shadow" value={Math.round(value.shadow * 100)} min={0} max={100} defaultValue={35} origin={0} format={(v) => `${v}%`} onChange={(v) => set({ shadow: v / 100 })} />
+          {options.note && <p className="faint" style={{ fontSize: 10, margin: 0 }}>{options.note}</p>}
+        </>
+      )}
+    </>
   );
 }

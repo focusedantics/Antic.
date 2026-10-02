@@ -1,7 +1,8 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { chooseEncoder, encodeOptions } from "@/core/video/encoder";
 import { loadFonts } from "@/core/text/fonts";
-import { drawWatermark, type Watermark, watermarkFont } from "./watermark";
+import { composeExport, type ExportFrame } from "./frame";
+import { type Watermark, watermarkFont } from "./watermark";
 import { buildPalette } from "./gif";
 import type { GifWorkerRequest, GifWorkerResponse } from "./gif.worker";
 
@@ -16,36 +17,51 @@ type AnimatedOptions = {
   readonly frames: number;
   readonly background: string;
   readonly watermark?: Watermark;
+  /** Frame around each frame; `width`/`height` are then the framed size. */
+  readonly frame?: ExportFrame;
   readonly signal: AbortSignal;
   readonly onProgress: FrameProgress;
 };
 
-/** Composites rendered frames onto an opaque background (GIF and H.264 have no alpha) and stamps the watermark. */
+/**
+ * Composites rendered frames onto an opaque background (GIF and H.264 have no
+ * alpha), then adds the frame and the watermark (`composeExport`).
+ */
 class Flattener {
   readonly canvas: OffscreenCanvas;
   private readonly ctx: OffscreenCanvasRenderingContext2D;
   private readonly scratch: OffscreenCanvas;
-  private readonly stamp: OffscreenCanvas | null;
+  private readonly photo: OffscreenCanvas;
 
-  constructor(width: number, height: number, private readonly background: string, watermark?: Watermark) {
+  constructor(
+    width: number,
+    height: number,
+    private readonly background: string,
+    private readonly watermark?: Watermark,
+    private readonly frame?: ExportFrame,
+  ) {
     this.canvas = new OffscreenCanvas(width, height);
     this.ctx = this.canvas.getContext("2d", { willReadFrequently: true })!;
     this.scratch = new OffscreenCanvas(1, 1);
-    this.stamp = watermark?.enabled ? new OffscreenCanvas(width, height) : null;
-    if (this.stamp && watermark) drawWatermark(this.stamp.getContext("2d")!, width, height, watermark);
+    this.photo = new OffscreenCanvas(1, 1);
   }
 
   draw(pixels: ImageData): OffscreenCanvas {
-    if (this.scratch.width !== pixels.width || this.scratch.height !== pixels.height) {
-      this.scratch.width = pixels.width;
-      this.scratch.height = pixels.height;
-    }
+    for (const c of [this.scratch, this.photo])
+      if (c.width !== pixels.width || c.height !== pixels.height) {
+        c.width = pixels.width;
+        c.height = pixels.height;
+      }
     this.scratch.getContext("2d")!.putImageData(pixels, 0, 0);
+    const p = this.photo.getContext("2d")!;
+    p.fillStyle = this.background;
+    p.fillRect(0, 0, pixels.width, pixels.height);
+    p.drawImage(this.scratch, 0, 0);
     const { ctx, canvas } = this;
+    const framed = this.frame?.enabled || this.watermark?.enabled ? composeExport(this.photo, this.frame, this.watermark) : this.photo;
     ctx.fillStyle = this.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(this.scratch, 0, 0);
-    if (this.stamp) ctx.drawImage(this.stamp, 0, 0);
+    ctx.drawImage(framed, 0, 0);
     return canvas;
   }
 
@@ -63,7 +79,7 @@ const yieldToUi = () => new Promise((r) => setTimeout(r, 0));
  */
 export async function encodeGif(render: FrameSource, o: AnimatedOptions & { readonly dither: boolean }): Promise<Blob> {
   if (o.watermark?.enabled) await loadFonts([watermarkFont(o.watermark)]);
-  const flat = new Flattener(o.width, o.height, o.background, o.watermark);
+  const flat = new Flattener(o.width, o.height, o.background, o.watermark, o.frame);
   const sampleCount = Math.min(o.frames, 8);
   const samples: Uint8ClampedArray[] = [];
   for (let s = 0; s < sampleCount; s++) {
@@ -139,7 +155,7 @@ export async function encodeLoopVideo(render: FrameSource, o: AnimatedOptions & 
   });
   video.configure(encoder.config);
   if (o.watermark?.enabled) await loadFonts([watermarkFont(o.watermark)]);
-  const flat = new Flattener(width, height, o.background, o.watermark);
+  const flat = new Flattener(width, height, o.background, o.watermark, o.frame);
   const total = o.frames * o.repeats;
   const step = 1e6 / o.fps;
   try {

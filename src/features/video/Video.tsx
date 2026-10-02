@@ -7,6 +7,7 @@ import { domHits, useSweepSelect } from "@/components/sweep";
 import { Panel } from "@/components/Panel";
 import { getVideo } from "@/core/catalog/db";
 import { type Destination, describeDestination, ExportSink } from "@/core/export/destination";
+import { type ExportFrame, rememberedFrame } from "@/core/export/frame";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { exportEdit, losslessEncoder } from "@/core/video/export";
 import { type ClipMedia, loadClipMedia } from "@/core/video/media";
@@ -297,6 +298,8 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(openId ? [openId] : []));
   const [destination, setDestination] = useState<Destination>(initialDestination);
   const [watermark, setWatermark] = useState<Watermark>(rememberedWatermark);
+  // Video frames are solid and over the picture's edges (stamped on every frame like the watermark).
+  const [frame, setFrame] = useState<ExportFrame>(() => ({ ...rememberedFrame(), style: "solid", placement: "inside" }));
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null);
   // Real first frames of edits, filled in as each clip's export starts.
   const [firstFrames, setFirstFrames] = useState<Record<string, ExportPreview>>({});
@@ -338,7 +341,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         // The marble shows the first frame of each edit (the poster stands in until then).
         setItem(i + 1);
         if (clip.id !== state.openId) setFirstFrames((f) => ({ ...f, [clip.id]: { key: `${clip.id}:first`, load: () => firstFrameOf(edit, own) } }));
-        const out = await exportEdit(own, edit, loadClipMedia, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark);
+        const out = await exportEdit(own, edit, loadClipMedia, (p) => setProgress({ done: p.done, total: p.total, label: `${prefix}${p.stage}${p.total > 1 ? ` ${Math.min(p.done, p.total)} / ${p.total} frames` : ""}` }), controller.signal, watermark, frame);
         setProgress({ done: 1, total: 1, label: `${prefix}Saving…` });
         await sink.add(`${clip.name}-edit.${out.extension}`, out.blob);
         count++;
@@ -449,7 +452,14 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
               </div>
             )}
             <DestinationPicker count={chosen.length} value={destination} onChange={setDestination} />
-            <WatermarkEditor value={watermark} onChange={setWatermark} previewUrl={chosen[0]?.poster ?? null} />
+            <WatermarkEditor
+              value={watermark}
+              onChange={setWatermark}
+              previewUrl={chosen[0]?.poster ?? null}
+              frame={frame}
+              onFrame={setFrame}
+              frameOptions={{ styles: ["solid"], placements: ["inside"], note: "Video frames are solid and sit over the picture's edges. Glass and Polaroid frames are for photos and compositions." }}
+            />
             {watermark.enabled && <p className="faint" style={{ fontSize: 11 }}>A watermark is drawn on every frame, so frames are no longer bit-identical to the original.</p>}
           </>
         )
