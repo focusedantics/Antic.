@@ -35,7 +35,8 @@ What we took:
 | Drag a slider anywhere; swipe up and down to scroll | A finger moves the value from where it was by the distance dragged sideways; a tap changes nothing and a vertical swipe scrolls the panel, so scrolling never nudges a slider |
 | Histogram floating, small, at the top of the photo | Top-left corner, translucent glass, touches pass through; the corners light when shadows or highlights clip. It shows while editing (not in Crop, Masks or Heal, which need the corner) and can be hidden from ⋯ |
 | Sliders in a panel over the bottom; swipe to resize or close | Sheet with a grip: drag to resize, it snaps to 30/50/85 % (Edit: its own height, then 50/85 %); drag below 20 % or flick down to close |
-| Photo stays visible while editing | Edit's panel floats over the photo and the photo moves up clear of it; other sheets shrink the viewer above them |
+| Panels translucent over the picture | Every phone panel floats over the picture, in every workspace (Presets, Crop, Masks, Heal, Library's Folders and Info, Composite's Documents and Layers, Video's Clips and Edit) |
+| Photo stays visible while editing | The picture moves up clear of the panel. Edit and Video keep it at full size (a tall one shows through the panel); Crop, Masks, Heal and Composite fit it whole above the panel so every handle is reachable; the Library pads its grid and loupe. Video floats panels over the frame only, so play, split and the timeline stay in reach |
 | Fewer options, rest in ⋯ | Top bar: a workspace switcher, then undo, redo and export (as Lightroom keeps them at the top), and ⋯ for import, filmstrip, glow and tour. The long toolbars keep the rest and scroll sideways |
 | Presets and effects as a scrolling grid | The effects browser goes full screen: search, a row of category chips, two columns of live previews |
 | Pinch and double tap on the photo | Pinch zooms and pans; a double tap toggles 100 % |

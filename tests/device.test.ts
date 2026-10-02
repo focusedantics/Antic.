@@ -52,7 +52,7 @@ describe("device profile", () => {
 
 describe("layout prefs", () => {
   it("defaults to every panel shown at the stylesheet widths", () => {
-    expect(sanitizePrefs(null)).toMatchObject({ showLeft: true, showRight: true, showFilmstrip: true, leftWidth: null, rightWidth: null, sheetHeight: 0.45 });
+    expect(sanitizePrefs(null)).toMatchObject({ showLeft: true, showRight: true, showFilmstrip: true, leftWidth: null, rightWidth: null, sheetHeight: 0.36 });
   });
 
   it("clamps widths and the sheet height, and rejects junk", () => {

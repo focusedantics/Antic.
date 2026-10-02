@@ -1,3 +1,4 @@
+import { placeClear } from "@/lib/fit";
 import { device, viewDpr } from "@/lib/device";
 import { beginActivity } from "@/lib/activity";
 import { similarImages } from "./verify";
@@ -318,15 +319,16 @@ export class DevelopEngine {
     const w = this.canvas.width;
     const h = this.canvas.height;
     if (this.cover > 0 && develop.getState().compare !== "side-by-side") {
-      // A panel floats over the bottom (Lightroom mobile): the photo keeps the size that
-      // fits the whole viewer, but sits clear of the panel when it fits above it, and
-      // otherwise starts at the top so as much as possible stays uncovered.
+      // A panel floats over the bottom (Lightroom mobile). Editing, the photo keeps the
+      // size that fits the whole viewer but sits clear of the panel when it fits above
+      // it, and otherwise starts at the top so as much as possible stays uncovered.
       const region = { x: pad, y: pad, width: w - pad * 2, height: h - pad * 2 };
+      // Crop, masks and heal work up to the photo's edges: it fits whole above the panel.
+      if (develop.getState().tool !== "adjust") return [{ ...region, height: Math.max(1, h - this.cover * viewDpr() - pad * 2) }];
       const size = this.outputSize();
       if (!size) return [region];
       const shown = size.height * Math.min(region.width / size.width, region.height / size.height);
-      const free = h - this.cover * viewDpr() - pad * 2;
-      const top = pad + Math.max(0, (free - shown) / 2);
+      const top = placeClear(shown, h, this.cover * viewDpr(), pad);
       return [{ ...region, y: Math.round(top - (region.height - shown) / 2) }];
     }
     if (develop.getState().compare === "side-by-side") {
@@ -468,16 +470,19 @@ export class DevelopEngine {
   compositeScale(): number {
     const { doc, view } = composite.getState();
     if (!doc) return 1;
-    const pad = 40 * viewDpr();
-    const fit = Math.min((this.canvas.width - pad * 2) / doc.width, (this.canvas.height - pad * 2) / doc.height);
-    return view.fit ? fit : view.zoom;
+    return view.fit ? this.compositeFitScale() : view.zoom;
+  }
+
+  /** Height (device px) the document fits in: the canvas, less a panel floating over its bottom. */
+  private compositeRoom(): number {
+    return Math.max(1, this.canvas.height - this.cover * viewDpr());
   }
 
   compositeFitScale(): number {
     const { doc } = composite.getState();
     if (!doc) return 1;
     const pad = 40 * viewDpr();
-    return Math.min((this.canvas.width - pad * 2) / doc.width, (this.canvas.height - pad * 2) / doc.height);
+    return Math.min((this.canvas.width - pad * 2) / doc.width, (this.compositeRoom() - pad * 2) / doc.height);
   }
 
   /** Screen device px → document px. */
@@ -487,7 +492,10 @@ export class DevelopEngine {
     if (!doc) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
     const cx = view.fit ? doc.width / 2 : view.centerX * doc.width;
     const cy = view.fit ? doc.height / 2 : view.centerY * doc.height;
-    return [1 / s, 0, cx - this.canvas.width / 2 / s, 0, 1 / s, cy - this.canvas.height / 2 / s, 0, 0, 1];
+    // The view centres in the part of the canvas a floating panel leaves free (phones):
+    // layer handles reach the document's edges, so it fits whole above the panel.
+    const screenY = this.compositeRoom() / 2;
+    return [1 / s, 0, cx - this.canvas.width / 2 / s, 0, 1 / s, cy - screenY / s, 0, 0, 1];
   }
 
   clientToDoc(clientX: number, clientY: number): { x: number; y: number } {

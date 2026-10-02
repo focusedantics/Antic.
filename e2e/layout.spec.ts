@@ -363,6 +363,50 @@ test.describe("phone", () => {
     await expect(slider).toHaveAttribute("aria-valuenow", "0");
   });
 
+  test("every panel floats over the picture; tools that reach the edges fit it whole above the panel", async ({ page }) => {
+    await importPhoto(page);
+    const dock = page.getByRole("navigation", { name: "Panels" });
+    const sheet = page.getByTestId("sheet");
+    const floats = async () => {
+      expect(await sheet.evaluate((el) => [getComputedStyle(el).position, !!el.closest(".center")])).toEqual(["absolute", true]);
+      const s = (await sheet.boundingBox())!;
+      expect(s.height).toBeLessThan(664 * 0.45);
+      return s;
+    };
+
+    // Library: Info floats over the grid, which keeps its height.
+    const grid = (await page.locator(".grid-scroll").boundingBox())!;
+    await dock.getByRole("button", { name: "Info" }).tap();
+    await floats();
+    expect((await page.locator(".grid-scroll").boundingBox())!.height).toBeGreaterThanOrEqual(grid.height);
+    await dock.getByRole("button", { name: "Info" }).tap();
+
+    // Develop: Crop floats too, and the crop box with all its handles stays above it.
+    await switchTo(page, "Develop");
+    await dock.getByRole("button", { name: "Crop" }).tap();
+    const s = await floats();
+    const box = page.locator(".crop-box");
+    await expect(box).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => { const b = (await box.boundingBox())!; return b.y + b.height; }).toBeLessThanOrEqual(s.y);
+    // Presets (the other side) floats as well.
+    await dock.getByRole("button", { name: "Presets" }).tap();
+    await floats();
+    await dock.getByRole("button", { name: "Presets" }).tap();
+
+    // Composite: Layers floats, and the document fits whole above it.
+    await switchTo(page, "Composite");
+    await page.getByRole("button", { name: /Start from 1 selected/ }).tap();
+    await expect(dock.getByRole("button", { name: "Effects" })).toBeEnabled({ timeout: 15_000 });
+    await dock.getByRole("button", { name: "Layers" }).tap();
+    const layers = await floats();
+    // The selected layer's handles (at its corners) are all above the panel.
+    const handles = page.locator(".composite-view .handle");
+    await expect(handles.first()).toBeVisible();
+    await expect
+      .poll(async () => Math.max(...(await handles.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom)))))
+      .toBeLessThanOrEqual(layers.y);
+  });
+
   test("the effects browser fills the phone: search, category chips and two columns", async ({ page }) => {
     await importPhoto(page);
     await switchTo(page, "Composite");

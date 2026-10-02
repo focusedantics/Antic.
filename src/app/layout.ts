@@ -32,3 +32,11 @@ export const openSheet = (sheet: SheetSide | null) => layout.setState({ sheet })
 
 /** Where a phone's top bar shows the current workspace's actions (undo, redo, export); see `CompactActions`. */
 export const actionsSlot = createStore<{ element: HTMLElement | null }>(() => ({ element: null }));
+
+/**
+ * Where a phone's panels float. By default over the bottom of the workspace's centre;
+ * a workspace can name a smaller area (Video: the frame, so the transport and the
+ * timeline stay in reach). Register it with a ref callback; it clears on unmount.
+ */
+export const floatHost = createStore<{ element: HTMLElement | null }>(() => ({ element: null }));
+export const setFloatHost = (element: HTMLElement | null) => floatHost.setState({ element });

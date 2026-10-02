@@ -36,7 +36,7 @@ const defaults: Prefs = {
   showFilmstrip: true,
   leftWidth: null,
   rightWidth: null,
-  sheetHeight: 0.45,
+  sheetHeight: 0.36,
   showHistogram: true,
 };
 

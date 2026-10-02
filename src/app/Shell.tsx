@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon, type IconName } from "@/components/icons";
 import { Filmstrip } from "@/features/library/Filmstrip";
 import { useStore } from "./hooks";
-import { actionsSlot, layout, openSheet, type SheetSide } from "./layout";
+import { actionsSlot, floatHost, layout, openSheet, type SheetSide } from "./layout";
 import { PANEL_LIMITS, prefs, setPrefs } from "./prefs";
 import { ui } from "./state";
 
@@ -22,9 +22,8 @@ export type DockItem = {
   readonly active?: boolean;
   /**
    * The sheet opens at its content's own height rather than the remembered one, and
-   * without a title row; held upright it floats, translucent, over the bottom of the
-   * picture, like Lightroom mobile's panels. Develop's Edit shows about three sliders
-   * so the photo stays in view (dragging the grip up still makes it taller).
+   * without a title row: Develop's Edit shows about three sliders (dragging the grip
+   * up still makes it taller).
    */
   readonly fit?: boolean;
   readonly onSelect?: () => void;
@@ -190,18 +189,23 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
     { id: "right", label: "Info", icon: "info", side: "right" },
   ];
   const open = sheet ? (items.find((i) => i.side === sheet && (i.active ?? true)) ?? items.find((i) => i.side === sheet)) : null;
-  const floating = !!open?.fit && !sideways;
+  const host = useStore(floatHost, (s) => s.element);
+  const cover = useStore(layout, (s) => s.cover);
+  // Held upright, panels float translucent over the picture, like Lightroom mobile's;
+  // the picture moves up clear of them where it can. Held sideways they sit beside it.
+  const floating = !!open && !sideways;
   const panel = sheet && open && (
     <Sheet key={open.fit ? `fit-${open.id}` : "sheet"} title={open.label} fit={open.fit} floating={floating} onClose={() => openSheet(null)}>
       {sheet === "left" ? left : right}
     </Sheet>
   );
   return (
-    <main className="workspace compact">
+    <main className="workspace compact" style={{ "--cover": `${cover}px` } as React.CSSProperties}>
       <section className="center">
         {center}
-        {floating && panel}
+        {floating && !host && panel}
       </section>
+      {floating && host && createPortal(panel, host)}
       {!floating && panel}
       {!sheet && showFilmstrip && workspace !== "video" && <Filmstrip />}
       <nav className="dock" aria-label="Panels">
@@ -243,7 +247,7 @@ function Sheet({ title, fit = false, floating = false, onClose, children }: { ti
   // The content's own height as a share of the screen, measured while it is fitted.
   const natural = useRef<number>(SNAPS[0]);
   useLayoutEffect(() => {
-    if (fit && height === null && ref.current) natural.current = ref.current.getBoundingClientRect().height / window.innerHeight;
+    if (fit && height === null && ref.current && !ref.current.dataset.dragging) natural.current = ref.current.getBoundingClientRect().height / window.innerHeight;
   });
   // A floating sheet tells the viewer how much of it is covered, so the photo can sit clear of it.
   useLayoutEffect(() => {

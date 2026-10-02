@@ -500,19 +500,25 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   get the compact layout, modelled on Lightroom mobile: the viewer fills the screen; a
   bottom dock in thumb reach opens one side's panels in a sheet (`layout.sheet`); the
   sheet's grip drags to resize and snaps to 30/50/85 % of the screen (or closes below
-  20 % or on a downward flick). The viewer shrinks above the sheet, so edits stay
-  visible. Develop's dock is Presets · Edit · Crop · Masks · Heal (Crop, Masks and Heal
-  open a sheet holding just that tool; Composite's dock adds Effects, which opens the
-  browser). Edit opens `EditDeck` in a *fitted* sheet (`DockItem.fit`): Lightroom
-  mobile's short panel, one group at a time (Light, Curve, Color, Mixer, Grading,
-  Effects, Detail, Optics; Effects and Detail split into parts under sub-tabs) with
-  about three sliders showing and the groups in a row beneath. Its height is the
-  content's; dragging the grip up stretches it until it closes. Held upright it
-  *floats*: it renders inside `.center`, translucent over the bottom of the viewer,
-  reports the height it covers (`layout.cover`), and `DevelopEngine.setCover` keeps
-  the photo at the size that fits the whole viewer but places it clear of the panel
-  when it fits above it (else from the top), so the panel overlays only what must be
-  overlaid. Curve draws the curve over the photo (`CurveOverlay`, the panel's
+  20 % or on a downward flick; it opens at 36 %). Held upright every sheet *floats*,
+  translucent, over the bottom of the picture, like Lightroom mobile's panels: it
+  renders inside `.center` (or, portalled, in the area a workspace registers with
+  `setFloatHost`: Video floats panels over the frame so the transport and timeline stay
+  in reach) and reports the height it covers (`layout.cover`, also the `--cover` CSS
+  variable). Viewers make room with `placeClear` (`lib/fit.ts`): Develop's Edit and
+  Video keep the picture at the size that fits the whole viewer but place it clear of
+  the panel when it fits above it (else from the top, the rest seen through the panel);
+  tools that reach the picture's edges (Crop, Masks, Heal, Composite's layer handles)
+  fit it whole above the panel (`DevelopEngine.setCover`, `VideoEngine.setCover`); the
+  Library's grid, loupe and survey pad their bottoms by `--cover`. Held sideways
+  sheets sit beside the picture instead. Develop's dock is Presets · Edit · Crop ·
+  Masks · Heal (Crop, Masks and Heal open a sheet holding just that tool; Composite's
+  dock adds Effects, which opens the browser). Edit opens `EditDeck` in a *fitted*
+  sheet (`DockItem.fit`): Lightroom mobile's short panel, one group at a time (Light,
+  Curve, Color, Mixer, Grading, Effects, Detail, Optics; Effects and Detail split into
+  parts under sub-tabs) with about three sliders showing and the groups in a row
+  beneath, no title row. Its height is the content's; dragging the grip up stretches
+  it until it closes. Curve draws the curve over the photo (`CurveOverlay`, the panel's
   `CurveGraph` in overlay mode, sized in its box's pixels) and shrinks the panel to a
   bar (`CurveBar`: channels, parametric sliders, Reset, Done). The groups reuse the
   desktop panels' bodies (`ToneSliders`, `WhiteBalance`, `SharpeningSliders`…; each

@@ -1,6 +1,7 @@
 import { viewDpr } from "@/lib/device";
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
+import { layout } from "@/app/layout";
 import { ui } from "@/app/state";
 import type { BrushStroke, StrokePoint } from "@/core/develop/recipe";
 import type { Layer } from "@/core/document/model";
@@ -78,6 +79,9 @@ type Guides = { x: number | null; y: number | null };
 
 export function CompositeView() {
   const ref = useRef<HTMLDivElement>(null);
+  // Phones: a panel floating over the bottom; the document moves up clear of it.
+  const cover = useStore(layout, (s) => (s.compact ? s.cover : 0));
+  useEffect(() => developEngine().setCover(cover), [cover]);
   // Right-click and hold, then drag on the canvas: select every layer the box touches.
   useSweepSelect(ref, {
     ...sweepLayers,

@@ -724,15 +724,23 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.6), 0 0 0 0.5px rgb(0 0 0 / 0.3);
 }
 :root[data-compact="true"] .sheet .slider-track:focus-visible .slider-thumb { box-shadow: 0 0 0 3px var(--focus); }
-/* Held upright, the Edit panel floats over the bottom of the photo, translucent, as in
-   Lightroom mobile: the viewer keeps the whole height and the photo sits clear of the
-   panel when it fits above it (DevelopEngine.setCover). */
-.workspace.compact > .center > .sheet[data-floating] {
+/* Held upright, phone panels float over the bottom of the picture, translucent, as in
+   Lightroom mobile: the viewer keeps its whole height and the picture sits clear of the
+   panel when it fits above it (placeClear: Develop, Composite, Video). Video floats them
+   over the frame only, so the transport and timeline stay in reach. */
+.sheet[data-floating] {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; max-height: calc(100% - 60px); min-height: 0;
   background: rgb(22 22 22 / 0.7); border-top: 1px solid rgb(255 255 255 / 0.08); border-radius: 14px 14px 0 0; box-shadow: none;
   -webkit-backdrop-filter: blur(22px) saturate(150%); backdrop-filter: blur(22px) saturate(150%);
 }
-.sheet[data-floating] .sheet-body { background: transparent; }
+.sheet[data-floating] .sheet-body { background: transparent; border-top-color: rgb(255 255 255 / 0.08); }
+.sheet[data-floating]:not([data-fit]) { height: calc(var(--sheet) * 100vh); }
+@supports (height: 1dvh) { .sheet[data-floating]:not([data-fit]) { height: calc(var(--sheet) * 100dvh); } }
+.sheet[data-floating] .panel, .sheet[data-floating] .panel-head { background: transparent; }
+/* The Library makes room: the last row of photos and the loupe stay above a floating panel. */
+.workspace.compact .grid-scroll::after { content: ""; display: block; height: var(--cover, 0px); }
+.workspace.compact .loupe { padding-bottom: calc(16px + var(--cover, 0px)); }
+.workspace.compact .survey { padding-bottom: calc(8px + var(--cover, 0px)); }
 .sheet[data-floating] .sheet-grip span { background: rgb(255 255 255 / 0.3); }
 .sheet[data-floating] .deck-tabs { border-top-color: rgb(255 255 255 / 0.08); }
 .deck-parts { flex: none; display: flex; justify-content: center; gap: 22px; padding: 2px 16px 0; }

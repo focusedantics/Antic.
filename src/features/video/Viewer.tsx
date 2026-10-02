@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "@/app/hooks";
-import { layout } from "@/app/layout";
+import { layout, setFloatHost } from "@/app/layout";
 import { Icon } from "@/components/icons";
 import { openMenu } from "@/components/Menu";
 import { openLooks } from "@/features/looks/LooksDialog";
@@ -17,6 +17,14 @@ export function Viewer() {
   const error = useStore(player, (s) => s.error);
   const audio = useStore(player, (s) => s.audio);
   const decoder = useStore(player, (s) => s.decoder);
+  // Phones float the Edit and Clips panels over the frame (not the timeline), and the
+  // frame moves up clear of them.
+  const cover = useStore(layout, (s) => (s.compact ? s.cover : 0));
+  useEffect(() => engine.setCover(cover), [cover]);
+  const stage = (el: HTMLDivElement | null) => {
+    stageRef.current = el;
+    setFloatHost(el);
+  };
   useEffect(() => {
     const canvas = canvasRef.current!;
     engine.attach(canvas);
@@ -36,7 +44,7 @@ export function Viewer() {
   }, []);
   return (
     <div className="vv">
-      <div className="vv-stage" ref={stageRef}>
+      <div className="vv-stage" ref={stage}>
         <canvas ref={canvasRef} className="vv-canvas" onClick={() => engine.toggle()} data-testid="viewer" data-decoder={decoder ?? undefined} />
         {error && <div className="develop-status error">{error}</div>}
         {!error && audio === "rendering" && <div className="vv-status">Rendering sound…</div>}

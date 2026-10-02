@@ -1,3 +1,4 @@
+import { placeClear } from "@/lib/fit";
 import { createStore } from "zustand/vanilla";
 import { type Channels, SAMPLE_RATE } from "@/core/video/dsp";
 import { bitmapStore, decodingFor, type Frames, openFrames } from "@/core/video/frames";
@@ -232,6 +233,15 @@ class Engine {
     this.canvas = null;
   }
 
+  /** CSS px of the viewer's bottom that a translucent panel floats over (phones). */
+  private cover = 0;
+
+  setCover(cssPx: number) {
+    if (Math.abs(cssPx - this.cover) < 0.5) return;
+    this.cover = cssPx;
+    this.draw();
+  }
+
   /** Redraws the current frame (after a resize, an edit or a seek). */
   draw() {
     const plan = this.plan;
@@ -245,7 +255,10 @@ class Engine {
     const scale = Math.min(canvas.width / own.info.width, canvas.height / own.info.height);
     const fw = Math.max(1, Math.round(own.info.width * scale));
     const fh = Math.max(1, Math.round(own.info.height * scale));
-    const viewport = [Math.floor((canvas.width - fw) / 2), Math.floor((canvas.height - fh) / 2), fw, fh] as const;
+    // With a panel floating over the bottom (phones) the frame sits clear of it when it fits.
+    // WebGL viewports count from the bottom.
+    const top = placeClear(fh, canvas.height, this.cover * (canvas.height / Math.max(1, canvas.clientHeight)), 8);
+    const viewport = [Math.floor((canvas.width - fw) / 2), Math.floor(canvas.height - top - fh), fw, fh] as const;
     const work = Math.min(1, PREVIEW_SIDE / Math.max(fw, fh));
     const width = Math.max(2, Math.round(fw * work));
     const height = Math.max(2, Math.round(fh * work));

@@ -91,6 +91,25 @@ test("a clip nothing here can decode (HEVC in this browser) is refused with advi
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
 
+  test("the Edit panel floats over the frame, not the transport or the timeline", async ({ page }) => {
+    await open(page);
+    await importVideo(page, { name: "clip.mp4", mimeType: "video/mp4", buffer: clip() }, true);
+    const timeline = (await page.locator(".vt").boundingBox())!;
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+    const sheet = page.getByTestId("sheet");
+    await expect(sheet).toBeVisible();
+    expect(await sheet.evaluate((el) => [getComputedStyle(el).position, !!el.closest(".vv-stage")])).toEqual(["absolute", true]);
+    const s = (await sheet.boundingBox())!;
+    const stage = (await page.locator(".vv-stage").boundingBox())!;
+    expect(Math.abs(s.y + s.height - (stage.y + stage.height))).toBeLessThan(2);
+    // The transport and the timeline stay where they were, uncovered.
+    expect((await page.locator(".vt").boundingBox())!).toEqual(timeline);
+    // Still in reach while the panel is open: step, then split.
+    for (let i = 0; i < 20; i++) await page.getByRole("button", { name: "Next frame" }).tap();
+    await page.getByRole("button", { name: "Split at the playhead" }).tap();
+    await expect(page.getByTestId("segment")).toHaveCount(2);
+  });
+
   test("no text selection on long presses (iOS needs the -webkit- prefix)", async ({ page }) => {
     await open(page);
     expect(await page.evaluate(() => getComputedStyle(document.body).webkitUserSelect)).toBe("none");
