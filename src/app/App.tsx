@@ -116,7 +116,8 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
         aria-haspopup="menu"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          openMenu(r.left, r.bottom + 4, modules.map((m) => ({ label: m.label, checked: m.id === workspace, onSelect: () => setWorkspace(m.id) })));
+          const icons = { library: "folders", develop: "edit", composite: "layers", video: "clips" } as const;
+          openMenu(r.left, r.bottom + 6, modules.map((m) => ({ label: m.label, icon: icons[m.id], checked: m.id === workspace, onSelect: () => setWorkspace(m.id) })));
         }}
       >
         {modules.find((m) => m.id === workspace)?.label}
@@ -133,12 +134,12 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           openMenu(r.right, r.bottom + 4, [
-            { label: "Import Photos…", onSelect: () => pickFiles() },
-            { label: "Import Folder…", onSelect: () => void importFolderInPlace() },
+            { label: "Import Photos…", icon: "plus", onSelect: () => pickFiles() },
+            { label: "Import Folder…", icon: "folders", onSelect: () => void importFolderInPlace() },
             "separator",
-            ...(workspace !== "video" ? [{ label: showFilmstrip ? "Hide the filmstrip" : "Show the filmstrip", onSelect: () => setPrefs({ showFilmstrip: !showFilmstrip }) }] : []),
-            { label: backdrop ? "Glow background: on" : "Glow background: off", onSelect: () => setPrefs({ backdrop: !backdrop }) },
-            { label: "Replay the tour", onSelect: () => startTour(1) },
+            ...(workspace !== "video" ? [{ label: showFilmstrip ? "Hide the filmstrip" : "Show the filmstrip", icon: "panel-bottom" as const, onSelect: () => setPrefs({ showFilmstrip: !showFilmstrip }) }] : []),
+            { label: backdrop ? "Glow background: on" : "Glow background: off", icon: "animate", onSelect: () => setPrefs({ backdrop: !backdrop }) },
+            { label: "Replay the tour", icon: "info", onSelect: () => startTour(1) },
           ]);
         }}
       >

@@ -1,8 +1,19 @@
+import { Icon, type IconName } from "./icons";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type MenuItem =
-  | { label: string; onSelect: () => void; shortcut?: string; disabled?: boolean; danger?: boolean; /** One of a set of choices, shown with a check when current. */ checked?: boolean }
+  | {
+      label: string;
+      onSelect: () => void;
+      shortcut?: string;
+      disabled?: boolean;
+      danger?: boolean;
+      /** One of a set of choices, shown with a check when current. */
+      checked?: boolean;
+      /** Shown on phones, where menus are larger (see app.css). */
+      icon?: IconName;
+    }
   | "separator";
 
 type OpenMenu = { x: number; y: number; items: MenuItem[] };
@@ -25,10 +36,11 @@ export function MenuHost() {
   }, []);
   useLayoutEffect(() => {
     if (!menu || !ref.current) return;
-    const r = ref.current.getBoundingClientRect();
+    // Layout size, not the bounding box: an opening animation scales the menu down at first.
+    const { offsetWidth: w, offsetHeight: h } = ref.current;
     setPos({
-      x: Math.min(menu.x, window.innerWidth - r.width - 8),
-      y: Math.min(menu.y, window.innerHeight - r.height - 8),
+      x: Math.max(8, Math.min(menu.x, window.innerWidth - w - 8)),
+      y: Math.max(8, Math.min(menu.y, window.innerHeight - h - 8)),
     });
     ref.current.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [menu]);
@@ -68,7 +80,12 @@ export function MenuHost() {
             }}
           >
             {item.checked !== undefined && <span className="menu-check" aria-hidden="true">{item.checked ? "✓" : ""}</span>}
-            {item.label}
+            {item.icon && (
+              <span className="menu-icon" aria-hidden="true">
+                <Icon name={item.icon} size={20} />
+              </span>
+            )}
+            <span className="menu-label">{item.label}</span>
             {item.shortcut && <span className="shortcut">{item.shortcut}</span>}
           </button>
         ),

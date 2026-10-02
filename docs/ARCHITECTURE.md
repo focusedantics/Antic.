@@ -505,7 +505,8 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   adjustments on that tool; Composite's dock adds Effects, which opens the browser). The
   top bar has a workspace switcher (a menu), the workspace's main actions (in the Library a
   centred Liquid Glass Import button that shows progress while it runs; the newest photo is
-  refracted through it), and a ⋯ menu
+  refracted through it), and a ⋯ menu (menus on phones are Liquid Glass too: a
+  backdrop blur of the photo behind, rim lights, 48 px rows with icons in the system font)
   for import, the filmstrip, the glow and the tour. Main actions (undo, redo, export)
   render through `<CompactActions>` into the top bar's slot (`actionsSlot`), and the
   toolbar's own copies carry `wide-only` and hide; toolbars scroll sideways for the
