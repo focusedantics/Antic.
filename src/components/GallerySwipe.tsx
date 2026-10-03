@@ -129,6 +129,11 @@ export function GallerySwipe(props: GallerySwipeProps) {
       const dx = e.clientX - drag.x;
       const dy = e.clientY - drag.y;
       if (!drag.swiping) {
+        // Something else took the press meanwhile (e.g. holding to see the original).
+        if (!opts.current.enabled()) {
+          drag = null;
+          return;
+        }
         if (Math.abs(dy) > SLOP && Math.abs(dy) > Math.abs(dx)) {
           drag = null; // vertical: not ours
           return;

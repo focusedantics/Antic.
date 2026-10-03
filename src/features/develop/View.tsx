@@ -12,6 +12,7 @@ import { FloatingHistogram } from "./panels/Histogram";
 import { GallerySwipe } from "@/components/GallerySwipe";
 import { selectAsset } from "@/app/state";
 import { useResults } from "@/features/library/results";
+import { prefetchNeighbours, stopPrefetching } from "./loader";
 import { CurveOverlay } from "./panels/ToneCurve";
 import { CropOverlay } from "./tools/Crop";
 import { HealOverlay } from "./tools/Heal";
@@ -53,7 +54,16 @@ export function DevelopView() {
   const curveOnPhoto = useStore(deck, (s) => s.group === "curve") && compact && sheetOpen && tool === "adjust";
   useEffect(() => developEngine().setCover(cover), [cover]);
   const assetId = useStore(develop, (s) => s.assetId);
+  const peeking = useStore(develop, (s) => s.peek);
   const { ids } = useResults();
+  // Once the open photo is fully decoded, decode its neighbours in the background.
+  const settled = useStore(develop, (s) => s.source === "raw" || s.source === "rendered");
+  useEffect(() => {
+    if (!assetId || !settled) return;
+    const t = window.setTimeout(() => prefetchNeighbours(ids, assetId), 250);
+    return () => clearTimeout(t);
+  }, [assetId, settled, ids]);
+  useEffect(() => stopPrefetching, []);
   const status = useStore(develop, (s) => (s.error ? `error:${s.error}` : s.loading ? (s.source === "preview" ? "preview" : "loading") : ""));
   useEffect(() => {
     const engine = developEngine();
@@ -68,6 +78,41 @@ export function DevelopView() {
     const touches = new Map<number, { x: number; y: number }>();
     let pinch: { dist: number; x: number; y: number } | null = null;
     let space = false;
+    // Press and hold the photo (still, one finger or the mouse) to see the original, as in
+    // Lightroom; letting go shows the edit again. (The \\ key keeps toggling the split view.)
+    const PEEK_MS = 350;
+    let hold: { id: number; x: number; y: number; timer: number } | null = null;
+    const peek = (on: boolean) => {
+      if (develop.getState().peek !== on) develop.setState({ peek: on });
+    };
+    const endHold = () => {
+      if (hold) clearTimeout(hold.timer);
+      hold = null;
+      peek(false);
+    };
+    const onHoldDown = (e: PointerEvent) => {
+      const { tool, compare } = develop.getState();
+      if (hold || (e.pointerType === "mouse" && e.button !== 0) || tool !== "adjust" || compare !== "off" || space) return endHold();
+      if (!(e.target instanceof Element) || !(e.target === el || e.target.matches("canvas.develop-canvas"))) return;
+      const id = e.pointerId;
+      hold = {
+        id,
+        x: e.clientX,
+        y: e.clientY,
+        timer: window.setTimeout(() => {
+          if (hold?.id !== id || pinch || panning) return;
+          peek(true);
+          navigator.vibrate?.(6);
+        }, PEEK_MS),
+      };
+    };
+    const onHoldMove = (e: PointerEvent) => {
+      // Moving before the original shows makes it a swipe or a pan; once shown, it stays until let go.
+      if (hold && e.pointerId === hold.id && !develop.getState().peek && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 8) endHold();
+    };
+    const onHoldUp = (e: PointerEvent) => {
+      if (hold && e.pointerId === hold.id) endHold();
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space" && !(e.target instanceof HTMLInputElement)) {
         space = e.type === "keydown";
@@ -179,6 +224,11 @@ export function DevelopView() {
       if (performance.now() - touchDoubled < 600) return;
       onDouble(e);
     };
+    el.addEventListener("pointerdown", onHoldDown, true);
+    window.addEventListener("pointermove", onHoldMove, true);
+    window.addEventListener("pointerup", onHoldUp, true);
+    window.addEventListener("pointercancel", onHoldUp, true);
+    window.addEventListener("blur", endHold);
     el.addEventListener("pointerdown", onTouchDown, true);
     el.addEventListener("pointermove", onTouchMove, true);
     el.addEventListener("pointerup", onTouchUp, true);
@@ -191,6 +241,12 @@ export function DevelopView() {
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
     return () => {
+      endHold();
+      el.removeEventListener("pointerdown", onHoldDown, true);
+      window.removeEventListener("pointermove", onHoldMove, true);
+      window.removeEventListener("pointerup", onHoldUp, true);
+      window.removeEventListener("pointercancel", onHoldUp, true);
+      window.removeEventListener("blur", endHold);
       el.removeEventListener("pointerdown", onTouchDown, true);
       el.removeEventListener("pointermove", onTouchMove, true);
       el.removeEventListener("pointerup", onTouchUp, true);
@@ -215,6 +271,11 @@ export function DevelopView() {
       {status === "loading" && <div className="develop-status">Decoding original…</div>}
       {status.startsWith("error:") && <div className="develop-status error">{status.slice(6)}</div>}
       {floatHistogram && <FloatingHistogram />}
+      {peeking && (
+        <div className="peek-label" role="status">
+          Original
+        </div>
+      )}
       {/* Swipe sideways between photos while editing at fit, like a gallery. */}
       <GallerySwipe
         surface={ref}
@@ -223,7 +284,7 @@ export function DevelopView() {
         moving={() => ref.current?.querySelector<HTMLElement>("canvas.develop-canvas") ?? null}
         enabled={() => {
           const s = develop.getState();
-          return s.tool === "adjust" && s.view.fit && s.compare === "off";
+          return s.tool === "adjust" && s.view.fit && s.compare === "off" && !s.peek;
         }}
         // Only on the photo itself, not on the curve, split handle or other overlays.
         accept={(target) => target === ref.current || target.matches("canvas.develop-canvas")}

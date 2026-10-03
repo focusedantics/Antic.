@@ -37,6 +37,8 @@ export type DevelopState = {
   readonly tool: DevelopTool;
   readonly view: DevelopView;
   readonly compare: "off" | "split" | "side-by-side";
+  /** The original shown in place of the edit while a finger (or the mouse) is held on the photo. */
+  readonly peek: boolean;
   readonly splitPosition: number;
   readonly clipping: boolean;
   readonly histogram: Histogram | null;
@@ -58,6 +60,7 @@ export const develop = createStore<DevelopState>(() => ({
   tool: "adjust",
   view: { fit: true, zoom: 1, centerX: 0.5, centerY: 0.5 },
   compare: "off",
+  peek: false,
   splitPosition: 0.5,
   clipping: false,
   histogram: null,

@@ -26,6 +26,8 @@ import type { Asset, ColorLabel } from "@/core/catalog/types";
 import { acceptAttribute } from "@/core/image/formats";
 import { openMenu } from "@/components/Menu";
 import type { SelectScope } from "@/app/select-mode";
+import { editClipboard } from "@/core/develop/clipboard";
+import { copyEdits, pasteEdits } from "@/features/develop/copy-edits";
 import { currentOrder } from "./results";
 
 export async function pickFiles(options: { directory?: boolean } = {}) {
@@ -160,11 +162,21 @@ export function assetMenu(x: number, y: number) {
   const source = ui.getState().query.source;
   const regular = [...collections.values()].filter((c) => c.kind === "collection");
   const inStack = ids.some((id) => catalog.getState().assets.get(id)?.stackId);
+  const clip = editClipboard.getState().clip;
   openMenu(x, y, [
     { label: "Open in Develop", shortcut: "D", onSelect: () => setWorkspace("develop") },
     { label: ids.length > 1 ? `Export ${ids.length} photos…` : "Export…", shortcut: "Ctrl+Shift+E", onSelect: () => openExport(ids) },
     { label: ids.length > 1 ? `Apply a Look to ${ids.length} photos…` : "Apply a Look…", onSelect: () => openLooks({ kind: "library", ids }) },
     { label: "Add to Composite", onSelect: () => void addToComposite(ids) },
+    "separator",
+    // Edits go from photo to photo without a file: copy one, paste onto any selection.
+    ...(ids.length === 1 ? [{ label: "Copy Edits", shortcut: "Ctrl+Shift+C", onSelect: () => copyEdits(ids[0]) }] : []),
+    {
+      label: clip ? (ids.length > 1 ? `Paste Edits of ${clip.from} to ${ids.length} Photos` : `Paste Edits of ${clip.from}`) : "Paste Edits",
+      shortcut: "Ctrl+Shift+V",
+      disabled: !clip,
+      onSelect: () => pasteEdits(ids),
+    },
     ...(ids.length === 1 ? [{ label: "Apply an Effect…", onSelect: () => void startEffectsFor(ids[0]) }] : []),
     "separator",
     { label: "Pick", shortcut: "P", onSelect: () => flag("pick") },

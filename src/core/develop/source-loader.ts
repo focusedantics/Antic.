@@ -20,9 +20,10 @@ export type LoadedSource = {
  * LibRaw as linear 16-bit Rec.2020; rendered files decode with their EXIF
  * orientation applied. The original is only ever read.
  */
-/** Decodes a photo for rendering (shown by the activity line while it runs). */
-export function loadSource(asset: Asset, signal?: AbortSignal): Promise<LoadedSource> {
-  return track(decodeSource(asset, signal));
+/** Decodes a photo for rendering (shown by the activity line while it runs, unless `quiet`: background preloading). */
+export function loadSource(asset: Asset, signal?: AbortSignal, quiet = false): Promise<LoadedSource> {
+  const decoding = decodeSource(asset, signal);
+  return quiet ? decoding : track(decoding);
 }
 
 async function decodeSource(asset: Asset, signal?: AbortSignal): Promise<LoadedSource> {

@@ -1,3 +1,6 @@
+import { editClipboard } from "@/core/develop/clipboard";
+import { develop } from "@/core/develop/session";
+import { copyEdits, pasteEdits } from "@/features/develop/copy-edits";
 import { stopSelecting } from "./select-mode";
 import { useImageUrl } from "./thumbs";
 import { type DragEvent, lazy, Suspense, useEffect, useState } from "react";
@@ -107,6 +110,7 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
   const backdrop = useStore(prefs, (s) => s.backdrop);
   const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
   const showHistogram = useStore(prefs, (s) => s.showHistogram);
+  const clip = useStore(editClipboard, (s) => s.clip);
   return (
     <header className="topbar compact">
       <span className="brand-mark" aria-label="Focused" role="img" />
@@ -139,7 +143,19 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
             { label: "Import Photos…", icon: "plus", onSelect: () => pickFiles() },
             { label: "Import Folder…", icon: "folders", onSelect: () => void importFolderInPlace() },
             "separator",
-            ...(workspace === "develop" ? [{ label: showHistogram ? "Hide the histogram" : "Show the histogram", icon: "histogram" as const, onSelect: () => setPrefs({ showHistogram: !showHistogram }) }] : []),
+            ...(workspace === "develop"
+              ? [
+                  { label: "Copy Edits", icon: "duplicate" as const, onSelect: () => copyEdits() },
+                  {
+                    label: clip ? `Paste Edits of ${clip.from}` : "Paste Edits",
+                    icon: "edit" as const,
+                    disabled: !clip,
+                    onSelect: () => pasteEdits([develop.getState().assetId].filter((x): x is string => !!x)),
+                  },
+                  "separator" as const,
+                  { label: showHistogram ? "Hide the histogram" : "Show the histogram", icon: "histogram" as const, onSelect: () => setPrefs({ showHistogram: !showHistogram }) },
+                ]
+              : []),
             ...(workspace !== "video" ? [{ label: showFilmstrip ? "Hide the filmstrip" : "Show the filmstrip", icon: "panel-bottom" as const, onSelect: () => setPrefs({ showFilmstrip: !showFilmstrip }) }] : []),
             { label: backdrop ? "Glow background: on" : "Glow background: off", icon: "animate", onSelect: () => setPrefs({ backdrop: !backdrop }) },
             { label: "Replay the tour", icon: "info", onSelect: () => startTour(1) },

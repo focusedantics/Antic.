@@ -110,6 +110,30 @@ straighten, crop, keystone), effects, and **masks**. It is data only. Everything
 reads a recipe from outside goes through `sanitizeRecipe`, which fills defaults and
 clamps values. Copy/paste/sync and presets operate on recipe *groups*.
 
+**Copied edits** (`core/develop/clipboard.ts`, commands in `features/develop/copy-edits.ts`)
+move edits between photos without a file: "Copy Edits" takes any photo's recipe (open in
+Develop or not; everything but crop, masks and spot removal unless the Copy… dialog says
+otherwise) and "Paste Edits" applies it to any selection, one undoable step in each
+photo's history. They are in the photo menu (so the phone's select-mode Actions), Develop's
+⋯ menu on phones, its left panel, and Ctrl+Shift+C / V in the Library and Develop. The clip
+is kept in localStorage and read back through `sanitizeRecipe` after the modules load.
+Photos edited without being opened (pasted, synced) get their Library thumbnail and
+preview re-rendered in the background (`DevelopEngine.refreshThumbnailsOf`: decode,
+render, free, one at a time).
+
+**Seeing the original**: pressing and holding the photo (still, a finger or the mouse)
+sets `develop.peek`; the engine draws the before-render in place of the edit and an
+"Original" pill shows until it is let go. A move before it shows hands the press to a
+swipe or pan instead.
+
+**Preloading** (`prefetchNeighbours` in `features/develop/loader.ts`): once the open
+photo has decoded, the photos beside it in the Library's order decode in the background
+(quietly, one at a time) and are uploaded without disturbing the render
+(`preloadSource`); `setWarm` tells eviction to keep exactly those. Computers keep both
+neighbours; lite devices only the one in the direction of travel and never a RAW, to stay
+inside mobile memory. Opening a photo whose preload is still running takes that decode
+over instead of starting another; leaving Develop cancels and frees them.
+
 History (`core/history/history.ts`) stores immutable recipe states. States share
 structure, so a step costs only the objects that changed; a slider drag is one group
 and one labelled step. Snapshots are named recipes stored per asset.

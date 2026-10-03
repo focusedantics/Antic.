@@ -7,48 +7,26 @@ import { Panel } from "@/components/Panel";
 import { Slider } from "@/components/Slider";
 import { deleteSnapshot, listSnapshots, type PresetRecord, putSnapshot, type SnapshotRecord } from "@/core/catalog/db";
 import { createDefaultRecipe } from "@/core/develop/defaults";
-import { applyPreset, copyGroups, defaultCopyGroups, pasteGroups, type RecipeClip, recipeGroups, sanitizeRecipe } from "@/core/develop/operations";
+import { applyPreset, copyGroups, defaultCopyGroups, pasteGroups, recipeGroups, sanitizeRecipe } from "@/core/develop/operations";
+import { editClipboard } from "@/core/develop/clipboard";
+import { developEngine } from "@/core/gpu/develop-engine";
+import { copyEdits, pasteEdits } from "../copy-edits";
 import { allPresets, parsePresetFile, presetFile, removePreset, savePreset } from "@/core/develop/presets";
 import type { DevelopRecipe, RecipeGroup } from "@/core/develop/recipe";
 import { colorInfoFor, currentHistory, develop, editRecipe, recipeFor, setRecipeFor } from "@/core/develop/session";
 import { putPreset } from "@/core/catalog/db";
 import { createId } from "@/lib/id";
 
-// ─── Clipboard ──────────────────────────────────────────────────────────────
+// ─── Copy and paste edits (core/develop/clipboard.ts) ───────────────────────
 
-let clipboard: RecipeClip | null = null;
-const clipboardListeners = new Set<() => void>();
-const setClipboard = (clip: RecipeClip) => {
-  clipboard = clip;
-  clipboardListeners.forEach((l) => l());
-};
-const useClipboard = () =>
-  useSyncExternalStore(
-    (l) => {
-      clipboardListeners.add(l);
-      return () => clipboardListeners.delete(l);
-    },
-    () => clipboard,
-  );
-
+/** Copies the open photo's edits (Ctrl+Shift+C; the Copy… dialog chooses groups). */
 export function copySettings(groups: readonly RecipeGroup[] = defaultCopyGroups) {
-  const { recipe, info } = develop.getState();
-  if (!recipe || !info) return;
-  setClipboard(copyGroups(recipe, groups, info.raw));
-  toast(`Copied ${groups.length === recipeGroups.length ? "all settings" : `${groups.length} setting groups`}.`);
+  copyEdits(develop.getState().assetId, groups);
 }
 
+/** Pastes copied edits onto the open photo, or onto `ids` (Ctrl+Shift+V). */
 export function pasteSettings(ids?: string[]) {
-  if (!clipboard) {
-    toast("Nothing copied yet. Copy settings first (Ctrl+Shift+C).");
-    return;
-  }
-  const targets = ids ?? [develop.getState().assetId].filter((x): x is string => !!x);
-  for (const id of targets) {
-    const current = recipeFor(id);
-    if (current) setRecipeFor(id, pasteGroups(current, clipboard, colorInfoFor(id)), "Paste Settings");
-  }
-  if (targets.length > 1) toast(`Pasted settings to ${targets.length} photos.`);
+  pasteEdits(ids ?? [develop.getState().assetId].filter((x): x is string => !!x));
 }
 
 /** Copies the chosen groups of the open photo to every other selected photo. */
@@ -61,6 +39,7 @@ export function syncSettings(groups: readonly RecipeGroup[]) {
     const current = recipeFor(id);
     if (current) setRecipeFor(id, pasteGroups(current, clip, colorInfoFor(id)), "Sync Settings");
   }
+  developEngine().refreshThumbnailsOf(targets);
   toast(`Synced ${groups.length} setting group${groups.length === 1 ? "" : "s"} to ${targets.length} photo${targets.length === 1 ? "" : "s"}.`);
 }
 
@@ -339,7 +318,7 @@ function HistoryPanel() {
 
 export function DevelopLeftPanel() {
   const [dialog, setDialog] = useState<"copy" | "sync" | null>(null);
-  const clip = useClipboard();
+  const clip = useStore(editClipboard, (s) => s.clip);
   const selectionSize = useStore(ui, (s) => s.selection.size);
   return (
     <>

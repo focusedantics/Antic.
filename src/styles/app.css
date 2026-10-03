@@ -551,6 +551,16 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.5); pointer-events: none;
 }
 
+/* Holding the photo in Develop shows the original; a pill says so. */
+.peek-label {
+  position: absolute; z-index: 4; top: 12px; left: 50%; transform: translateX(-50%); pointer-events: none;
+  padding: 5px 14px; border-radius: 14px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; color: #fff;
+  background: rgb(20 20 20 / 0.55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgb(255 255 255 / 0.15);
+  animation: peek-in 0.15s ease-out;
+}
+@keyframes peek-in { from { opacity: 0; transform: translate(-50%, -4px); } }
+@media (prefers-reduced-motion: reduce) { .peek-label { animation: none; } }
+
 /* Gallery swipe (components/GallerySwipe.tsx): the neighbours' previews wait beside the
    viewer and slide in with the finger. */
 .gallery-slide { position: absolute; inset: 0; z-index: 1; pointer-events: none; will-change: transform; }

@@ -92,7 +92,7 @@ export class DevelopEngine {
         if (document.hidden && !this.lost) this.pipeline.trim();
       });
     develop.subscribe((s, prev) => {
-      if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
+      if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.peek !== prev.peek || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
         this.requestRender();
       if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.scheduleThumbnails();
     });
@@ -219,18 +219,45 @@ export class DevelopEngine {
     }
     this.sources.set(assetId, { gpu, quality, data });
     if (old) this.pipeline.disposeSource(old.gpu);
-    // Keep few decoded photos on the GPU: the one in Develop and those in the open composition.
-    const doc = composite.getState().doc;
-    const inDoc = new Set(doc ? flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])) : []);
-    for (const id of [...this.sources.keys()]) {
-      if (this.sources.size <= Math.max(2, inDoc.size + 1)) break;
-      if (id !== assetId && id !== develop.getState().assetId && !inDoc.has(id)) {
-        this.pipeline.disposeSource(this.sources.get(id)!.gpu);
-        this.sources.delete(id);
-      }
-    }
+    this.evict(assetId);
     this.invalidate();
     this.requestRender();
+  }
+
+  /** Neighbours of the open photo decoded ahead of time (see `prefetchNeighbours`); kept on the GPU. */
+  private warm = new Set<AssetId>();
+
+  /** Which photos to keep decoded besides the open one; others beyond the budget are freed now. */
+  setWarm(ids: readonly AssetId[]) {
+    this.warm = new Set(ids);
+    this.evict(null);
+  }
+
+  isWarm = (id: AssetId) => this.warm.has(id);
+
+  /** Uploads a photo decoded ahead of time without touching what is on screen. */
+  preloadSource(assetId: AssetId, data: LoadedSource, quality: Loaded["quality"]) {
+    if (!this.warm.has(assetId) || this.lost) return;
+    const old = this.sources.get(assetId);
+    this.sources.set(assetId, { gpu: this.pipeline.upload(assetId, data.data, data.info), quality, data });
+    if (old) this.pipeline.disposeSource(old.gpu);
+    this.evict(assetId);
+  }
+
+  // Keep few decoded photos on the GPU: the one in Develop, those in the open composition,
+  // and either its warm neighbours (exactly those) or, with none, the last one used.
+  private evict(justSet: AssetId | null) {
+    const doc = composite.getState().doc;
+    const inDoc = new Set(doc ? flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])) : []);
+    const open = develop.getState().assetId;
+    const keep = (id: AssetId) => id === justSet || id === open || inDoc.has(id) || this.warm.has(id);
+    const limit = this.warm.size ? 0 : Math.max(2, inDoc.size + 1);
+    for (const id of [...this.sources.keys()]) {
+      if (this.sources.size <= limit) break;
+      if (keep(id)) continue;
+      this.pipeline.disposeSource(this.sources.get(id)!.gpu);
+      this.sources.delete(id);
+    }
   }
 
   invalidate() {
@@ -415,7 +442,7 @@ export class DevelopEngine {
       if (!draft) this.scheduleHistogram();
     }
     let beforeTarget: Target | null = null;
-    if (state.compare !== "off") {
+    if (state.compare !== "off" || state.peek) {
       const beforeKey = [src.gpu, recipe.geometry, width, height];
       if (!this.before || !sameKey(this.before.key, beforeKey)) {
         this.pipeline.release(this.before?.target);
@@ -459,7 +486,9 @@ export class DevelopEngine {
       }
       g.disable(g.SCISSOR_TEST);
     } else {
-      drawRegion(regions[0], this.result.target, state.compare === "split" && !!beforeTarget);
+      // Held on the photo: the original in place of the edit.
+      const shown = state.peek && beforeTarget && state.compare === "off" ? beforeTarget : this.result.target;
+      drawRegion(regions[0], shown, state.compare === "split" && !!beforeTarget);
     }
     this.onFrame?.();
   }
@@ -799,6 +828,67 @@ export class DevelopEngine {
     const { invalidateImage } = await import("@/app/thumbs");
     invalidateImage(assetId);
     updateAsset(assetId, { thumbRevision: revision, thumbState: "ready" });
+  }
+
+  private thumbQueue: AssetId[] = [];
+  private thumbWorking = false;
+
+  /**
+   * Re-renders the Library thumbnail and preview of photos whose edits changed without
+   * being open in Develop (pasted edits), one at a time in the background. A photo not
+   * already on the GPU is decoded, rendered and freed again, so memory stays flat.
+   */
+  refreshThumbnailsOf(ids: readonly AssetId[]) {
+    for (const id of ids) if (!this.thumbQueue.includes(id)) this.thumbQueue.push(id);
+    void this.drainThumbnails();
+  }
+
+  private async drainThumbnails() {
+    if (this.thumbWorking) return;
+    this.thumbWorking = true;
+    const end = beginActivity();
+    try {
+      while (this.thumbQueue.length && !this.lost) {
+        const id = this.thumbQueue.shift()!;
+        // The open photo refreshes itself once its edit settles.
+        if (id === develop.getState().assetId) {
+          this.scheduleThumbnails();
+          continue;
+        }
+        const asset = getAsset(id);
+        const recipe = recipeFor(id);
+        if (!asset || !recipe || asset.thumbRevision === asset.developRevision) continue;
+        const revision = asset.developRevision;
+        try {
+          const kept = this.sources.get(id);
+          let gpu = kept && kept.quality !== "preview" ? kept.gpu : null;
+          let temporary: typeof gpu = null;
+          if (!gpu) {
+            const loaded = await loadSource(asset);
+            if (this.lost) break;
+            gpu = temporary = this.pipeline.upload(id, loaded.data, loaded.info);
+            // The pixels are on the GPU now; a decoded bitmap is not needed on the CPU.
+            if (loaded.data.kind === "image" && "close" in loaded.data.image) loaded.data.image.close();
+          }
+          const type = recipe.masks.some((m) => m.cutout && m.visible) ? "image/webp" : "image/jpeg";
+          try {
+            const thumb = await this.renderBlob(gpu, recipe, 480, type, 0.85);
+            const preview = await this.renderBlob(gpu, recipe, 2560, type, 0.88);
+            await putThumb(id, { thumb, preview, previewSource: "developed", revision });
+          } finally {
+            if (temporary) this.pipeline.disposeSource(temporary);
+          }
+          const { invalidateImage } = await import("@/app/thumbs");
+          invalidateImage(id);
+          updateAsset(id, { thumbRevision: revision, thumbState: "ready" });
+        } catch (error) {
+          console.warn(`Could not update the thumbnail of ${asset.fileName}`, error);
+        }
+      }
+    } finally {
+      this.thumbWorking = false;
+      end();
+    }
   }
 
   /**

@@ -1,3 +1,4 @@
+import { copyEdits, pasteEdits } from "@/features/develop/copy-edits";
 import { flush } from "@/core/catalog/store";
 import { compare, flag, label, rate, removeSelected, selectAll, step } from "@/features/library/commands";
 import { currentOrder } from "@/features/library/results";
@@ -38,6 +39,8 @@ export function handleKey(e: KeyboardEvent) {
   else if (mod && key === "s") void flush();
   else if (mod && key === "g") stackAssets(targetIds());
   else if (mod && e.shiftKey && key === "e") openExport(targetIds());
+  else if (mod && e.shiftKey && key === "c" && workspace === "library") copyEdits(ui.getState().activeId);
+  else if (mod && e.shiftKey && key === "v" && workspace === "library") pasteEdits(targetIds());
   else if (mod) handled = false;
   else if (key === "g" && !e.shiftKey) {
     setWorkspace("library");
