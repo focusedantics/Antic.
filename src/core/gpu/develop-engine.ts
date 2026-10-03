@@ -76,7 +76,7 @@ export class DevelopEngine {
     this.canvas.className = "develop-canvas";
     this.gpu = new Gpu(this.canvas);
     // Exports borrow the canvas to read pixels back; redraw the view afterwards.
-    this.gpu.onCanvasBorrowed = () => this.requestRender();
+    this.gpu.onCanvasBorrowed = () => this.redrawNow();
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
     this.compositor = this.createCompositor();
@@ -175,7 +175,7 @@ export class DevelopEngine {
   private restore() {
     this.gpu = new Gpu(this.canvas);
     // Exports borrow the canvas to read pixels back; redraw the view afterwards.
-    this.gpu.onCanvasBorrowed = () => this.requestRender();
+    this.gpu.onCanvasBorrowed = () => this.redrawNow();
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
     this.compositor = this.createCompositor();
@@ -461,8 +461,30 @@ export class DevelopEngine {
 
   // ─── Frame ───────────────────────────────────────────────────────────────
 
+  /** True while `frame` runs: a read-back during it is painted over by the frame itself. */
+  private drawing = false;
+
+  /** After a read-back borrowed the canvas: draw the view again at once, before the browser shows the borrowed pixels. */
+  private redrawNow() {
+    if (this.drawing || this.lost) return;
+    try {
+      this.frame();
+    } catch {
+      this.requestRender();
+    }
+  }
+
   private frame() {
     if (this.lost) return;
+    this.drawing = true;
+    try {
+      this.drawFrame();
+    } finally {
+      this.drawing = false;
+    }
+  }
+
+  private drawFrame() {
     if (this.mode === "composite") {
       this.compositeFrame();
       this.onFrame?.();
