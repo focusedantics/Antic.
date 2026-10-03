@@ -278,10 +278,18 @@ void main() {
 
   if (uCurvesActive == 1) c = vec3(curve(c.r, 0), curve(c.g, 1), curve(c.b, 2));
   if (uMixerActive == 1) c = mixColor(c);
-  if (uGradingActive == 1) c = grade(c);
-  c = adjustVibrance(c, uVibrance);
-  c = adjustSaturation(c, uSaturation);
-  if (uMonochrome == 1) c = vec3(luminance(c));
+  if (uMonochrome == 1) {
+    // Black & white: the mixer and saturation shape the gray mix, then grading tones the
+    // gray (tinted shadows and highlights, split toning, sepia), as in Lightroom.
+    c = adjustVibrance(c, uVibrance);
+    c = adjustSaturation(c, uSaturation);
+    c = vec3(luminance(c));
+    if (uGradingActive == 1) c = grade(c);
+  } else {
+    if (uGradingActive == 1) c = grade(c);
+    c = adjustVibrance(c, uVibrance);
+    c = adjustSaturation(c, uSaturation);
+  }
   outColor = vec4(max(c, 0.0), src.a);
 }`;
 

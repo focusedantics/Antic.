@@ -108,7 +108,10 @@ profile, white balance, basic tone, tone curve (parametric + point curves per ch
 color mixer, color grading, detail, lens corrections, geometry (rotate, flip,
 straighten, crop, keystone), effects, and **masks**. It is data only. Everything that
 reads a recipe from outside goes through `sanitizeRecipe`, which fills defaults and
-clamps values. Copy/paste/sync and presets operate on recipe *groups*.
+clamps values. Copy/paste/sync and presets operate on recipe *groups*. With the B&W
+profile the photo turns gray after the color mixer and saturation (which shape the gray
+mix) and before color grading, so the grading wheels tone it (split toning, sepia), as in
+Lightroom; in color, grading comes before vibrance and saturation.
 
 **Copied edits** (`core/develop/clipboard.ts`, commands in `features/develop/copy-edits.ts`)
 move edits between photos without a file: "Copy Edits" takes any photo's recipe (open in
