@@ -202,11 +202,14 @@ export class Soundtrack {
     return this.loaded.has(clip);
   }
 
-  /** Gives the worker a clip's decoded audio (null = silent). */
+  /**
+   * Gives the worker a clip's decoded audio (null = silent). The arrays are transferred,
+   * not copied (a 5-minute clip is 115 MB): the caller must not use them afterwards.
+   */
   setSource(clip: string, channels: Channels | null) {
     this.loaded.add(clip);
-    const copy = channels?.map((c) => c.slice()) ?? null;
-    this.worker.postMessage({ type: "source", clip, channels: copy } satisfies SoundtrackRequest, copy?.map((c) => c.buffer) ?? []);
+    const own = channels?.map((c) => (c.byteOffset === 0 && c.byteLength === c.buffer.byteLength ? c : c.slice())) ?? null;
+    this.worker.postMessage({ type: "source", clip, channels: own } satisfies SoundtrackRequest, own?.map((c) => c.buffer) ?? []);
   }
 
   render(parts: { start: number; job: SegmentAudioJob }[], duration: number): Promise<Channels> {
