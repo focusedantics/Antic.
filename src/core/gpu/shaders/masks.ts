@@ -51,6 +51,7 @@ float component(vec2 src) {
   if (uKind == 2) {
     if (src.x < 0.0 || src.y < 0.0 || src.x > 1.0 || src.y > 1.0) return 0.0;
     float v = texture(uRaster, src).r;
+    v = v >= 0.0 ? min(v, 1.0) : 0.0; // never NaN into the coverage
     // Expand (positive) or contract (negative) by moving the edge threshold.
     if (uShift != 0.0) {
       float t = clamp(0.5 - uShift * 0.45, 0.02, 0.98);

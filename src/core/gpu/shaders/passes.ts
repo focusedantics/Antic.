@@ -460,6 +460,9 @@ void main() {
   }
   if (uOverlayMode > 0 && !before) {
     float m = texture(uOverlay, uv).r;
+    // An unusable coverage value (NaN) would turn every pixel it touches black: count it
+    // as unselected so the photo always shows.
+    m = m >= 0.0 ? min(m, 1.0) : 0.0;
     if (uOverlayInvert == 1) m = 1.0 - m;
     if (uOverlayMode == 1) rgb = mix(rgb, vec3(1.0, 0.18, 0.12), m * 0.55);
     else rgb = vec3(m);
