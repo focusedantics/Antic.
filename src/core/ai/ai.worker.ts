@@ -290,8 +290,16 @@ async function samDecode(key: string, points: Point[]): Promise<AiMask> {
   return { mask: refined, width: sam.image.width, height: sam.image.height, model: MODELS.slimsam.label, device: lite ? "wasm" : await device() };
 }
 
-self.onmessage = async (event: MessageEvent<AiRequest>) => {
-  const r = event.data;
+/**
+ * One request at a time: on phones loading a model releases the others, which must not
+ * happen under a request still running (two selections started in quick succession).
+ */
+let queue: Promise<void> = Promise.resolve();
+self.onmessage = (event: MessageEvent<AiRequest>) => {
+  queue = queue.then(() => handle(event.data));
+};
+
+async function handle(r: AiRequest) {
   lite = !!r.lite;
   try {
     let result: AiResponse extends infer T ? (T extends { result: infer R } ? R : never) : never;
@@ -317,4 +325,4 @@ self.onmessage = async (event: MessageEvent<AiRequest>) => {
   } catch (error) {
     postMessage({ id: r.id, error: error instanceof Error ? error.message : String(error) } satisfies AiResponse);
   }
-};
+}

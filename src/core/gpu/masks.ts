@@ -176,7 +176,7 @@ export class MaskRenderer {
 
   /**
    * Keeps cached rasters within `budget` bytes, dropping the least recently used first;
-   * those used by the current render (`clock`) always stay. Dropped ones are rebuilt
+   * those used by the latest renders always stay. Dropped ones are rebuilt
    * (brushes from their strokes, AI rasters from IndexedDB) if needed again.
    */
   trim(budget = CACHE_BUDGET) {
@@ -190,7 +190,9 @@ export class MaskRenderer {
     entries.sort((a, b) => a.used - b.used);
     for (const e of entries) {
       if (total <= budget) break;
-      if (e.used >= this.clock) continue;
+      // A composition runs the mask stage once per image layer: keep what this frame's
+      // other layers used too (the last few stage runs).
+      if (e.used >= this.clock - 8) continue;
       e.drop();
       total -= e.size;
     }
