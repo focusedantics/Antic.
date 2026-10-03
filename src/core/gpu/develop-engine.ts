@@ -94,7 +94,11 @@ export class DevelopEngine {
     // likely to discard the page (it would otherwise reload with the work lost).
     if (device.lite)
       document.addEventListener("visibilitychange", () => {
-        if (document.hidden && !this.lost) this.pipeline.trim();
+        if (!document.hidden || this.lost) return;
+        // Preloaded neighbours are decoded again when the next photo is opened.
+        this.setWarm([]);
+        this.freeMemory();
+        this.maskRenderer.trim(0);
       });
     develop.subscribe((s, prev) => {
       if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.peek !== prev.peek || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
@@ -270,6 +274,13 @@ export class DevelopEngine {
   /** Neighbours of the open photo decoded ahead of time (see `prefetchNeighbours`); kept on the GPU. */
   private warm = new Set<AssetId>();
 
+  /** Leaving Develop: phones give back idle GPU memory (pooled targets, mask caches no longer drawn). */
+  relax() {
+    if (!device.lite || this.lost) return;
+    this.pipeline.trim();
+    this.maskRenderer.trim(0);
+  }
+
   /** Which photos to keep decoded besides the open one; others beyond the budget are freed now. */
   setWarm(ids: readonly AssetId[]) {
     this.warm = new Set(ids);
@@ -299,7 +310,8 @@ export class DevelopEngine {
     const inDoc = this.inComposition();
     const open = develop.getState().assetId;
     const keep = (id: AssetId) => id === justSet || id === open || inDoc.has(id) || this.warm.has(id);
-    const limit = this.warm.size ? 0 : Math.max(2, inDoc.size + 1);
+    // Phones keep nothing beyond what is in use; computers also the last photo used.
+    const limit = this.warm.size ? 0 : Math.max(device.lite ? 1 : 2, inDoc.size + 1);
     for (const id of [...this.sources.keys()]) {
       if (this.sources.size <= limit) break;
       if (keep(id)) continue;

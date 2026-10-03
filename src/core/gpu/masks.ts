@@ -1,6 +1,7 @@
 import type { RasterRecord } from "@/core/catalog/db";
 import type { BrushStroke, LocalAdjustments, Mask, MaskComponent } from "@/core/develop/recipe";
 import { illuminantXy, whiteBalanceMatrix } from "@/lib/colorimetry";
+import { device } from "@/lib/device";
 import { toGlMat3 } from "@/lib/math";
 import type { Gpu, Target, Texture } from "./gl";
 import type { MaskContext } from "./pipeline";
@@ -35,7 +36,17 @@ export function strokeDabs(stroke: BrushStroke, width: number, height: number): 
   return new Float32Array(out);
 }
 
-type BrushCache = { strokes: readonly BrushStroke[]; base: Target; baseCount: number; texture: Target };
+type BrushCache = { strokes: readonly BrushStroke[]; base: Target; baseCount: number; texture: Target; used: number };
+
+/**
+ * Brush coverage is rasterized in source space at most this many px on the long side
+ * (two R16F rasters per brush component): 4096 px is 50 MB per component, so phones
+ * use 2048 px (12 MB), still finer than a brush's soft edge at any zoom they show.
+ */
+const BRUSH_SIDE = device.lite ? 2048 : 4096;
+/** Most bytes cached brush, AI and feathered rasters may hold; least recently used go first. */
+const CACHE_BUDGET = device.lite ? 48 * 1024 * 1024 : 384 * 1024 * 1024;
+const bytes = (t: Texture) => t.width * t.height * (t.format === "r8" ? 1 : t.format === "r16f" ? 2 : 8);
 
 /**
  * Renders develop masks: builds each mask's coverage from its components and
@@ -44,9 +55,11 @@ type BrushCache = { strokes: readonly BrushStroke[]; base: Target; baseCount: nu
  */
 export class MaskRenderer {
   private brushes = new Map<string, BrushCache>();
-  private rasters = new Map<string, Texture>();
+  private rasters = new Map<string, { texture: Texture; used: number }>();
   /** Feathered (blurred) AI rasters, keyed by raster id and feather amount. */
-  private feathered = new Map<string, { key: string; texture: Target }>();
+  private feathered = new Map<string, { key: string; texture: Target; used: number }>();
+  /** Use counter: caches are dropped least recently used first (`trim`). */
+  private clock = 0;
   private pendingRasters = new Set<string>();
   /** Coverage of the mask being edited, kept for the overlay. */
   overlay: { maskId: string; target: Target } | null = null;
@@ -62,7 +75,7 @@ export class MaskRenderer {
   ) {}
 
   private brushSize(size: { width: number; height: number }) {
-    const long = Math.min(4096, this.gpu.maxTextureSize, Math.max(size.width, size.height));
+    const long = Math.min(BRUSH_SIDE, this.gpu.maxTextureSize, Math.max(size.width, size.height));
     const scale = long / Math.max(size.width, size.height);
     return { width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) };
   }
@@ -87,13 +100,17 @@ export class MaskRenderer {
       this.brushes.delete(component.id);
       cache = undefined;
     }
-    if (cache && cache.strokes === strokes) return cache.texture;
+    if (cache && cache.strokes === strokes) {
+      cache.used = this.clock;
+      return cache.texture;
+    }
     if (!cache) {
       cache = {
         strokes: [],
         base: this.gpu.target(size.width, size.height, "r16f"),
         baseCount: 0,
         texture: this.gpu.target(size.width, size.height, "r16f"),
+        used: this.clock,
       };
       this.gpu.clear(cache.base, 0);
       this.brushes.set(component.id, cache);
@@ -111,18 +128,22 @@ export class MaskRenderer {
     if (strokes.length) this.drawStroke(cache.texture, scratch, strokes[strokes.length - 1]);
     this.gpu.dispose(scratch);
     cache.strokes = strokes;
+    cache.used = this.clock;
     return cache.texture;
   }
 
   private raster(id: string): Texture | null {
     const hit = this.rasters.get(id);
-    if (hit) return hit;
+    if (hit) {
+      hit.used = this.clock;
+      return hit.texture;
+    }
     if (!this.pendingRasters.has(id)) {
       this.pendingRasters.add(id);
       void this.loadRaster(id).then((record) => {
         this.pendingRasters.delete(id);
-        if (!record) return;
-        this.rasters.set(id, this.gpu.texture(record.width, record.height, "r8", record.data));
+        if (!record || this.rasters.has(id)) return;
+        this.rasters.set(id, { texture: this.gpu.texture(record.width, record.height, "r8", record.data), used: this.clock });
         this.onRasterLoaded?.();
       });
     }
@@ -132,7 +153,10 @@ export class MaskRenderer {
   private feather(componentId: string, rasterId: string, base: Texture, amount: number, pipeline: MaskContext["pipeline"]): Texture {
     const key = `${rasterId}:${amount}`;
     const hit = this.feathered.get(componentId);
-    if (hit?.key === key) return hit.texture;
+    if (hit?.key === key) {
+      hit.used = this.clock;
+      return hit.texture;
+    }
     if (hit) this.gpu.dispose(hit.texture);
     const sigma = (amount / 100) * Math.max(base.width, base.height) * 0.015;
     const blurred = pipeline.blur(base, sigma);
@@ -140,14 +164,36 @@ export class MaskRenderer {
     const texture = this.gpu.target(blurred.width, blurred.height, "r16f");
     this.gpu.pass("mask-copy-filtered", M.resample, { target: texture, textures: { uInput: blurred } });
     pipeline.release(blurred);
-    this.feathered.set(componentId, { key, texture });
+    this.feathered.set(componentId, { key, texture, used: this.clock });
     return texture;
   }
 
   /** Registers a raster that was just created, so it renders without a round trip to IndexedDB. */
   putRaster(record: RasterRecord) {
-    this.gpu.dispose(this.rasters.get(record.id));
-    this.rasters.set(record.id, this.gpu.texture(record.width, record.height, "r8", record.data));
+    this.gpu.dispose(this.rasters.get(record.id)?.texture);
+    this.rasters.set(record.id, { texture: this.gpu.texture(record.width, record.height, "r8", record.data), used: this.clock });
+  }
+
+  /**
+   * Keeps cached rasters within `budget` bytes, dropping the least recently used first;
+   * those used by the current render (`clock`) always stay. Dropped ones are rebuilt
+   * (brushes from their strokes, AI rasters from IndexedDB) if needed again.
+   */
+  trim(budget = CACHE_BUDGET) {
+    type Entry = { used: number; size: number; drop: () => void };
+    const entries: Entry[] = [];
+    for (const [id, c] of this.brushes)
+      entries.push({ used: c.used, size: bytes(c.base) + bytes(c.texture), drop: () => (this.gpu.dispose(c.base), this.gpu.dispose(c.texture), this.brushes.delete(id)) });
+    for (const [id, r] of this.rasters) entries.push({ used: r.used, size: bytes(r.texture), drop: () => (this.gpu.dispose(r.texture), this.rasters.delete(id)) });
+    for (const [id, f] of this.feathered) entries.push({ used: f.used, size: bytes(f.texture), drop: () => (this.gpu.dispose(f.texture), this.feathered.delete(id)) });
+    let total = entries.reduce((sum, e) => sum + e.size, 0);
+    entries.sort((a, b) => a.used - b.used);
+    for (const e of entries) {
+      if (total <= budget) break;
+      if (e.used >= this.clock) continue;
+      e.drop();
+      total -= e.size;
+    }
   }
 
   /** Coverage of one mask at the working resolution. The caller releases it. */
@@ -217,6 +263,7 @@ export class MaskRenderer {
   readonly stage = (input: Target, ctx: MaskContext, activeMaskId: string | null, render: "view" | "view-overlay" | "offscreen"): Target => {
     const { pipeline } = ctx;
     let current = input;
+    this.clock++;
     const keepOverlay = render === "view-overlay";
     // Only the on-screen render owns the overlay; thumbnails and exports leave it alone.
     if (render !== "offscreen" && this.overlay) {
@@ -264,6 +311,7 @@ export class MaskRenderer {
       if (isActive && keepOverlay) this.overlay = { maskId: mask.id, target: coverage };
       else pipeline.release(coverage);
     }
+    this.trim();
     return current;
   };
 
@@ -285,7 +333,7 @@ export class MaskRenderer {
       this.gpu.dispose(c.base);
       this.gpu.dispose(c.texture);
     }
-    for (const r of this.rasters.values()) this.gpu.dispose(r);
+    for (const r of this.rasters.values()) this.gpu.dispose(r.texture);
     for (const f of this.feathered.values()) this.gpu.dispose(f.texture);
     this.feathered.clear();
     this.brushes.clear();

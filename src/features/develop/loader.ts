@@ -67,6 +67,7 @@ export function stopPrefetching() {
   prefetches.clear();
   previousOpen = null;
   developEngine().setWarm([]);
+  developEngine().relax();
 }
 
 /** A preload already running for this photo, taken over by opening it (so it is not decoded twice). */

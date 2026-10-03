@@ -42,12 +42,13 @@ function memoryByProcess(): { renderer: number; gpu: number } {
   return out;
 }
 
-type Phase = { phase: string; peakMB: number; settledMB: number; rendererMB: number; gpuProcMB: number; gpuMB: number; textures: number; sources: number; cpuSourceMB: number; ms: number };
+type Phase = { phase: string; peakMB: number; settledMB: number; rendererMB: number; gpuProcMB: number; jsHeapMB: number; gpuMB: number; textures: number; sources: number; cpuSourceMB: number; ms: number };
 
 async function engineStats(page: Page) {
   return page.evaluate(async () => {
     const { developEngine } = await import("/src/core/gpu/develop-engine.ts" as string);
-    return developEngine().stats() as { gpuBytes: number; textures: number; sources: number; cpuBytes: number };
+    const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
+    return { ...(developEngine().stats() as { gpuBytes: number; textures: number; sources: number; cpuBytes: number }), heap };
   });
 }
 
@@ -138,6 +139,7 @@ test("phone memory: import, develop, swipe, masks, zoom", async ({ page, browser
       settledMB: Math.round(settled),
       rendererMB: Math.round(split.renderer),
       gpuProcMB: Math.round(split.gpu),
+      jsHeapMB: Math.round(s.heap / 1048576),
       gpuMB: Math.round(s.gpuBytes / 1048576),
       textures: s.textures,
       sources: s.sources,
@@ -147,7 +149,7 @@ test("phone memory: import, develop, swipe, masks, zoom", async ({ page, browser
   };
 
   const first = memoryByProcess();
-  results.push({ phase: "start", peakMB: Math.round(first.renderer + first.gpu), settledMB: Math.round(first.renderer + first.gpu), rendererMB: Math.round(first.renderer), gpuProcMB: Math.round(first.gpu), gpuMB: 0, textures: 0, sources: 0, cpuSourceMB: 0, ms: 0 });
+  results.push({ phase: "start", peakMB: Math.round(first.renderer + first.gpu), settledMB: Math.round(first.renderer + first.gpu), rendererMB: Math.round(first.renderer), gpuProcMB: Math.round(first.gpu), jsHeapMB: 0, gpuMB: 0, textures: 0, sources: 0, cpuSourceMB: 0, ms: 0 });
 
   await phase("import 4 × 24 MP", async () => {
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import photos", exact: true }).tap()]);
