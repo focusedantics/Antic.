@@ -551,6 +551,16 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.5); pointer-events: none;
 }
 
+/* Gallery swipe (components/GallerySwipe.tsx): the neighbours' previews wait beside the
+   viewer and slide in with the finger. */
+.gallery-slide { position: absolute; inset: 0; z-index: 1; pointer-events: none; will-change: transform; }
+.gallery-slide img {
+  position: absolute; left: 16px; top: 16px; width: calc(100% - 32px); height: calc(100% - 32px);
+  max-width: none; max-height: none; object-fit: contain; box-shadow: 0 2px 16px #000;
+}
+.loupe { overflow: hidden; touch-action: pan-y; }
+.develop-canvas { will-change: transform; }
+
 /* ─── Phones: compact layout (see app/layout.ts) ───────────────────────────
    Like Lightroom mobile: the photo fills the screen, tools sit in a bottom dock
    within thumb reach, and panels open in a resizable sheet over the bottom. */

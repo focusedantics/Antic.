@@ -9,6 +9,9 @@ import { clamp } from "@/lib/math";
 import { MaskOverlay } from "./masks/MaskOverlay";
 import { deck } from "./panels/EditDeck";
 import { FloatingHistogram } from "./panels/Histogram";
+import { GallerySwipe } from "@/components/GallerySwipe";
+import { selectAsset } from "@/app/state";
+import { useResults } from "@/features/library/results";
 import { CurveOverlay } from "./panels/ToneCurve";
 import { CropOverlay } from "./tools/Crop";
 import { HealOverlay } from "./tools/Heal";
@@ -49,6 +52,8 @@ export function DevelopView() {
   const sheetOpen = useStore(layout, (s) => s.sheet === "right");
   const curveOnPhoto = useStore(deck, (s) => s.group === "curve") && compact && sheetOpen && tool === "adjust";
   useEffect(() => developEngine().setCover(cover), [cover]);
+  const assetId = useStore(develop, (s) => s.assetId);
+  const { ids } = useResults();
   const status = useStore(develop, (s) => (s.error ? `error:${s.error}` : s.loading ? (s.source === "preview" ? "preview" : "loading") : ""));
   useEffect(() => {
     const engine = developEngine();
@@ -210,6 +215,25 @@ export function DevelopView() {
       {status === "loading" && <div className="develop-status">Decoding original…</div>}
       {status.startsWith("error:") && <div className="develop-status error">{status.slice(6)}</div>}
       {floatHistogram && <FloatingHistogram />}
+      {/* Swipe sideways between photos while editing at fit, like a gallery. */}
+      <GallerySwipe
+        surface={ref}
+        ids={() => ids}
+        current={assetId}
+        moving={() => ref.current?.querySelector<HTMLElement>("canvas.develop-canvas") ?? null}
+        enabled={() => {
+          const s = develop.getState();
+          return s.tool === "adjust" && s.view.fit && s.compare === "off";
+        }}
+        // Only on the photo itself, not on the curve, split handle or other overlays.
+        accept={(target) => target === ref.current || target.matches("canvas.develop-canvas")}
+        go={(id) => selectAsset(id)}
+        ready={(id) => {
+          const s = develop.getState();
+          return s.assetId === id && (s.source !== "none" || !!s.error);
+        }}
+        place={() => ({ pad: 16, cover, under: true })}
+      />
       {curveOnPhoto && <CurveOverlay />}
       {compare !== "off" && (
         <div className="develop-status compare-label" style={{ bottom: "auto", top: 10 }}>

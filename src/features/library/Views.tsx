@@ -1,5 +1,8 @@
+import { useRef } from "react";
 import { useStore } from "@/app/hooks";
-import { ui } from "@/app/state";
+import { layout } from "@/app/layout";
+import { selectAsset, ui } from "@/app/state";
+import { GallerySwipe } from "@/components/GallerySwipe";
 import { catalog, setFlag, setRating } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { formatExposure } from "./format";
@@ -23,12 +26,24 @@ function Caption({ id }: { id: AssetId }) {
   );
 }
 
-export function LoupeView({ id }: { id: AssetId | null }) {
+/** One photo, large. Swipe sideways (touch) to go through the others like a gallery. */
+export function LoupeView({ id, ids }: { id: AssetId | null; ids: readonly AssetId[] }) {
+  const ref = useRef<HTMLDivElement>(null);
   if (!id) return <div className="empty-state">Select a photo.</div>;
   return (
-    <div className="loupe" onDoubleClick={() => ui.setState({ libraryView: "grid" })}>
+    <div className="loupe" ref={ref} onDoubleClick={() => ui.setState({ libraryView: "grid" })}>
       <Thumb id={id} variant="preview" />
       <Caption id={id} />
+      <GallerySwipe
+        surface={ref}
+        ids={() => ids}
+        current={id}
+        moving={() => ref.current?.querySelector<HTMLElement>(":scope > img") ?? null}
+        enabled={() => true}
+        go={(next) => selectAsset(next)}
+        ready={(next) => !!ref.current?.querySelector<HTMLImageElement>(`:scope > img[data-asset-id="${CSS.escape(next)}"]`)?.complete}
+        place={() => ({ pad: 16, cover: layout.getState().compact ? layout.getState().cover : 0 })}
+      />
     </div>
   );
 }

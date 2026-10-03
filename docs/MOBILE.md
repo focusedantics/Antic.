@@ -40,6 +40,7 @@ What we took:
 | Fewer options, rest in ⋯ | Top bar: a workspace switcher, then undo, redo and export (as Lightroom keeps them at the top), and ⋯ for import, filmstrip, glow and tour. The long toolbars keep the rest and scroll sideways |
 | Presets and effects as a scrolling grid | The effects browser goes full screen: search, a row of category chips, two columns of live previews |
 | Pinch and double tap on the photo | Pinch zooms and pans; a double tap toggles 100 % |
+| Swipe sideways between photos | In the Library's loupe and in Develop (at fit, while editing), a sideways swipe moves the photo with the finger while the next slides in beside it; past a third of the way or with a flick it glides on, otherwise it springs back, and the ends give like a rubber band |
 | Batch select (Photos-style: Select, tap to toggle, swipe across, a bar of actions) | Select mode for photos (grid and filmstrip), layers, clips and timeline segments: hold an item or tap Select; taps toggle, a sideways swipe sweeps across several (vertical swipes still scroll), and a bar replaces the dock with Done, the count, All/None and Actions (the computer's batch menu: export, Looks, stack, group, delete…) |
 | Double-tap a slider to reset | Double-click on a slider's label or track resets it; mobile browsers usually deliver a double tap as a double-click (not checked on every phone) |
 | Landscape: the toolbar moves to the side | Phones held sideways: the dock becomes a rail on the right and panels open beside the picture |

@@ -24,7 +24,7 @@ export function LibraryCenter() {
     <>
       <LibraryToolbar count={ids.length} total={total} />
       {view === "grid" && <Grid ids={ids} stacks={stacks} />}
-      {view === "loupe" && <LoupeView id={activeId ?? ids[0] ?? null} />}
+      {view === "loupe" && <LoupeView id={activeId ?? ids[0] ?? null} ids={ids} />}
       {view === "compare" && (
         <CompareView selectId={activeId} candidateId={compareId ?? [...selection].find((id) => id !== activeId) ?? null} />
       )}

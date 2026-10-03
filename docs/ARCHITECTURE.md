@@ -501,6 +501,24 @@ selection), with a tap toggling in select mode. Changing workspace, Escape (when
 menu or dialog is open) or growing to the computer layout leaves select mode; the
 selection stays.
 
+## Gallery swipe (`components/GallerySwipe.tsx`)
+
+The Library's loupe and Develop's viewer let a finger (or pen) swipe between photos
+like a phone's gallery. `GallerySwipe` lays the previous and next photos' previews over
+the viewer (kept loaded but hidden, so a swipe shows them at once) and, once a drag is
+clearly sideways, moves the viewer's own element (the loupe image, the Develop canvas)
+with the finger while the neighbour slides in beside it, placed where the viewer will
+draw it (`placePicture` in `lib/fit.ts`, which mirrors the viewers' fitting, the
+floating panel included). Released past a third of the width or with a flick it glides
+on (280 ms) and calls `go` (`selectAsset`); otherwise it springs back; at either end the
+drag gives like a rubber band. After switching, the preview stays where it landed until
+the viewer reports the new photo (`ready`: the loupe image loaded, or Develop's source
+for the new asset), so the change never flashes; a new swipe finishes that wait at
+once. Develop allows it only while editing at fit with no comparison, and only on the
+photo itself (not the curve, split handle or other overlays); zoomed in, a drag pans.
+A vertical drag, a second finger (a pinch) and mouse input are left alone; with
+reduced motion the switch happens without the glide.
+
 ## Layout on computers and phones (`app/Shell.tsx`, `app/layout.ts`, `lib/device.ts`)
 
 Every workspace renders through `Shell` with `left`, `center`, `right` and an optional

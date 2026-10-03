@@ -19,7 +19,7 @@ export const Thumb = memo(function Thumb({ id, variant = "thumb" }: { id: AssetI
       </span>
     );
   if (!url) return <div className="skeleton" />;
-  return <img src={url} alt={asset.fileName} draggable={false} decoding="async" />;
+  return <img src={url} alt={asset.fileName} draggable={false} decoding="async" data-asset-id={id} />;
 });
 
 type CellProps = {
