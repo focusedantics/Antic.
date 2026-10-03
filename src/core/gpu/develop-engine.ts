@@ -464,30 +464,34 @@ export class DevelopEngine {
   /** True while `frame` runs: a read-back during it is painted over by the frame itself. */
   private drawing = false;
 
-  /** After a read-back borrowed the canvas: draw the view again at once, before the browser shows the borrowed pixels. */
+  /**
+   * After a read-back borrowed the canvas: paint the view again at once from what is
+   * already rendered, before the browser shows the borrowed pixels. Anything that needs
+   * rendering waits for the next frame (exports read back many times in a row).
+   */
   private redrawNow() {
     if (this.drawing || this.lost) return;
     try {
-      this.frame();
+      this.frame(false);
     } catch {
       this.requestRender();
     }
   }
 
-  private frame() {
+  /** `render`: false repaints only from cached renders (else it schedules a frame). */
+  private frame(render = true) {
     if (this.lost) return;
     this.drawing = true;
     try {
-      this.drawFrame();
+      this.drawFrame(render);
     } finally {
       this.drawing = false;
     }
   }
 
-  private drawFrame() {
+  private drawFrame(render: boolean) {
     if (this.mode === "composite") {
-      this.compositeFrame();
-      this.onFrame?.();
+      if (this.compositeFrame(render)) this.onFrame?.();
       return;
     }
     const state = develop.getState();
@@ -521,6 +525,9 @@ export class DevelopEngine {
 
     const overlayMode = state.tool === "mask" && state.activeMaskId ? (state.maskBw ? 2 : state.maskOverlay ? 1 : 0) : 0;
     const key = [src.gpu, recipe, width, height, draft, state.activeMaskId, overlayMode > 0, win?.x, win?.y, win?.width, win?.height];
+    const beforeKey = [src.gpu, recipe.geometry, width, height, win?.x, win?.y, win?.width, win?.height];
+    const stale = !this.result || !sameKey(this.result.key, key) || ((state.compare !== "off" || state.peek) && (!this.before || !sameKey(this.before.key, beforeKey)));
+    if (!render && stale) return this.requestRender();
     if (!this.result || !sameKey(this.result.key, key)) {
       this.pipeline.release(this.result?.target);
       this.viewRender = true;
@@ -532,7 +539,6 @@ export class DevelopEngine {
     }
     let beforeTarget: Target | null = null;
     if (state.compare !== "off" || state.peek) {
-      const beforeKey = [src.gpu, recipe.geometry, width, height, win?.x, win?.y, win?.width, win?.height];
       if (!this.before || !sameKey(this.before.key, beforeKey)) {
         this.pipeline.release(this.before?.target);
         const target = this.pipeline.render(src.gpu, DevelopPipeline.beforeRecipe(recipe, src.gpu.info), { ...renderSize, draft });
@@ -669,20 +675,25 @@ export class DevelopEngine {
     return { x: rect.left + (x - m[2]) / m[0] / dpr, y: rect.top + (y - m[5]) / m[4] / dpr };
   }
 
-  private compositeFrame() {
+  /** Draws the composite view; false when it needed rendering and `render` was false (a frame is scheduled). */
+  private compositeFrame(render = true): boolean {
     const { gl } = this.gpu;
     const { doc } = composite.getState();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    if (!doc) return;
+    if (!doc) return true;
     const scale = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));
     const assets = catalog.getState().assets;
     const revisions = flatten(doc.layers).map((l) => (l.kind === "image" ? `${l.assetId}:${assets.get(l.assetId)?.developRevision}:${this.sources.get(l.assetId)?.quality}` : ""));
     const time = this.viewTime(doc);
     const key = [doc, scale, revisions.join("|"), this.sources.size, time];
     if (!this.compositeResult || !sameKey(this.compositeResult.key, key)) {
+      if (!render) {
+        this.requestRender();
+        return false;
+      }
       this.pipeline.release(this.compositeResult?.target);
       this.compositeResult = { target: this.compositor.render(doc, scale, time), key };
     }
@@ -695,6 +706,7 @@ export class DevelopEngine {
         uCanvasSize: [this.canvas.width, this.canvas.height],
       },
     });
+    return true;
   }
 
   /**

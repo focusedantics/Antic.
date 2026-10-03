@@ -483,16 +483,13 @@ export class Gpu {
     const out = new OffscreenCanvas(W, H);
     const ctx = out.getContext("2d", { willReadFrequently: true })!;
     const saved = [canvas.width, canvas.height];
-    // An image that fits in the canvas is read through its bottom-left corner: resizing the
-    // canvas would reallocate its buffers (twice) and show a blank frame.
-    const fits = W <= gl.drawingBufferWidth && H <= gl.drawingBufferHeight;
     let tile = 2048;
     try {
       for (let ty = 0; ty < H; ty += tile) {
         for (let tx = 0; tx < W; tx += tile) {
           const tw = Math.min(tile, W - tx);
           const th = Math.min(tile, H - ty);
-          if (!fits && (canvas.width !== tw || canvas.height !== th)) {
+          if (canvas.width !== tw || canvas.height !== th) {
             canvas.width = tw;
             canvas.height = th;
           }
@@ -507,26 +504,20 @@ export class Gpu {
           }
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
           gl.viewport(0, 0, tw, th);
-          gl.enable(gl.SCISSOR_TEST);
-          gl.scissor(0, 0, tw, th);
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
-          gl.disable(gl.SCISSOR_TEST);
           this.pass("readback", READBACK_FRAGMENT, {
             target: null,
             viewport: [0, 0, tw, th],
             textures: { uInput: input },
             uniforms: { uRect: [tx / W, ty / H, tw / W, th / H] },
           });
-          // The viewport's bottom-left corner is the canvas's bottom-left: `th` rows from its top.
-          ctx.drawImage(canvas as CanvasImageSource, 0, gl.drawingBufferHeight - th, tw, th, tx, ty, tw, th);
+          ctx.drawImage(canvas as CanvasImageSource, 0, 0, tw, th, tx, ty, tw, th);
         }
       }
     } finally {
-      if (canvas.width !== saved[0] || canvas.height !== saved[1]) {
-        canvas.width = saved[0];
-        canvas.height = saved[1];
-      }
+      canvas.width = saved[0];
+      canvas.height = saved[1];
       this.onCanvasBorrowed?.();
     }
     return ctx.getImageData(0, 0, W, H);

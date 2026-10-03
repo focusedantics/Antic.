@@ -193,13 +193,24 @@ export function setRecipeFor(assetId: AssetId, recipe: DevelopRecipe, label: str
   updateAsset(assetId, { develop: recipe, developRevision: asset.developRevision + 1 });
 }
 
+/**
+ * Recipes of photos not open for editing, derived from their (immutable) asset record:
+ * the same record gives the same recipe object, so renders keyed by recipe identity
+ * (composite layers) stay cached and nothing is sanitized again on every frame.
+ */
+const derivedRecipes = new WeakMap<object, DevelopRecipe>();
+
 export function recipeFor(assetId: AssetId): DevelopRecipe | null {
   const h = histories.get(assetId);
   if (h) return h.get();
   const asset = getAsset(assetId);
   if (!asset) return null;
+  const hit = derivedRecipes.get(asset);
+  if (hit) return hit;
   const info = infoFor(assetId);
-  return asset.develop ? sanitizeRecipe(asset.develop, info) : createDefaultRecipe(info);
+  const recipe = asset.develop ? sanitizeRecipe(asset.develop, info) : createDefaultRecipe(info);
+  derivedRecipes.set(asset, recipe);
+  return recipe;
 }
 
 export const colorInfoFor = infoFor;

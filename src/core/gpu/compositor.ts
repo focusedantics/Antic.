@@ -1,3 +1,4 @@
+import { device } from "@/lib/device";
 import { recipeFor } from "@/core/develop/session";
 import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
@@ -13,6 +14,15 @@ import type { Gpu, Target, Texture } from "./gl";
 import type { MaskRenderer } from "./masks";
 import type { DevelopPipeline, GpuSource } from "./pipeline";
 import * as C from "./shaders/composite";
+
+const recipeIds = new WeakMap<object, number>();
+let nextRecipeId = 1;
+/** A number per recipe object (recipes are immutable, so the same object is the same recipe). */
+function recipeKey(recipe: object): number {
+  let id = recipeIds.get(recipe);
+  if (!id) recipeIds.set(recipe, (id = nextRecipeId++));
+  return id;
+}
 
 const blendIndex = new Map<BlendMode, number>(BLEND_MODES.map((b, i) => [b.id, i]));
 /** Photoshop's "special eight": fill opacity fades the blend effect instead of the layer. */
@@ -239,10 +249,13 @@ export class Compositor {
     if (!source || !recipe) return null;
     const full = outputSize(source.size, recipe.geometry);
     const want = this.contentSize(layer, scale, Math.min(4096, Math.max(full.width, full.height)));
-    const key = `${source.id}:${JSON.stringify(recipe)}:${want.width}x${want.height}:${source.base.width}`;
+    // Recipes are immutable: their identity names their content (serialising one every frame cost
+    // milliseconds with long brush strokes).
+    const key = `${source.id}:${recipeKey(recipe)}:${want.width}x${want.height}:${source.base.width}`;
     return this.cache(key, layer.id, () => {
       const developed = this.pipeline.render(source, recipe, { width: want.width, height: want.height, masks: (input, ctx) => this.masks.stage(input, ctx, null, "offscreen") });
-      const out = this.gpu.target(want.width, want.height, "rgba16f", { mipmaps: true });
+      // Display-encoded and clipped to 0–1: phones keep it in 8 bits (half the memory), as a JPEG would.
+      const out = this.gpu.target(want.width, want.height, device.lite ? "rgba8" : "rgba16f", { mipmaps: true });
       this.gpu.pass("to-display-straight", C.toDisplayStraight, { target: out, textures: { uInput: developed } });
       this.gpu.generateMipmaps(out);
       this.pipeline.release(developed);
