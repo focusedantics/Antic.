@@ -62,7 +62,7 @@ One IndexedDB database, `focused-catalog`:
 | --- | --- | --- |
 | `assets` | id | Asset records (small; loaded eagerly at start) |
 | `collections` | id | Collections and smart collections (rules) |
-| `originals` | asset id | Copied original (import-by-copy only): a Blob, or `{ bytes, type }` on iPhone/iPad and wherever a Blob is refused (`StoredBytes`) |
+| `originals` | asset id | Copied original (import-by-copy only): a Blob; on iPhone/iPad a `FileRef` to a file in the private file system (below); `{ bytes, type }` (`StoredBytes`) only where neither works |
 | `thumbs` | asset id | Thumbnail + preview blobs, revision they were rendered for |
 | `rasters` | id | Coverage rasters for AI masks (8-bit), referenced by recipes |
 | `presets` | id | Develop presets (recipe groups) |
@@ -71,6 +71,15 @@ One IndexedDB database, `focused-catalog`:
 | `settings` | key | Preferences |
 
 Writes to asset records are batched (250 ms) and flushed on `pagehide`.
+
+**Large files** (`core/catalog/file-store.ts`). Safari on iPhone and iPad can refuse, or
+later lose, photo-picker Files stored in IndexedDB, and bytes stored instead are read back
+whole into memory (a ProRAW or a 4K clip is enough for iOS to reload the tab). There,
+originals and clips go to the origin private file system (OPFS), streamed in 8 MB pieces
+through `createWritable` or, before Safari 26, a worker's synchronous access handle
+(`file-store.worker.ts`); IndexedDB keeps a `FileRef`, and reading returns a disk-backed
+`File` that decoders and the demuxer read in parts. Elsewhere a Blob is stored, falling
+back to OPFS, then bytes, when it is refused. Deleting a photo or clip deletes its file.
 
 ### Import (`core/catalog/import.ts`)
 
@@ -86,7 +95,10 @@ back to FNV-1a. On Chromium, **Import Folder** uses the File System Access API a
 *references* files in place; everything else is copied into the library. Each file is
 fingerprinted (size + SHA-256 of first/last 64 KB) to skip duplicates, appears in the
 grid immediately, and is analyzed by a pool of image workers (`core/image`):
-metadata via exifr, orientation, a thumbnail and a preview. For camera RAW the largest
+metadata via exifr, orientation, a thumbnail and a preview. Only the head of the file is
+read for EXIF and the header's image size (`decode.ts` `headerSize`); the browser decodes
+straight to about the preview size (`decodeAtMost`), and the thumbnail is made from the
+preview. Workers idle for 4 s are ended, giving back what decoding left in their heaps. For camera RAW the largest
 embedded JPEG is used (format-agnostic JPEG marker scan — 74 ms on a 30 MB ARW);
 without one, LibRaw decodes at half size. HEIC goes to the browser's own decoder first
 (Safari), then to WebCodecs' HEVC decoder with our HEIF parser (`decodeHeicImage`).
@@ -146,8 +158,12 @@ and one labelled step. Snapshots are named recipes stored per asset.
 The working space is **linear Rec.2020, RGBA16F**, scene-referred with headroom above
 1.0. Passes (fullscreen fragment shaders over render targets):
 
-1. **Source** — upload once per photo: RAW as linear 16-bit, rendered files as sRGB 8-bit
-   decoded to linear Rec.2020 in the shader.
+1. **Source** — upload once per photo, mipmapped: RAW (and 16-bit files) as linear
+   Rec.2020 RGBA16F; 8-bit files stay as their own sRGB pixels in an `SRGB8_ALPHA8`
+   texture (half the memory, no staging copy), which the geometry pass converts to
+   linear Rec.2020 as it samples (`GpuSource.srgb`; a linear map, so it commutes with
+   filtering). A one-time probe (`srgbSourcesWork`) checks that the GPU decodes sRGB on
+   sampling and builds mipmaps in linear light; otherwise 8-bit files use RGBA16F too.
 2. **Geometry** — orientation, flip, straighten, keystone, lens distortion, CA and crop,
    resampled into the working resolution (preview size while interacting, full size
    for export).
@@ -167,6 +183,18 @@ Radii are specified in full-resolution pixels and scaled by the working resoluti
 low-resolution preview matches the full-resolution export. While a slider is dragged the
 pipeline renders at reduced resolution and re-renders at full view resolution on release.
 
+**Windows** (`RenderOptions.window`). A render can cover just part of the output: every
+pass then works in the whole output's coordinates (the geometry and masks through the
+composed `outToSrc`, vignette and grain through `uOrigin`), and the dehaze estimate comes
+from a small render of the whole photo. A window carries a margin
+(`DevelopPipeline.windowMargin`: 3σ of the largest local-contrast blur when texture,
+clarity or dehaze is used, else 64 px) on a 64 px grid, so its blur pyramid groups pixels
+like a whole render. Zoomed in, the view renders only what the canvas shows
+(`DevelopEngine.viewWindow`, snapped to 128 px so small pans reuse it); the histogram then
+comes from a small whole render. Large exports render in tiles (`renderCanvas`: 1536 px
+on phones, 4096 px on computers), each put straight into the export canvas. Windows and
+tiles match a whole render to a mean of 0.01/255 (`e2e/zoom-window.spec.ts`).
+
 WebGL2 is the baseline because it runs everywhere (including headless test browsers).
 Rendering code only talks to `core/gpu/gl.ts` (`Gpu.pass`, targets, textures), which is the
 seam for a future WebGPU backend. AI inference already uses WebGPU when available.
@@ -179,7 +207,18 @@ source, so every later pass sees the repaired pixels.
 `core/gpu/develop-engine.ts` owns a single canvas and WebGL2 context. Develop and
 Composite both attach it to their view (it is moved, not recreated), so decoded photos,
 retouched sources and mask rasters on the GPU are shared: an image layer in a composition
-reuses the photo already decoded for Develop. The canvas is the view's first child; React
+reuses the photo already decoded for Develop.
+
+Photos are decoded no larger than they are kept (`loadSource`: `device.maxSide`, 4096 px
+on phones; the browser resizes while decoding, given only a width so the result is never
+distorted whichever way it combines resizing with EXIF orientation, and phones decode RAW
+at half size when that still covers it); the full-resolution size travels with the pixels
+(`SourceData.fullWidth/fullHeight`). Decoded pixels are freed as soon as they are on the
+GPU: nothing of a photo stays on the CPU. After a lost WebGL context the photos still in
+use are decoded again from their originals. The engine keeps the open photo, its warm
+neighbours and the composition's photos; computers also the last one used. Phones free
+pooled targets and unused mask rasters on leaving Develop and before an AI selection, and
+neighbours and caches when the page is hidden. The canvas is the view's first child; React
 tool overlays (crop frame, mask handles, transform handles) render above it.
 
 ## Composite
@@ -336,7 +375,9 @@ constant frame rate at the clip's average rate.
 is decoded once at 48 kHz. Each segment is rendered from the same pieces as its pictures:
 sliced and reversed, resampled for tape-style speed or time-stretched (WSOLA) to keep
 pitch, pitch-shifted, then treated. The worker caches rendered segments by their job, so
-an edit re-renders only what changed. Preview and export use the same soundtrack.
+an edit re-renders only what changed, within a byte budget (96 MB on phones and tablets,
+512 MB on computers; an unedited segment is a full copy of its clip's sound). Decoded
+sound is transferred to the worker, not copied. Preview and export use the same soundtrack.
 
 **Frames** (`frames.ts`): `FrameSource` decodes a clip with WebCodecs by presentation
 index. It continues a running decode for the next frames, and restarts from the keyframe
@@ -465,14 +506,19 @@ into the engine's own canvas in tiles of up to 2048 px, and copies each tile out
 `gl.readPixels` on offscreen framebuffers is kept only for small analysis reads (the
 histogram and the eyedropper), because some browser/GPU combinations return it wrong:
 blank, shrunken or stale images. The canvas is borrowed for the duration of one
-synchronous call and redrawn right after. A one-time background job re-renders developed
+synchronous call and repainted at once from cached renders (no blank frame shows); anything that needs rendering waits for the next frame. A one-time background job re-renders developed
 thumbnails made before this change.
 
 ## GPU memory and export verification
 
 `DevelopPipeline` pools render targets by size and format, but keeps idle targets only
 within a 320 MB budget (64 MB on phones and tablets, `lib/device.ts`); anything beyond is
-freed on release. Before and after an export,
+freed on release. Mask rasters (brush coverage, AI rasters, feathered copies) share a
+byte budget too (`MaskRenderer.trim`: 48 MB on phones, 384 MB on computers, least
+recently used first, never those the current render uses); phones rasterize brushes at
+2048 px. Composite image layers are cached by recipe identity (`recipeFor` derives one
+recipe object per immutable asset record), as 8-bit on phones. `Gpu.textureBytes`
+counts live texture memory; `docs/PERFORMANCE.md` has the measurements. Before and after an export,
 `DevelopEngine.freeMemory()` also drops layer, effect and preview caches.
 `exportDocument` / `exportPixels` check the full-size result against a 512 px reference
 (`gpu/verify.ts`) and check `gl.getError()` for out-of-memory and context loss. They
@@ -623,7 +669,10 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   textures cannot be filtered) and exported at most that size (`exportSize`, with a
   note in the export dialogs); the pool budget is 64 MB; viewer canvases render at most
   2 device pixels per CSS pixel (`viewDpr`); two decode workers; idle GPU targets are
-  freed when the tab is hidden; the AI defaults to the small model. `phone`: the glow
+  freed when the tab is hidden; the AI defaults to the small model, keeps one model loaded
+  at a time, runs Sky/People (DETR at a 320 px short side) and Select Object 8-bit on the
+  CPU, and its worker ends 15 s after its last job; brush masks are rasterized at 2048 px;
+  exports render in 1536 px tiles; at most 16 Library previews stay cached. `phone`: the glow
   starts off, the export marble holds still and Remove Background uses its crossfade
   instead of the particle globe. `localStorage["focused:device"]` overrides the guess.
 
@@ -637,9 +686,10 @@ with it. `app/ActivityBar.tsx` turns it into the thin line at the top of the win
 
 | Worker | Work |
 | --- | --- |
-| `core/image/image.worker.ts` (pool of ≤4, ≤2 on phones) | metadata, embedded previews, thumbnails, previews |
+| `core/image/image.worker.ts` (pool of ≤4, ≤2 on phones; ended after 4 s idle) | metadata, embedded previews, thumbnails, previews |
 | LibRaw worker (inside libraw-wasm) | RAW decoding |
-| `core/ai/ai.worker.ts` | model loading and inference: Transformers.js (BiRefNet, MODNet, DETR, SlimSAM) and ONNX Runtime directly for the bundled U²-Netp; WebGPU → WASM |
+| `core/ai/ai.worker.ts` | model loading and inference: Transformers.js (BiRefNet, MODNet, DETR, SlimSAM) and ONNX Runtime directly for the bundled U²-Netp; WebGPU → WASM. Ended when idle (15 s on phones, 90 s during object selection, 5 min on computers): a WASM heap never shrinks |
+| `core/catalog/file-store.worker.ts` | writes originals and clips to the private file system where `createWritable` is missing (Safari before 26) |
 
 ## Status
 

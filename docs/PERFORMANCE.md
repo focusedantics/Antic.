@@ -128,3 +128,69 @@ Ordered by expected effect. Each item is a separate commit with a measurement.
 Reverting: every item is a separate commit on `claude/sleepy-bardeen-lyzaon`;
 `git revert <commit>` undoes one, `git checkout d3eb0fc -- src` restores all of the
 source as it was at the baseline.
+
+## Results
+
+The same benchmark (with the export and idle phases added during the work) run three
+times on the baseline code (`918262d`: `d3eb0fc` plus the instrumentation) and three
+times on the result; medians.
+
+| Phase | Peak MB before | Peak MB after | Settled MB before | Settled MB after | GPU textures MB before | after | Time s before | after |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| start | 205 | 204 | 205 | 204 | 0 | 0 | 0.0 | 0.0 |
+| import 4 × 24 MP | 1219 | 886 | 868 | 622 | 0 | 0 | 7.4 | 6.8 |
+| open in Develop | 1430 | 898 | 1322 | 705 | 119 | 62 | 1.2 | 1.8 |
+| swipe × 3 | 1776 | 905 | 1540 | 588 | 286 | 123 | 14.3 | 13.9 |
+| Select Subject + brush | 2113 | 1016 | 1707 | 797 | 313 | 136 | 6.5 | 5.7 |
+| zoom 100 % and pan | 2538 | 933 | 1744 | 862 | 542 | 147 | 13.1 | 4.5 |
+| export full size JPEG | 1993 | 1053 | 1543 | 932 | 279 | 76 | 6.0 | 6.7 |
+| back to Library | 1549 | 932 | 1547 | 651 | 279 | 73 | 0.5 | 0.5 |
+| idle 20 s | 1547 | 651 | 1382 | 512 | 279 | 73 | 20.0 | 20.0 |
+
+The highest point of a whole session went from about 2.5 GB to about 1.05 GB (each run:
+2538 / 2496 / 2550 → 1053 / 1042 / 1067 MB), and what stays in use after it from
+1.4 GB to 0.5 GB. About 200 MB of every figure is the browser itself (the "start" row).
+
+## What changed, step by step
+
+Measured with the benchmark after each step (single runs, so ±10 % noise).
+
+| Step | Commit message | Effect |
+| --- | --- | --- |
+| 1–2 | Free decoded photos after upload and decode at the size they are used | The CPU copies (183 MB) are gone; the browser decodes at 4096 px (Develop) or about 2560 px (import); import reads only the file's head; idle image workers end. Peak 2529 → about 1700 MB. |
+| 3 | Keep 8-bit photos as 8-bit sRGB textures on the GPU | GPU textures after the swipes 286 → 172 MB. Renders match the float path to 1/255 at full size. |
+| 4 | AI: one model at a time on phones, lighter Sky/People, end the worker when idle | The renderer drops from 552 to 213 MB once the worker ends. Sky/People: DETR's mask head at a sixth of the input pixels, 8-bit, on the CPU. |
+| 5 | Zoomed in, render only the part of the photo on screen | Zoom phase peak 1771 → 1170 MB, GPU 428 → 243 MB, 12.9 → 7.2 s. |
+| 6 | Budget mask rasters; phones keep only what is in use | GPU at 100 % 243 → 154 MB; back in the Library 221 → 73 MB. |
+| 7 | Read back through a corner of the canvas (reverted in 8) | Measured slower in Chromium (a copy out of a canvas costs the whole canvas): reverted; the immediate repaint stayed. |
+| 8 | Memoize derived recipes; separate preview cache; lighter composite layers | Found while checking 7: `recipeFor` built a new recipe on every call for photos not open in Develop; the animated-export test went 2.0 → 1.2 min once memoized. |
+| 9 | iPhone: keep originals and clips in the private file system | Originals and clips read from disk on demand instead of whole into memory (no change in this benchmark: its files are 10 MB). |
+| 10 | Export photos in tiles, with one full-size copy on the CPU | Export peak 1302 → 1058 MB at the same speed; narrower margins when no local contrast make panning at 100 % 8.0 → 4.6 s. |
+| 11 | Video sound: transfer decoded audio, budget rendered segments by bytes | One copy fewer of a clip's sound; the segment cache is bounded by size, not count. |
+| 12 | AI on phones: smaller Sky/People input, free caches before a selection | DETR at 320 px; the neighbour and idle targets make room before inference. |
+| 13 | Library: sort by precomputed ranks | 20,000 photos: by name 80 → 13 ms, camera 160 → 17 ms, rating 59 → 12 ms per catalog change. Same order (tested). |
+| 14 | Library: run the query on a deferred copy of the catalog | Imports no longer re-run the query for every analysed photo while React is busy. |
+
+## Alternatives considered
+
+- **`gl.readPixels` instead of the canvas read-back**: faster in principle, but the
+  project moved away from it because some browser/GPU combinations return wrong pixels
+  (see ARCHITECTURE.md). Kept as is; reading through a canvas corner was tried and
+  measured slower (step 7).
+- **R11F_G11F_B10F for RAW sources** (4 bytes per pixel instead of 8): too little
+  precision for heavy edits (6-bit mantissa); RAW stays RGBA16F.
+- **A lighter semantic model for Sky/People** (SegFormer, MobileViT-DeepLab, UperNet):
+  SegFormer's and MobileViT's weights are not under an MIT/Apache/BSD-compatible license;
+  UperNet could not be downloaded and checked here. DETR stays, made lighter on phones.
+- **Rendering the zoomed view in fixed tiles with a tile cache**: the window approach
+  gives most of the saving with one render per pan step and no new cache; tiles are
+  used for exports only.
+
+## Not verified here
+
+- The test machine has no iPhone: the numbers are Chromium's, with SwiftShader keeping
+  GPU memory in ordinary memory as an iPhone does. WebKit's own costs differ, but every
+  change reduces what is allocated, not how one engine accounts for it.
+- The downloadable AI models (MODNet, BiRefNet, DETR, SlimSAM) cannot be fetched from
+  this environment; the AI changes were tested with the bundled U²-Netp, and the
+  DETR/SlimSAM paths only by type checking and reading Transformers.js's code.
