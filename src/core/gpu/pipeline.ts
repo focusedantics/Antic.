@@ -23,10 +23,16 @@ export type SourceData = (
 /** The photo's full-resolution size, whatever size its pixels were decoded at. */
 export const fullSizeOf = (data: SourceData): Size => ({ width: data.fullWidth ?? data.width, height: data.fullHeight ?? data.height });
 
-/** A photo on the GPU: linear Rec.2020 RGBA16F with mipmaps. */
+/**
+ * A photo on the GPU, mipmapped: linear Rec.2020 RGBA16F (RAW, 16-bit files), or for
+ * 8-bit files (JPEG, HEIC, PNG…) the file's own sRGB 8-bit pixels, half the memory,
+ * which the geometry pass converts to linear Rec.2020 as it samples (`srgb`).
+ */
 export type GpuSource = {
   readonly id: string;
   readonly base: Texture;
+  /** The base is 8-bit sRGB (linear sRGB primaries once sampled), not linear Rec.2020. */
+  readonly srgb?: boolean;
   readonly size: Size;
   readonly info: SourceColorInfo;
   /** Full-resolution pixels per base texel when the photo was larger than the GPU allows. */
@@ -127,8 +133,8 @@ export class DevelopPipeline {
       width = Math.floor(width / downscale);
       height = Math.floor(height / downscale);
     }
-    const base = gpu.target(width, height, "rgba16f", { mipmaps: true });
     if (data.kind === "rgb16-linear") {
+      const base = gpu.target(width, height, "rgba16f", { mipmaps: true });
       const staging = gpu.texture(data.width, data.height, "rgb16ui", data.data);
       if (downscale === 1) gpu.pass("source-rgb16", S.sourceRgb16, { target: base, textures: { uSource: staging }, uniforms: { uWhite: data.white } });
       else
@@ -138,6 +144,9 @@ export class DevelopPipeline {
           uniforms: { uWhite: data.white, uScale: [data.width / width, data.height / height] },
         });
       gpu.dispose(staging);
+      gpu.generateMipmaps(base);
+      const size = fullSizeOf(data);
+      return { id, base, size, info, downscale: size.width / width };
     } else {
       let image: TexImageSource | ImageData = data.image;
       if (downscale !== 1) {
@@ -152,13 +161,58 @@ export class DevelopPipeline {
         ctx.drawImage(image as CanvasImageSource, 0, 0, width, height);
         image = canvas;
       }
+      if (this.srgbSourcesWork()) {
+        // Kept as the file's 8-bit sRGB: no staging copy, half the memory of RGBA16F.
+        const base8 = gpu.texture(width, height, "srgba8", image as TexImageSource, { mipmaps: true });
+        gpu.generateMipmaps(base8);
+        const size = fullSizeOf(data);
+        return { id, base: base8, srgb: true, size, info, downscale: size.width / width };
+      }
+      const base = gpu.target(width, height, "rgba16f", { mipmaps: true });
       const staging = gpu.texture(width, height, "srgba8", image as TexImageSource);
       gpu.pass("source-srgb", S.sourceSrgb, { target: base, textures: { uSource: staging } });
       gpu.dispose(staging);
+      gpu.generateMipmaps(base);
+      const size = fullSizeOf(data);
+      return { id, base, size, info, downscale: size.width / width };
     }
-    gpu.generateMipmaps(base);
-    const size = fullSizeOf(data);
-    return { id, base, size, info, downscale: size.width / width };
+  }
+
+  private srgbProbe: boolean | null = null;
+
+  /**
+   * Whether this GPU samples 8-bit sRGB textures as linear values and builds their
+   * mipmaps in linear light (WebGL2 requires both; a driver that gets it wrong would
+   * darken fine detail when zoomed out). Checked once; RGBA16F sources otherwise.
+   */
+  srgbSourcesWork(): boolean {
+    if (this.srgbProbe !== null) return this.srgbProbe;
+    const { gpu } = this;
+    let ok = false;
+    const checker = new Uint8Array(4 * 4 * 4);
+    for (let i = 0; i < 16; i++) checker.set([...Array(3).fill(((i % 4) + (i >> 2)) % 2 ? 255 : 0), 255], i * 4);
+    let a: Texture | null = null;
+    let b: Texture | null = null;
+    let out: Target | null = null;
+    try {
+      a = gpu.texture(4, 4, "srgba8", checker, { mipmaps: true });
+      gpu.generateMipmaps(a);
+      b = gpu.texture(1, 1, "srgba8", new Uint8Array([128, 128, 128, 255]));
+      out = gpu.target(2, 1, "rgba16f");
+      gpu.pass("srgb-probe", S.srgbProbe, { target: out, textures: { uChecker: a, uGray: b } });
+      const v = gpu.readFloat(out);
+      // Black/white averaged in linear light is 0.5 (in encoded values it would be 0.21); sRGB 128 is 0.216 linear.
+      ok = Math.abs(v[0] - 0.5) < 0.08 && Math.abs(v[4] - 0.2158) < 0.02;
+      if (!ok) console.warn("[gpu] 8-bit sRGB textures misbehave on this GPU; photos are kept as RGBA16F.", v[0], v[4]);
+    } catch (error) {
+      console.warn("[gpu] sRGB texture check failed:", error);
+    } finally {
+      gpu.dispose(a);
+      gpu.dispose(b);
+      gpu.dispose(out);
+    }
+    this.srgbProbe = ok;
+    return ok;
   }
 
   disposeSource(source: GpuSource | null | undefined) {
@@ -190,7 +244,8 @@ export class DevelopPipeline {
     let output: Target | null = null;
     for (let start = 0; start < spots.length; start += 32) {
       const chunk = spots.slice(start, start + 32);
-      const target = this.gpu.target(width, height, "rgba16f", { mipmaps: true });
+      // Spot repairs keep the source's format (8-bit sRGB sources stay 8-bit).
+      const target = this.gpu.target(width, height, source.srgb ? "srgba8" : "rgba16f", { mipmaps: true });
       const pos = new Float32Array(128);
       const params = new Float32Array(128);
       chunk.forEach((s, i) => {
@@ -312,6 +367,7 @@ export class DevelopPipeline {
         uVignetting: (optics.vignetting / 100) * 1.5,
         uVignettingMid: 1 + ((100 - optics.vignettingMidpoint) / 100) * 4,
         uLodBias: Math.log2(1 / source.downscale),
+        uBaseSrgb: source.srgb ? 1 : 0,
       },
     });
 
@@ -482,6 +538,7 @@ export class DevelopPipeline {
         uVignetting: 0,
         uVignettingMid: 1,
         uLodBias: 0,
+        uBaseSrgb: source.srgb ? 1 : 0,
       },
     });
     const pixels = this.gpu.readFloat(target);

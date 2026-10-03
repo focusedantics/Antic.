@@ -34,6 +34,14 @@ void main() {
   outColor = vec4(sum / (max(n, 1.0) * uWhite), 1.0);
 }`;
 
+/** Probe for `srgbSourcesWork`: a mip level of a black/white checker, and an sRGB 128 texel. */
+export const srgbProbe = `${header}
+uniform sampler2D uChecker;
+uniform sampler2D uGray;
+void main() {
+  outColor = gl_FragCoord.x < 1.0 ? textureLod(uChecker, vec2(0.5), 2.0) : texelFetch(uGray, ivec2(0), 0);
+}`;
+
 /** Rendered files: sRGB-encoded 8-bit (decoded to linear by the texture format) → linear Rec.2020. */
 export const sourceSrgb = `${header}
 ${common}
@@ -57,6 +65,8 @@ uniform float uDistortion;
 uniform float uVignetting;
 uniform float uVignettingMid;
 uniform float uLodBias;
+// 1: the base is an 8-bit sRGB texture (linear sRGB once sampled), not linear Rec.2020.
+uniform int uBaseSrgb;
 void main() {
   // Texel row 0 is the top of the image in every working texture.
   vec3 h = uOutToSrc * vec3(vUv, 1.0);
@@ -77,6 +87,8 @@ void main() {
   vec2 dy = dFdy(uv) * uSrcSize;
   float lod = max(0.0, 0.5 * log2(max(dot(dx, dx), dot(dy, dy))) + uLodBias);
   vec4 c = textureLod(uBase, vec2(uv.x, uv.y), lod);
+  // A linear map, so converting after filtering equals filtering converted texels.
+  if (uBaseSrgb == 1) c.rgb = SRGB_TO_REC2020 * c.rgb;
   if (uVignetting != 0.0) {
     float r = sqrt(r2);
     float shape = pow(r, uVignettingMid);
