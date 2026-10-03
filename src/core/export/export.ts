@@ -6,7 +6,7 @@ import type { AssetId } from "@/core/catalog/types";
 import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
 import { loadSource } from "@/core/develop/source-loader";
-import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
+import { developEngine, encodePixels, isOpaque } from "@/core/gpu/develop-engine";
 import { buildExif, insertExif } from "./exif";
 import { type ExportFrame, frameLayout } from "./frame";
 import type { Watermark } from "./watermark";
@@ -94,7 +94,7 @@ async function renderExport(id: AssetId, settings: ExportSettings, watermark?: W
   const pixels = engine.exportPixels(source, recipe, Math.max(size.width, size.height));
   onStage?.(`Encoding ${settings.format.toUpperCase()}…`, 0.65);
   await nextPaint();
-  let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background, watermark, frame);
+  let blob = await encodePixels(pixels, mime[settings.format], settings.quality, settings.background, watermark, frame, isOpaque(recipe));
   // A frame placed around the photo makes the file larger than the photo.
   const out = frameLayout(pixels.width, pixels.height, frame);
   onStage?.("Saving…", 0.95);

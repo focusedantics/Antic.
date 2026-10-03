@@ -125,3 +125,86 @@ test("a zoomed-in window renders like the same part of the whole photo", async (
   );
   expect(diff).toBeLessThan(0.8);
 });
+
+test("a large export rendered in tiles matches a single render, seams included", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("focused:prefs", JSON.stringify({ tourDone: true, backdrop: false }));
+    // Phones render exports in 1536 px tiles.
+    localStorage.setItem("focused:device", "lite");
+  });
+  await page.goto("/");
+  await page.evaluate(() => indexedDB.deleteDatabase("focused-catalog"));
+  await page.reload();
+  const b64 = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(4000, 2600);
+    const g = c.getContext("2d")!;
+    const gr = g.createLinearGradient(0, 0, 4000, 2600);
+    gr.addColorStop(0, "#203050");
+    gr.addColorStop(1, "#f0c890");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 4000, 2600);
+    for (let i = 0; i < 120; i++) {
+      g.fillStyle = `hsl(${i * 47} 60% ${25 + (i % 6) * 10}%)`;
+      g.fillRect((i * 331) % 3900, (i * 173) % 2500, 120, 80);
+    }
+    const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/png" })).arrayBuffer());
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  });
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
+  await chooser.setFiles({ name: "big.png", mimeType: "image/png", buffer: Buffer.from(b64, "base64") });
+  await expect(page.locator(".cell img")).toHaveCount(1, { timeout: 30_000 });
+  await page.locator(".cell").first().click();
+  await page.keyboard.press("d");
+  await expect(page.getByRole("slider", { name: "Exposure" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".develop-status")).toHaveCount(0, { timeout: 30_000 });
+  // With local contrast (wide blur margins) and without (narrow margins).
+  for (const local of [true, false]) {
+    const result = await page.evaluate(async (local) => {
+      const { develop, editRecipe } = await import("/src/core/develop/session.ts" as string);
+      const { addMask } = await import("/src/core/develop/masks.ts" as string);
+      const { developEngine } = await import("/src/core/gpu/develop-engine.ts" as string);
+      editRecipe("Look", (r: any) => {
+        const next = {
+          ...r,
+          masks: [],
+          basic: { ...r.basic, clarity: local ? 50 : 0, dehaze: local ? 25 : 0, texture: local ? 30 : 0, contrast: 30 },
+          detail: { ...r.detail, sharpenAmount: 70, noiseLuminance: 20 },
+          effects: { ...r.effects, vignetteAmount: -50, grainAmount: 40 },
+        };
+        const radial = addMask(next, { kind: "radial", center: { x: 0.4, y: 0.55 }, radiusX: 0.3, radiusY: 0.25, angle: 0, feather: 60 }, "Radial");
+        return { ...radial.recipe, masks: radial.recipe.masks.map((m: any) => (m.id === radial.mask.id ? { ...m, adjustments: { ...m.adjustments, exposure: 0.8 } } : m)) };
+      });
+      const engine = developEngine();
+      const source = engine.sourceFor(develop.getState().assetId);
+      const recipe = develop.getState().recipe;
+      const tiled: OffscreenCanvas = engine.renderCanvas(source, recipe, 4000);
+      const a = tiled.getContext("2d")!.getImageData(0, 0, tiled.width, tiled.height).data;
+      const single = engine.renderPixels(source, recipe, 4000);
+      const b = single.data;
+      let max = 0;
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) {
+        const d = Math.abs(a[i] - b[i]);
+        if (d > max) max = d;
+        sum += d;
+      }
+      // Seams: the columns and rows where tiles meet (1536 px apart) must match like the rest.
+      let seam = 0;
+      for (let y = 0; y < tiled.height; y++)
+        for (let x = 0; x < tiled.width; x++) {
+          if (x % 1536 > 2 && x % 1536 < 1534 && y % 1536 > 2 && y % 1536 < 1534) continue;
+          for (let c = 0; c < 3; c++) seam = Math.max(seam, Math.abs(a[(y * tiled.width + x) * 4 + c] - b[(y * tiled.width + x) * 4 + c]));
+        }
+      return { size: [tiled.width, tiled.height, single.width, single.height], max, mean: sum / a.length, seam };
+    }, local);
+    expect(result.size).toEqual([4000, 2600, 4000, 2600]);
+    expect(result.mean).toBeLessThan(0.3);
+    // A few edge pixels differ by up to ~12/255: a whole render's blur pyramid rounds odd sizes
+    // up (2600 px → 163 texels at 1/16, not 162.5), so its grid drifts slightly; tiles sit on
+    // an exact 64 px grid.
+    expect(result.max).toBeLessThanOrEqual(16);
+    expect(result.seam).toBeLessThanOrEqual(16);
+  }
+});

@@ -644,19 +644,38 @@ export class DevelopPipeline {
     return out;
   }
 
+  /**
+   * Margin (working px) a window needs around what it shows so its edges match a whole
+   * render: 3σ of the largest local-contrast blur when texture, clarity or dehaze is used
+   * (globally or in a mask), else enough for noise reduction and sharpening. A multiple of
+   * 64 px: the blurs halve the image several times first, and a window whose origin sits on
+   * the same 64 px grid as the whole render groups its pixels the same way.
+   */
+  static windowMargin(recipe: DevelopRecipe, width: number, height: number): number {
+    const b = recipe.basic;
+    const local = b.texture !== 0 || b.clarity !== 0 || b.dehaze !== 0 || recipe.masks.some((m) => m.visible && (m.adjustments.texture || m.adjustments.clarity || m.adjustments.dehaze));
+    return local ? Math.ceil((0.06 * Math.max(width, height) + 8) / 64) * 64 : 64;
+  }
+
   /** The recipe as it would be for an unedited photo, keeping the geometry (for Before views). */
   static beforeRecipe(recipe: DevelopRecipe, info: SourceColorInfo): DevelopRecipe {
     return { ...createDefaultRecipe(info), geometry: recipe.geometry };
   }
 
-  /** Display-encoded RGBA8 pixels of a rendered target, rows top-first. */
   /** Working-space image → display-encoded RGBA pixels (top row first). */
   encode(input: Texture, width = input.width, height = input.height): Uint8ClampedArray {
+    return this.encodeImage(input, width, height).data;
+  }
+
+  /** Like `encode`, as the ImageData it is read into (no further copy). */
+  encodeImage(input: Texture, width = input.width, height = input.height): ImageData {
     const target = this.acquire(width, height, "rgba8");
-    this.gpu.pass("encode", S.encode, { target, textures: { uImage: input } });
-    const pixels = this.gpu.readImage(target).data;
-    this.release(target);
-    return pixels;
+    try {
+      this.gpu.pass("encode", S.encode, { target, textures: { uImage: input } });
+      return this.gpu.readImage(target);
+    } finally {
+      this.release(target);
+    }
   }
 
 }

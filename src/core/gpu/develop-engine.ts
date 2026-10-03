@@ -518,7 +518,7 @@ export class DevelopEngine {
     height = Math.round(height / over);
 
     // Zoomed in: render only what the canvas shows (see `viewWindow`).
-    const win = state.view.fit ? null : this.viewWindow(regions, width, height, state.compare === "side-by-side");
+    const win = state.view.fit ? null : this.viewWindow(regions, width, height, state.compare === "side-by-side", DevelopPipeline.windowMargin(recipe, width, height));
     const window = win ? { x: win.x, y: win.y, fullWidth: width, fullHeight: height } : undefined;
     const renderSize = { width: win?.width ?? width, height: win?.height ?? height, window };
     const imageWindow = win ? [win.x / width, win.y / height, win.width / width, win.height / height] : [0, 0, 1, 1];
@@ -591,12 +591,12 @@ export class DevelopEngine {
 
   /**
    * The part of a `width × height` view render that the canvas shows when zoomed in
-   * (working px, top-left origin), with a margin for the local-contrast blurs (3σ of the
-   * largest) and snapped to a 128 px grid so small pans reuse the render. Null when most
+   * (working px, top-left origin), with a margin for blurs (`DevelopPipeline.windowMargin`)
+   * and snapped to a 128 px grid so small pans reuse the render. Null when most
    * of the photo is visible anyway. At 100 % a 4096 px photo on a phone shows about a
    * fifth of its pixels: every pass, the before image and the mask overlay shrink alike.
    */
-  private viewWindow(regions: ReturnType<DevelopEngine["regions"]>, width: number, height: number, sideBySide: boolean) {
+  private viewWindow(regions: ReturnType<DevelopEngine["regions"]>, width: number, height: number, sideBySide: boolean, margin: number) {
     // The photo is drawn over the whole canvas (under floating panels too); side by side, each region is clipped.
     const rects = sideBySide ? regions.map((r) => ({ x: r.x - 4, y: r.y - 4, width: r.width + 8, height: r.height + 8 })) : [{ x: 0, y: 0, width: this.canvas.width, height: this.canvas.height }];
     let u0 = 1;
@@ -615,7 +615,6 @@ export class DevelopEngine {
     u1 = Math.min(1, u1);
     v1 = Math.min(1, v1);
     if (u1 <= u0 || v1 <= v0 || (u1 - u0) * (v1 - v0) > 0.6) return null;
-    const margin = Math.ceil(0.06 * Math.max(width, height)) + 8;
     const grid = 128;
     const x0 = Math.max(0, Math.floor((u0 * width - margin) / grid) * grid);
     const y0 = Math.max(0, Math.floor((v0 * height - margin) / grid) * grid);
@@ -850,11 +849,11 @@ export class DevelopEngine {
    * silently and return blank or stale pixels; in that case caches are freed and
    * the render is retried once before giving up with a clear error.
    */
-  private verifiedRender(full: () => ImageData, reference: () => ImageData): ImageData {
+  private verifiedRender<T extends ImageData | OffscreenCanvas>(full: () => T, reference: () => ImageData): T {
     for (let attempt = 0; attempt < 2; attempt++) {
       this.freeMemory();
       this.gpu.drainErrors();
-      let pixels: ImageData | null = null;
+      let pixels: T | null = null;
       try {
         pixels = full();
       } catch (error) {
@@ -864,7 +863,7 @@ export class DevelopEngine {
       this.freeMemory();
       if (!failed && pixels) {
         const ref = reference();
-        if (similarImages(pixels, ref)) {
+        if (similarImages(pixels instanceof ImageData ? pixels : smallCopy(pixels, 512), ref)) {
           this.requestRender();
           return pixels;
         }
@@ -887,11 +886,11 @@ export class DevelopEngine {
     );
   }
 
-  /** Export of a developed photo, verified (see `verifiedRender`). */
-  exportPixels(source: GpuSource, recipe: DevelopRecipe, longSide: number): ImageData {
-    if (longSide <= 640) return this.renderPixels(source, recipe, longSide);
+  /** Export of a developed photo, verified (see `verifiedRender`), in a canvas (see `renderCanvas`). */
+  exportPixels(source: GpuSource, recipe: DevelopRecipe, longSide: number): OffscreenCanvas {
+    if (longSide <= 640) return this.renderCanvas(source, recipe, longSide);
     return this.verifiedRender(
-      () => this.renderPixels(source, recipe, longSide),
+      () => this.renderCanvas(source, recipe, longSide),
       () => this.renderPixels(source, recipe, 512),
     );
   }
@@ -1072,8 +1071,51 @@ export class DevelopEngine {
 
   /** Renders a recipe to an encoded image whose long side is at most `longSide`. */
   async renderBlob(source: GpuSource, recipe: DevelopRecipe, longSide: number, type: string, quality: number, background?: string): Promise<Blob> {
-    const pixels = this.renderPixels(source, recipe, longSide);
-    return encodePixels(pixels, type, quality, background);
+    return encodePixels(this.renderCanvas(source, recipe, longSide), type, quality, background, undefined, undefined, isOpaque(recipe));
+  }
+
+  /**
+   * Renders a recipe into a canvas (straight alpha, display-encoded) whose long side is at
+   * most `longSide`. Large renders are made in tiles (`RenderOptions.window`, with a margin
+   * for blurs, so tiles join seamlessly): a phone renders a 4096 px export as 1536 px
+   * tiles instead of the whole photo through every pass at once, and each tile goes
+   * straight into the canvas, the only full-size copy on the CPU.
+   */
+  renderCanvas(source: GpuSource, recipe: DevelopRecipe, longSide: number): OffscreenCanvas {
+    const size = outputSize(source.size, recipe.geometry);
+    const scale = Math.min(1, longSide / Math.max(size.width, size.height));
+    const width = Math.max(1, Math.round(size.width * scale));
+    const height = Math.max(1, Math.round(size.height * scale));
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d")!;
+    // Tiles and margins are multiples of 64 px (see `DevelopPipeline.windowMargin`).
+    const tile = device.lite ? 1536 : 4096;
+    if (width * height <= tile * tile * 1.5) {
+      const target = this.pipeline.render(source, recipe, { width, height, masks: this.masks });
+      try {
+        ctx.putImageData(this.pipeline.encodeImage(target), 0, 0);
+      } finally {
+        this.pipeline.release(target);
+      }
+      return canvas;
+    }
+    const margin = DevelopPipeline.windowMargin(recipe, width, height);
+    for (let ty = 0; ty < height; ty += tile)
+      for (let tx = 0; tx < width; tx += tile) {
+        const x0 = Math.max(0, tx - margin);
+        const y0 = Math.max(0, ty - margin);
+        const x1 = Math.min(width, tx + tile + margin);
+        const y1 = Math.min(height, ty + tile + margin);
+        const target = this.pipeline.render(source, recipe, { width: x1 - x0, height: y1 - y0, masks: this.masks, window: { x: x0, y: y0, fullWidth: width, fullHeight: height } });
+        try {
+          const pixels = this.pipeline.encodeImage(target);
+          // Only the tile itself: its margin overlaps the neighbours.
+          ctx.putImageData(pixels, x0, y0, tx - x0, ty - y0, Math.min(tile, width - tx), Math.min(tile, height - ty));
+        } finally {
+          this.pipeline.release(target);
+        }
+      }
+    return canvas;
   }
 
   renderPixels(source: GpuSource, recipe: DevelopRecipe, longSide: number): ImageData {
@@ -1082,9 +1124,11 @@ export class DevelopEngine {
     const width = Math.max(1, Math.round(size.width * scale));
     const height = Math.max(1, Math.round(size.height * scale));
     const target = this.pipeline.render(source, recipe, { width, height, masks: this.masks });
-    const data = this.pipeline.encode(target);
-    this.pipeline.release(target);
-    return new ImageData(new Uint8ClampedArray(data), width, height);
+    try {
+      return this.pipeline.encodeImage(target);
+    } finally {
+      this.pipeline.release(target);
+    }
   }
 }
 
@@ -1092,10 +1136,13 @@ export class DevelopEngine {
  * Encodes export pixels: flattened for JPEG (no alpha), then framed and
  * watermarked (`composeExport`; the watermark sits inside the frame).
  */
-export async function encodePixels(pixels: ImageData, type: string, quality: number, background?: string, watermark?: Watermark, frame?: ExportFrame): Promise<Blob> {
-  const canvas = new OffscreenCanvas(pixels.width, pixels.height);
-  const ctx = canvas.getContext("2d")!;
-  ctx.putImageData(pixels, 0, 0);
+export async function encodePixels(pixels: ImageData | OffscreenCanvas, type: string, quality: number, background?: string, watermark?: Watermark, frame?: ExportFrame, opaque = false): Promise<Blob> {
+  let canvas: OffscreenCanvas;
+  if (pixels instanceof OffscreenCanvas) canvas = pixels;
+  else {
+    canvas = new OffscreenCanvas(pixels.width, pixels.height);
+    canvas.getContext("2d")!.putImageData(pixels, 0, 0);
+  }
   const flatten = (src: OffscreenCanvas) => {
     // JPEG has no alpha: flatten against the chosen background.
     const flat = new OffscreenCanvas(src.width, src.height);
@@ -1105,7 +1152,8 @@ export async function encodePixels(pixels: ImageData, type: string, quality: num
     fctx.drawImage(src, 0, 0);
     return flat;
   };
-  let out = type === "image/jpeg" ? flatten(canvas) : canvas;
+  // An opaque image needs no flattening (one full-size copy fewer).
+  let out = type === "image/jpeg" && !opaque ? flatten(canvas) : canvas;
   if (watermark?.enabled || frame?.enabled) {
     if (watermark?.enabled) await loadFonts([watermarkFont(watermark)]);
     out = composeExport(out, frame, watermark);
@@ -1123,6 +1171,20 @@ void main() {
   vec4 c = texture(uInput, vUv);
   outColor = vec4(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), c.a);
 }`;
+
+/** True when a recipe leaves every pixel opaque (no cutout). */
+export const isOpaque = (recipe: DevelopRecipe) => !recipe.masks.some((m) => m.cutout && m.visible);
+
+/** A small copy of a canvas's pixels (for comparing renders). */
+function smallCopy(canvas: OffscreenCanvas, longSide: number): ImageData {
+  const scale = Math.min(1, longSide / Math.max(canvas.width, canvas.height));
+  const w = Math.max(1, Math.round(canvas.width * scale));
+  const h = Math.max(1, Math.round(canvas.height * scale));
+  const small = new OffscreenCanvas(w, h);
+  const ctx = small.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(canvas, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
+}
 
 function sameKey(a: unknown[], b: unknown[]) {
   return a.length === b.length && a.every((v, i) => v === b[i]);

@@ -215,11 +215,17 @@ test("phone memory: import, develop, swipe, masks, zoom", async ({ page, browser
     });
   });
 
-  await phase("back to Library", async () => {
+  await phase("export full size JPEG", async () => {
     await page.evaluate(async () => {
       const { develop } = await import("/src/core/develop/session.ts" as string);
       develop.setState({ view: { fit: true, zoom: 1, centerX: 0.5, centerY: 0.5 } });
+      const { exportAsset, defaultExportSettings } = await import("/src/core/export/export.ts" as string);
+      const result = await exportAsset(develop.getState().assetId, defaultExportSettings);
+      (window as unknown as { exported: number }).exported = result.blob.size;
     });
+  });
+
+  await phase("back to Library", async () => {
     await page.getByRole("button", { name: /^Workspace:/ }).tap();
     await page.getByRole("menuitemradio", { name: "Library" }).tap();
   });
