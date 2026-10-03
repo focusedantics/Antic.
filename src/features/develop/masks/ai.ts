@@ -14,6 +14,8 @@ type Target = keyof typeof aiTargetLabels;
 function currentSource() {
   const { assetId } = develop.getState();
   const engine = developEngine();
+  // Phones: give the model the GPU memory that comes back by itself (a preloaded neighbour, pooled targets).
+  engine.makeRoom();
   const source = assetId ? engine.sourceFor(assetId) : null;
   if (!assetId || !source) throw new Error("Wait for the photo to finish loading.");
   return { assetId, source, engine };

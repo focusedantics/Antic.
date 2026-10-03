@@ -195,10 +195,10 @@ type Segmenter = (image: RawImage) => Promise<{ label: string; score: number; ma
 /**
  * DETR's panoptic mask head runs once per query (100 of them) at a quarter of the input
  * resolution: at its usual 800 × 1333 input that is gigabytes of activations. Phones run
- * the 8-bit model on the CPU at a 400 px short side (a sixth of the pixels); sky and
- * people are large regions, and the guided filter below restores the edges at full size.
+ * the 8-bit model on the CPU at a 320 px short side (a sixth of the pixels' memory); sky
+ * and people are large regions, and the guided filter below restores the edges at full size.
  */
-const LITE_PANOPTIC_SIZE = { shortest_edge: 400, longest_edge: 667 };
+const LITE_PANOPTIC_SIZE = { shortest_edge: 320, longest_edge: 533 };
 
 async function semantic(image: ImageInput, target: "sky" | "person"): Promise<AiMask> {
   const dev = lite ? "wasm" : await device();

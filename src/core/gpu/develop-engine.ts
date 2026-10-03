@@ -274,6 +274,16 @@ export class DevelopEngine {
   /** Neighbours of the open photo decoded ahead of time (see `prefetchNeighbours`); kept on the GPU. */
   private warm = new Set<AssetId>();
 
+  /**
+   * Before heavy work beside the engine (AI selection): phones drop the preloaded
+   * neighbours and idle pooled targets. Both come back by themselves when needed.
+   */
+  makeRoom() {
+    if (!device.lite || this.lost) return;
+    this.setWarm([]);
+    this.pipeline.trim();
+  }
+
   /** Leaving Develop: phones give back idle GPU memory (pooled targets, mask caches no longer drawn). */
   relax() {
     if (!device.lite || this.lost) return;
