@@ -72,9 +72,36 @@ type Entry = {
   vpcC?: { write(s: DataStream): void; colourPrimaries?: number; transferCharacteristics?: number; matrixCoefficients?: number; videoFullRangeFlag?: number };
   colr?: { colour_type?: string; colour_primaries?: number; transfer_characteristics?: number; matrix_coefficients?: number; full_range_flag?: number };
   av1C?: { write(s: DataStream): void };
-  esds?: { esd?: { descs?: { descs?: { data?: Uint8Array }[] }[] } };
+  esds?: Esds;
+  /** QuickTime (.MOV) sound descriptions keep the esds inside a `wave` box. */
+  wave?: { esds?: Esds };
   dOps?: { OutputChannelCount: number; PreSkip: number; InputSampleRate: number; OutputGain: number };
 };
+
+type Esds = { esd?: { descs?: { descs?: { data?: Uint8Array }[] }[] } };
+
+/**
+ * The AAC AudioSpecificConfig of an mp4a sample entry: from its esds, or, in QuickTime
+ * files (iPhone .MOV), from the esds inside its `wave` box. Without it no decoder,
+ * ADTS stream or muxer can describe the audio, and the clip plays silent.
+ */
+export function audioSpecificConfig(entry: Pick<Entry, "esds" | "wave"> | undefined): Uint8Array | undefined {
+  const esds = entry?.esds ?? entry?.wave?.esds;
+  return esds?.esd?.descs?.[0]?.descs?.[0]?.data;
+}
+
+const AAC_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+
+/** The sample rate an AudioSpecificConfig names (QuickTime v2 headers carry a placeholder). */
+export function ascSampleRate(asc: Uint8Array | undefined): number | null {
+  if (!asc || asc.length < 2) return null;
+  const index = ((asc[0] & 7) << 1) | (asc[1] >> 7);
+  if (index === 15 && asc.length >= 5) return ((asc[1] & 0x7f) << 17) | (asc[2] << 9) | (asc[3] << 1) | (asc[4] >> 7);
+  return AAC_RATES[index] ?? null;
+}
+
+/** The channel count an AudioSpecificConfig names (0: given elsewhere). */
+const ascChannels = (asc: Uint8Array | undefined) => (asc && asc.length >= 2 ? (asc[1] >> 3) & 15 : 0);
 
 function sampleEntry(file: ReturnType<typeof createFile>, track: Track): Entry | undefined {
   const trak = file.getTrackById(track.id) as unknown as { mdia: { minf: { stbl: { stsd: { entries: Entry[] } } } } };
@@ -252,10 +279,13 @@ export async function demux(file: Blob, readSize = 1 << 20): Promise<Demuxed> {
   if (at) {
     const aEntry = sampleEntry(mp4, at);
     const aSamples = samplesOf(at);
-    const channels = at.audio?.channel_count ?? 2;
-    const sampleRate = at.audio?.sample_rate ?? 48000;
+    let channels = at.audio?.channel_count ?? 2;
+    let sampleRate = at.audio?.sample_rate ?? 48000;
     if (at.codec.startsWith("mp4a.40")) {
-      const asc = aEntry?.esds?.esd?.descs?.[0]?.descs?.[0]?.data;
+      const asc = audioSpecificConfig(aEntry);
+      // The AAC config is the authority (QuickTime headers may say 1 Hz or 0 channels).
+      sampleRate = ascSampleRate(asc) ?? (sampleRate >= 8000 ? sampleRate : 48000);
+      channels = ascChannels(asc) || channels || 2;
       audio = { track: at, file, samples: aSamples, skip: editSkip(mp4, at), codec: "aac", config: { codec: at.codec, numberOfChannels: channels, sampleRate, description: asc } };
     } else {
       audio = {

@@ -9,6 +9,8 @@
   position: absolute; top: 8px; right: 10px; padding: 2px 8px; border-radius: 4px; font-size: 11px;
   color: var(--text); background: rgb(0 0 0 / 0.6); pointer-events: none;
 }
+/* "No sound" sits top-left so it never covers the decoder note on the right. */
+.vv-status.left { right: auto; left: 10px; }
 .vv-transport { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .vv-transport .icon { min-width: 30px; }
 .vv-time { min-width: 140px; margin-left: 6px; }

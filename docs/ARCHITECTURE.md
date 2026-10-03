@@ -301,10 +301,17 @@ are a table of offsets, sizes and times; their bytes stay in the file and a
 `SampleReader` per consumer reads them through a 4 MB sliding window. Fragmented MP4s
 (no sample table in `moov`) are read whole. Dolby Vision tracks ("dvh1") are decoded
 as their HEVC base layer (`hevcCodec` builds the codec string from hvcC). The audio
-track is the first one with a codec we decode (newer iPhones add a spatial APAC track),
-and AAC is decoded from an ADTS stream of the track alone (`adtsStream`), trimmed by
-the edit list's priming; other codecs go through the whole file (refused above 300 MB on
-phones). Import probes the file with the browser's player and falls back to the index
+track is the first one with a codec we decode (newer iPhones add a spatial APAC track).
+Its AAC config comes from the sample entry's esds or, in QuickTime files (iPhone .MOV),
+from the esds inside its `wave` box (`audioSpecificConfig`), and the sample rate and
+channels from that config (QuickTime headers can carry placeholders). `decodeClipAudio`
+tries, in order: for AAC an ADTS stream of the track alone (`adtsStream`), trimmed by
+the edit list's priming, then WebCodecs `AudioDecoder` sample by sample
+(`decodeTrackWithWebCodecs`: only the track's bytes are read, resampled to 48 kHz), then
+the whole file; for Opus the whole file (edit list applied by the browser), then
+WebCodecs. Whole-file decoding is refused above 300 MB on phones. A clip whose sound
+nothing here can decode shows "No sound" in the viewer (`player.soundNote`) rather than
+playing quietly silent. Import probes the file with the browser's player and falls back to the index
 and a WebCodecs frame when the player can't show the picture.
 
 **The edit** (`model.ts`, version 3, sanitized on load; version 1–2 trims migrate to one
@@ -341,7 +348,10 @@ it; the viewer says "Compatibility playback". When neither can decode the clip,
 "element"` forces the fallback (tests).
 
 **Editor** (`features/video`): `engine.ts` owns playback. The rendered soundtrack plays
-through Web Audio, and its clock drives the frame on screen. Scrubbing plays short
+through Web Audio, and its clock drives the frame on screen. iOS silences Web Audio with
+the ring/silent switch (a plain `<video>` is not), so play and scrub first put the page
+in the "playback" audio session (`lib/audio-session.ts`: Safari's Audio Session API, or
+on older iOS a silent looping `<audio>` element while playing). Scrubbing plays short
 grains of the soundtrack. The viewer draws the frame through `VideoRenderer`
 (`renderer.ts`: rotation and letterboxing, the picture treatments, then library effects
 through the shared `EffectRunner`). The timeline (`Timeline.tsx`) draws thumbnails and

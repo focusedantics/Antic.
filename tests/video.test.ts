@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { demux, hevcCodec, SampleReader } from "@/core/video/demux";
+import { ascSampleRate, audioSpecificConfig, demux, hevcCodec, SampleReader } from "@/core/video/demux";
 import { adtsStream } from "@/core/video/soundtrack";
-import { moovAtEnd } from "./fixtures/moov";
+import { moovAtEnd, quickTimeAac } from "./fixtures/moov";
 import { bitcrush, earrape, echo, mixSoundtrack, pitchShift, renderSegment, resample, stretch } from "@/core/video/dsp";
 import { encodeOptions, quantizerFor } from "@/core/video/encoder";
 import { defaultAudioFx, defaultEdit, isPlainSegment, isVideoFile, newSegment, outputSize, sanitizeEdit, type VideoEdit } from "@/core/video/model";
@@ -173,6 +173,34 @@ describe("mp4 demuxing", () => {
       expect(b.video.samples[i].cts).toBe(a.video.samples[i].cts);
       expect(Buffer.from(await rb.read(b.video.samples[i])).equals(Buffer.from(await ra.read(a.video.samples[i])))).toBe(true);
     }
+  });
+});
+
+describe("iPhone .MOV audio", () => {
+  it("finds the AAC config inside a QuickTime `wave` box, so the clip keeps its sound", async () => {
+    const bytes = quickTimeAac(moovAtEnd(new Uint8Array(readFileSync("tests/fixtures/clip.mp4"))));
+    const d = await demux(new Blob([bytes]), 4096);
+    expect(d.audio?.codec).toBe("aac");
+    expect(d.audioNote).toBeNull();
+    expect(d.audio?.config.codec).toBe("mp4a.40.2");
+    const asc = d.audio!.config.description as Uint8Array;
+    expect([...asc]).toEqual([0x11, 0x90]);
+    expect(d.audio!.config.sampleRate).toBe(48000);
+    expect(d.audio!.config.numberOfChannels).toBe(2);
+    // So the ADTS stream the browser decodes can be built (it was null without the config).
+    const adts = await adtsStream(d.audio!);
+    expect(adts).not.toBeNull();
+    expect([adts![0], adts![1]]).toEqual([0xff, 0xf1]);
+  });
+
+  it("reads sample rates and configs the way QuickTime and MP4 files store them", () => {
+    const asc = new Uint8Array([0x12, 0x10]); // AAC-LC, 44.1 kHz, stereo
+    expect(ascSampleRate(asc)).toBe(44100);
+    expect(ascSampleRate(new Uint8Array([0x11, 0x90]))).toBe(48000);
+    expect(ascSampleRate(undefined)).toBeNull();
+    expect(audioSpecificConfig({ esds: { esd: { descs: [{ descs: [{ data: asc }] }] } } })).toBe(asc);
+    expect(audioSpecificConfig({ wave: { esds: { esd: { descs: [{ descs: [{ data: asc }] }] } } } })).toBe(asc);
+    expect(audioSpecificConfig({})).toBeUndefined();
   });
 });
 

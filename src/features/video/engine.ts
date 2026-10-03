@@ -1,3 +1,4 @@
+import { endPlayback, playThroughSilentSwitch } from "@/lib/audio-session";
 import { placeClear } from "@/lib/fit";
 import { createStore } from "zustand/vanilla";
 import { type Channels, SAMPLE_RATE } from "@/core/video/dsp";
@@ -29,12 +30,14 @@ export type PlayerState = {
   readonly audio: "loading" | "rendering" | "ready" | "none";
   /** Bumped when the soundtrack (waveform) changes. */
   readonly soundtrackVersion: number;
+  /** Why a clip that has sound plays silent (its codec, or nothing here could decode it). */
+  readonly soundNote: string | null;
   readonly error: string | null;
   /** How the open clip is decoded: WebCodecs, or the browser's player (slower; HEVC in some browsers). */
   readonly decoder: "webcodecs" | "element" | null;
 };
 
-export const player = createStore<PlayerState>(() => ({ frame: 0, frames: 0, fps: 30, playing: false, loop: true, audio: "loading", soundtrackVersion: 0, error: null, decoder: null }));
+export const player = createStore<PlayerState>(() => ({ frame: 0, frames: 0, fps: 30, playing: false, loop: true, audio: "loading", soundtrackVersion: 0, soundNote: null, error: null, decoder: null }));
 
 // Phones keep smaller, fewer decoded frames (lib/device): a 4K clip's frames add up fast.
 const PREVIEW_SIDE = device.lite ? 960 : 1280;
@@ -80,7 +83,7 @@ class Engine {
     this.close();
     this.ownId = id;
     this.soundtrack = new Soundtrack();
-    player.setState({ frame: 0, frames: 0, playing: false, audio: "loading", error: null });
+    player.setState({ frame: 0, frames: 0, playing: false, audio: "loading", soundNote: null, error: null });
     const own = await this.ensureClip(id);
     if (this.ownId !== id) return;
     if (!own) {
@@ -171,9 +174,11 @@ class Engine {
     player.setState({ audio: this.buffer ? "rendering" : "loading" });
     // Decode the audio of clips the worker hasn't seen yet.
     let any = false;
+    let lost: string | null = null;
     for (const id of new Set(plan.pieces.map((p) => p.clip))) {
       const m = this.clips.get(id);
       if (!m) continue;
+      if (m.media.audioNote) lost = m.media.audioNote;
       let ready = this.audioReady.get(id);
       if (!ready) {
         ready = (async () => {
@@ -183,9 +188,12 @@ class Engine {
         })();
         this.audioReady.set(id, ready);
       }
-      any = (await ready) || any;
+      const sounds = await ready;
+      if (m.media.audio && !sounds) lost = "This clip's sound couldn't be decoded in this browser, so it plays and exports silent.";
+      any = sounds || any;
       if (this.soundtrack !== soundtrack) return;
     }
+    if (generation === this.renderGeneration) player.setState({ soundNote: lost });
     if (!any) {
       this.buffer = null;
       this.peaks = null;
@@ -372,6 +380,8 @@ class Engine {
     if (!this.plan || !state.frames) return;
     const start = state.frame >= state.frames - 1 ? 0 : state.frame;
     player.setState({ playing: true, frame: start });
+    // iPhone: let the sound through the ring/silent switch (this runs in the tap's gesture).
+    playThroughSilentSwitch();
     this.startSound(start / state.fps);
     this.prefetch(start, 24);
     const tick = () => {
@@ -402,6 +412,7 @@ class Engine {
   pause() {
     cancelAnimationFrame(this.raf);
     this.stopSound();
+    endPlayback();
     if (player.getState().playing) player.setState({ playing: false });
   }
 
@@ -426,6 +437,7 @@ class Engine {
     const now = performance.now();
     if (!buffer || player.getState().playing || now - this.lastScrub < 45) return;
     this.lastScrub = now;
+    playThroughSilentSwitch();
     const ctx = this.audio();
     void ctx.resume();
     const node = ctx.createBufferSource();

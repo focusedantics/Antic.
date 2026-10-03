@@ -47,33 +47,112 @@ export async function adtsStream(audio: DemuxedAudio): Promise<Uint8Array | null
 /** Most bytes handed to decodeAudioData as a whole file (it is held in memory twice). */
 const WHOLE_FILE_LIMIT = () => (device.lite ? 300e6 : 2e9);
 
+/** Copies a clip's audio out of an AudioBuffer from `skip` seconds (the encoder's priming). */
+function channelsOf(buffer: AudioBuffer, skip = 0): Channels {
+  const from = Math.min(buffer.length, Math.round(skip * buffer.sampleRate));
+  return Array.from({ length: buffer.numberOfChannels }, (_, k) => buffer.getChannelData(k).slice(from));
+}
+
 /**
- * Decodes a clip's audio track at 48 kHz (null when it has none or it can't be
- * decoded). AAC goes through a small ADTS stream of the track alone, trimmed by
- * the edit list's priming; other codecs (Opus) through the whole file.
+ * Decodes an audio track sample by sample with WebCodecs, reading only the track's own
+ * bytes (so a 4K iPhone clip of any size works), and resamples to 48 kHz. Null when
+ * the browser has no AudioDecoder for the codec.
+ */
+export async function decodeTrackWithWebCodecs(audio: DemuxedAudio): Promise<Channels | null> {
+  if (typeof AudioDecoder === "undefined" || !audio.samples.length) return null;
+  const config: AudioDecoderConfig = { ...audio.config, codec: audio.codec === "opus" ? "opus" : audio.config.codec };
+  const support = await AudioDecoder.isConfigSupported(config).catch(() => null);
+  if (!support?.supported) return null;
+  const blocks: Float32Array[][] = [];
+  let rate = config.sampleRate;
+  let failure: unknown = null;
+  const decoder = new AudioDecoder({
+    output: (data) => {
+      rate = data.sampleRate;
+      const planes: Float32Array[] = [];
+      for (let c = 0; c < data.numberOfChannels; c++) {
+        const plane = new Float32Array(data.numberOfFrames);
+        data.copyTo(plane, { planeIndex: c, format: "f32-planar" });
+        planes.push(plane);
+      }
+      blocks.push(planes);
+      data.close();
+    },
+    error: (e) => {
+      failure = e;
+    },
+  });
+  try {
+    decoder.configure(config);
+    const reader = new SampleReader(audio.file);
+    const ts = audio.track.timescale;
+    for (const s of audio.samples) {
+      // Keep the queue short: decoding runs ahead of reading otherwise.
+      while (decoder.decodeQueueSize > 32 && !failure) await new Promise((r) => setTimeout(r, 0));
+      if (failure) throw failure;
+      const data = (await reader.read(s)).slice();
+      decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: Math.round((s.cts / ts) * 1e6), duration: Math.round((s.duration / ts) * 1e6), data }));
+    }
+    await decoder.flush();
+    if (failure) throw failure;
+  } finally {
+    if (decoder.state !== "closed") decoder.close();
+  }
+  const channels = Math.max(1, ...blocks.map((b) => b.length));
+  const length = blocks.reduce((n, b) => n + (b[0]?.length ?? 0), 0);
+  if (!length) return null;
+  const joined = Array.from({ length: channels }, () => new Float32Array(length));
+  let at = 0;
+  for (const b of blocks) {
+    for (let c = 0; c < channels; c++) joined[c].set(b[Math.min(c, b.length - 1)], at);
+    at += b[0].length;
+  }
+  const skip = Math.round(audio.skip * rate);
+  const trimmed = joined.map((c) => c.subarray(Math.min(c.length, skip)));
+  if (rate === SAMPLE_RATE) return trimmed.map((c) => c.slice());
+  // Resample to 48 kHz through an offline audio graph.
+  const frames = trimmed[0].length;
+  const offline = new OfflineAudioContext(channels, Math.max(1, Math.ceil((frames * SAMPLE_RATE) / rate)), SAMPLE_RATE);
+  const buffer = offline.createBuffer(channels, Math.max(1, frames), rate);
+  trimmed.forEach((c, k) => buffer.copyToChannel(c, k));
+  const source = offline.createBufferSource();
+  source.buffer = buffer;
+  source.connect(offline.destination);
+  source.start();
+  return channelsOf(await offline.startRendering());
+}
+
+/**
+ * Decodes a clip's audio track at 48 kHz (null when it has none or nothing here can
+ * decode it). AAC tries a small ADTS stream of the track alone, then WebCodecs, then
+ * the whole file; Opus the whole file (its edit list applied by the browser), then
+ * WebCodecs for files too large to load at once.
  */
 export async function decodeClipAudio(media: Demuxed): Promise<Channels | null> {
   const audio = media.audio;
   if (!audio) return null;
   const context = new OfflineAudioContext(2, 1, SAMPLE_RATE);
-  const channelsOf = (buffer: AudioBuffer, skip = 0) => {
-    const from = Math.min(buffer.length, Math.round(skip * buffer.sampleRate));
-    return Array.from({ length: buffer.numberOfChannels }, (_, k) => buffer.getChannelData(k).slice(from));
-  };
-  if (audio.codec === "aac") {
+  const nonEmpty = (c: Channels | null) => (c && c.length && c[0].length ? c : null);
+  const attempt = async (decode: () => Promise<Channels | null>) => {
     try {
-      const adts = await adtsStream(audio);
-      if (adts) return channelsOf(await context.decodeAudioData(adts.buffer as ArrayBuffer), audio.skip);
+      return nonEmpty(await decode());
     } catch {
-      // Fall back to the whole file.
+      return null;
     }
+  };
+  const whole = () =>
+    attempt(async () => (media.video.file.size > WHOLE_FILE_LIMIT() ? null : channelsOf(await context.decodeAudioData(await media.video.file.arrayBuffer()))));
+  if (audio.codec === "aac") {
+    return (
+      (await attempt(async () => {
+        const adts = await adtsStream(audio);
+        return adts ? channelsOf(await context.decodeAudioData(adts.buffer as ArrayBuffer), audio.skip) : null;
+      })) ??
+      (await attempt(() => decodeTrackWithWebCodecs(audio))) ??
+      (await whole())
+    );
   }
-  if (media.video.file.size > WHOLE_FILE_LIMIT()) return null;
-  try {
-    return channelsOf(await context.decodeAudioData(await media.video.file.arrayBuffer()));
-  } catch {
-    return null;
-  }
+  return (await whole()) ?? (await attempt(() => decodeTrackWithWebCodecs(audio)));
 }
 
 /** The audio jobs of a compiled plan: one per segment, positioned on the timeline. */

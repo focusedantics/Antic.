@@ -18,6 +18,7 @@ export function Viewer() {
   const error = useStore(player, (s) => s.error);
   const audio = useStore(player, (s) => s.audio);
   const decoder = useStore(player, (s) => s.decoder);
+  const soundNote = useStore(player, (s) => s.soundNote);
   // Phones float the Edit and Clips panels over the frame (not the timeline), and the
   // frame moves up clear of them.
   const cover = useStore(layout, (s) => (s.compact ? s.cover : 0));
@@ -49,6 +50,11 @@ export function Viewer() {
         <canvas ref={canvasRef} className="vv-canvas" onClick={() => engine.toggle()} data-testid="viewer" data-decoder={decoder ?? undefined} />
         {error && <div className="develop-status error">{error}</div>}
         {!error && audio === "rendering" && <div className="vv-status">Rendering sound…</div>}
+        {!error && audio !== "rendering" && soundNote && (
+          <div className="vv-status left" title={soundNote}>
+            No sound
+          </div>
+        )}
         {!error && audio !== "rendering" && decoder === "element" && (
           <div className="vv-status" title="This browser's WebCodecs can't decode this clip, so frames come from its video player. Everything works; stepping and effects are slower.">
             Compatibility playback
