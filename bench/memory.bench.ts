@@ -22,21 +22,27 @@ test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 3, isMobile
 
 /** PSS (MB) of Chromium's renderer and GPU processes. */
 function browserMemory(): number {
-  let kb = 0;
+  const { renderer, gpu } = memoryByProcess();
+  return renderer + gpu;
+}
+
+function memoryByProcess(): { renderer: number; gpu: number } {
+  const out = { renderer: 0, gpu: 0 };
   for (const line of execSync("ps -eo pid=,args=", { encoding: "utf8" }).split("\n")) {
     const m = line.trim().match(/^(\d+)\s+(.*)$/);
-    if (!m || !/chrom/i.test(m[2]) || !/--type=(renderer|gpu-process)/.test(m[2])) continue;
+    const type = m && /chrom/i.test(m[2]) ? m[2].match(/--type=(renderer|gpu-process)/)?.[1] : undefined;
+    if (!m || !type) continue;
     try {
       const rollup = readFileSync(`/proc/${m[1]}/smaps_rollup`, "utf8");
-      kb += Number(rollup.match(/^Pss:\s+(\d+)/m)?.[1] ?? 0);
+      out[type === "renderer" ? "renderer" : "gpu"] += Number(rollup.match(/^Pss:\s+(\d+)/m)?.[1] ?? 0) / 1024;
     } catch {
       // The process exited between ps and the read.
     }
   }
-  return kb / 1024;
+  return out;
 }
 
-type Phase = { phase: string; peakMB: number; settledMB: number; gpuMB: number; textures: number; sources: number; cpuSourceMB: number; ms: number };
+type Phase = { phase: string; peakMB: number; settledMB: number; rendererMB: number; gpuProcMB: number; gpuMB: number; textures: number; sources: number; cpuSourceMB: number; ms: number };
 
 async function engineStats(page: Page) {
   return page.evaluate(async () => {
@@ -123,12 +129,15 @@ test("phone memory: import, develop, swipe, masks, zoom", async ({ page, browser
     await run();
     const ms = Date.now() - start;
     await page.waitForTimeout(1500);
-    const settled = browserMemory();
+    const split = memoryByProcess();
+    const settled = split.renderer + split.gpu;
     const s = await engineStats(page);
     results.push({
       phase: name,
       peakMB: Math.round(Math.max(peak, settled)),
       settledMB: Math.round(settled),
+      rendererMB: Math.round(split.renderer),
+      gpuProcMB: Math.round(split.gpu),
       gpuMB: Math.round(s.gpuBytes / 1048576),
       textures: s.textures,
       sources: s.sources,
@@ -137,7 +146,8 @@ test("phone memory: import, develop, swipe, masks, zoom", async ({ page, browser
     });
   };
 
-  results.push({ phase: "start", peakMB: Math.round(browserMemory()), settledMB: Math.round(browserMemory()), gpuMB: 0, textures: 0, sources: 0, cpuSourceMB: 0, ms: 0 });
+  const first = memoryByProcess();
+  results.push({ phase: "start", peakMB: Math.round(first.renderer + first.gpu), settledMB: Math.round(first.renderer + first.gpu), rendererMB: Math.round(first.renderer), gpuProcMB: Math.round(first.gpu), gpuMB: 0, textures: 0, sources: 0, cpuSourceMB: 0, ms: 0 });
 
   await phase("import 4 × 24 MP", async () => {
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import photos", exact: true }).tap()]);

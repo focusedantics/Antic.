@@ -11,9 +11,17 @@ import * as S from "./shaders/passes";
 import { retouch as retouchShader } from "./shaders/retouch";
 
 /** Decoded pixels ready for upload. */
-export type SourceData =
+export type SourceData = (
   | { readonly kind: "rgb16-linear"; readonly width: number; readonly height: number; readonly data: Uint16Array; readonly white: number }
-  | { readonly kind: "image"; readonly image: ImageBitmap | OffscreenCanvas | ImageData; readonly width: number; readonly height: number };
+  | { readonly kind: "image"; readonly image: ImageBitmap | OffscreenCanvas | ImageData; readonly width: number; readonly height: number }
+) & {
+  /** Full-resolution size when the pixels were decoded smaller (see `loadSource`); absent: width × height. */
+  readonly fullWidth?: number;
+  readonly fullHeight?: number;
+};
+
+/** The photo's full-resolution size, whatever size its pixels were decoded at. */
+export const fullSizeOf = (data: SourceData): Size => ({ width: data.fullWidth ?? data.width, height: data.fullHeight ?? data.height });
 
 /** A photo on the GPU: linear Rec.2020 RGBA16F with mipmaps. */
 export type GpuSource = {
@@ -149,7 +157,8 @@ export class DevelopPipeline {
       gpu.dispose(staging);
     }
     gpu.generateMipmaps(base);
-    return { id, base, size: { width: data.width, height: data.height }, info, downscale };
+    const size = fullSizeOf(data);
+    return { id, base, size, info, downscale: size.width / width };
   }
 
   disposeSource(source: GpuSource | null | undefined) {

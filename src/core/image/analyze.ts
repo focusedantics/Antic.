@@ -1,6 +1,6 @@
 import type { ExifSummary, FileKind } from "@/core/catalog/types";
 import { largestEmbeddedJpeg } from "./embedded-preview";
-import { decodeHeicImage } from "./heic";
+import { decodeAtMost, headerSize } from "./decode";
 import { decodeRaw } from "./libraw";
 import { readMetadata } from "./metadata";
 import { downscale, encodeJpeg, encodeWithAlpha, orient } from "./raster";
@@ -27,24 +27,26 @@ export type Analysis = {
  * thumbnail and a large preview. Runs in the image worker.
  */
 export async function analyzeFile(file: Blob, kind: FileKind): Promise<Analysis> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (kind === "raw") return analyzeRaw(bytes);
-
-  const meta = await readMetadata(bytes);
-  let bitmap: ImageBitmap | OffscreenCanvas;
-  if (kind === "heic") {
-    bitmap = await decodeHeicImage(file);
-  } else if (kind === "tiff") {
-    bitmap = await decodeTiffToBitmap(bytes);
-  } else {
-    // Browsers apply the EXIF orientation of JPEG/WebP/AVIF files here.
-    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  if (kind === "raw") return analyzeRaw(new Uint8Array(await file.arrayBuffer()));
+  if (kind === "tiff") {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const meta = await readMetadata(bytes);
+    // TIFF decoding ignores orientation; apply it like the browser does for JPEG.
+    const oriented = orient(await decodeTiffToBitmap(bytes), meta.orientation);
+    const { width, height } = oriented;
+    return { ...meta, width, height, ...(await thumbnails(oriented, true)), previewSource: "decoded" };
   }
-  // TIFF decoding ignores orientation; apply it like the browser does for JPEG.
-  const oriented = kind === "tiff" ? orient(bitmap, meta.orientation) : bitmap;
+  // Only the head of the file is read here: EXIF (exifr reads what it needs from the
+  // Blob) and the header's image size. The browser decodes straight to about the
+  // preview size, so a 48 MP photo is never a full-size bitmap in this worker.
+  const meta = await readMetadata(file);
+  const head = new Uint8Array(await file.slice(0, 1 << 20).arrayBuffer());
+  // Browsers apply the EXIF orientation of JPEG/WebP/AVIF files here.
+  const { bitmap, full } = await decodeAtMost(file, kind === "heic", headerSize(head), PREVIEW_SIZE);
   // Read the size before thumbnails() closes the bitmap (a closed bitmap reports 0 × 0).
-  const { width, height } = oriented;
-  const result = await thumbnails(oriented, alphaKinds.has(kind));
+  const width = full?.width ?? bitmap.width;
+  const height = full?.height ?? bitmap.height;
+  const result = await thumbnails(bitmap, alphaKinds.has(kind));
   return { ...meta, width, height, ...result, previewSource: "decoded" };
 }
 
@@ -52,9 +54,12 @@ const alphaKinds = new Set<FileKind>(["png", "webp", "avif", "gif", "tiff", "hei
 
 async function thumbnails(source: ImageBitmap | OffscreenCanvas, alpha = false) {
   const encode = alpha ? encodeWithAlpha : encodeJpeg;
-  const preview = await encode(downscale(source, PREVIEW_SIZE), 0.88);
-  const thumb = await encode(downscale(source, THUMB_SIZE), 0.82);
-  if (source instanceof ImageBitmap) source.close();
+  const previewImage = downscale(source, PREVIEW_SIZE);
+  // The thumbnail comes from the preview: a fraction of the work of scaling the original again.
+  if (previewImage !== source && source instanceof ImageBitmap) source.close();
+  const preview = await encode(previewImage, 0.88);
+  const thumb = await encode(downscale(previewImage, THUMB_SIZE), 0.82);
+  if (previewImage instanceof ImageBitmap) previewImage.close();
   return { thumb, preview };
 }
 

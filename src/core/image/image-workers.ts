@@ -48,7 +48,28 @@ function spawn() {
   return slot;
 }
 
+/**
+ * Idle workers are ended: a worker that decoded photos keeps that memory (its heap, its
+ * canvases' buffers) until it happens to be collected, and a phone can't spare it. A new
+ * one starts in a few milliseconds when the next job comes.
+ */
+const IDLE_MS = 4000;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleIdle() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
+  if (queue.length || pending.size || !workers.length) return;
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (queue.length || pending.size) return;
+    for (const slot of workers.splice(0)) slot.worker.terminate();
+  }, IDLE_MS);
+}
+
 function pump() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
   while (queue.length) {
     const slot = workers.find((w) => !w.busy) ?? (workers.length < size ? spawn() : undefined);
     if (!slot) return;
@@ -58,6 +79,7 @@ function pump() {
     pending.set(id, { ...job, slot });
     slot.worker.postMessage({ ...job.request, id } as WorkerRequest);
   }
+  scheduleIdle();
 }
 
 function run<T>(request: Request, urgent = false): Promise<T> {

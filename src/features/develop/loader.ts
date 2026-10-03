@@ -4,6 +4,7 @@ import type { AssetId } from "@/core/catalog/types";
 import { develop, openInDevelop, sourceDecoded } from "@/core/develop/session";
 import { type LoadedSource, loadPreviewSource, loadSource } from "@/core/develop/source-loader";
 import { developEngine } from "@/core/gpu/develop-engine";
+import { fullSizeOf } from "@/core/gpu/pipeline";
 import { device } from "@/lib/device";
 
 let controller: AbortController | null = null;
@@ -110,7 +111,7 @@ export async function showInDevelop(assetId: AssetId) {
     const loaded = adopted ? await adopted.promise : await loadSource(asset, abort.signal);
     if (abort.signal.aborted) return;
     engine.setSource(assetId, loaded, loaded.quality);
-    sourceDecoded(assetId, loaded.info, loaded.quality, { width: loaded.data.width, height: loaded.data.height });
+    sourceDecoded(assetId, loaded.info, loaded.quality, fullSizeOf(loaded.data));
   } catch (error) {
     if (abort.signal.aborted) return;
     const message = error instanceof Error ? error.message : String(error);

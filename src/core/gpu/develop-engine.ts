@@ -28,7 +28,12 @@ import { MaskRenderer } from "./masks";
 import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
 import * as S from "./shaders/passes";
 
-type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered"; data: LoadedSource };
+type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered" };
+
+/** Frees decoded pixels once they are on the GPU: nothing of a photo is kept on the CPU. */
+function releaseDecoded(data: LoadedSource) {
+  if (data.data.kind === "image" && data.data.image instanceof ImageBitmap) data.data.image.close();
+}
 
 /**
  * Renders the photo open in Develop into one persistent canvas. The canvas is
@@ -123,14 +128,8 @@ export class DevelopEngine {
 
   /** Memory the engine holds, for diagnostics and the memory benchmark (bench/). */
   stats() {
-    let cpuBytes = 0;
-    for (const s of this.sources.values()) {
-      const d = s.data?.data;
-      if (!d) continue;
-      if (d.kind === "rgb16-linear") cpuBytes += d.data.byteLength;
-      else if (!(d.image instanceof ImageBitmap) || d.image.width > 0) cpuBytes += d.width * d.height * 4;
-    }
-    return { gpuBytes: this.gpu.textureBytes, textures: this.gpu.textureCount, sources: this.sources.size, cpuBytes };
+    // Decoded pixels are not kept on the CPU (see `releaseDecoded`): cpuBytes stays 0.
+    return { gpuBytes: this.gpu.textureBytes, textures: this.gpu.textureCount, sources: this.sources.size, cpuBytes: 0 };
   }
 
   private createCompositor() {
@@ -179,11 +178,39 @@ export class DevelopEngine {
     this.previewEffects = null;
     this.result = this.before = null;
     this.compositeResult = null;
-    const sources = [...this.sources.entries()];
+    // Nothing decoded is kept on the CPU: photos still needed are read again from their originals.
+    const wanted = [...this.sources.keys()];
     this.sources.clear();
-    for (const [id, loaded] of sources) this.setSource(id, loaded.data, loaded.quality);
     this.lost = false;
     this.requestRender();
+    void this.reloadSources(wanted);
+  }
+
+  /** Decodes photos again after a lost context, one at a time, those still in use first. */
+  private async reloadSources(ids: readonly AssetId[]) {
+    const open = develop.getState().assetId;
+    const ordered = [...ids].sort((a, b) => (b === open ? 1 : 0) - (a === open ? 1 : 0));
+    for (const id of ordered) {
+      const asset = getAsset(id);
+      if (!asset || this.lost || this.sources.has(id)) continue;
+      const stillUsed = id === develop.getState().assetId || this.warm.has(id) || this.inComposition().has(id);
+      if (!stillUsed) continue;
+      try {
+        const loaded = await loadSource(asset, undefined, true);
+        if (this.lost) {
+          releaseDecoded(loaded);
+          return;
+        }
+        this.setSource(id, loaded, loaded.quality);
+      } catch (error) {
+        console.warn(`Could not reload ${asset.fileName} after the GPU was reset:`, error);
+      }
+    }
+  }
+
+  private inComposition(): Set<AssetId> {
+    const doc = composite.getState().doc;
+    return new Set(doc ? flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])) : []);
   }
 
   attach(container: HTMLElement) {
@@ -223,13 +250,17 @@ export class DevelopEngine {
     return this.sources.get(assetId)?.gpu ?? null;
   }
 
+  /** Puts a decoded photo on the GPU (the decoded pixels are freed). */
   setSource(assetId: AssetId, data: LoadedSource, quality: Loaded["quality"]) {
+    if (this.lost) return releaseDecoded(data);
     const old = this.sources.get(assetId);
-    const gpu = this.pipeline.upload(assetId, data.data, data.info);
-    if (data.data.kind === "image" && "close" in data.data.image && quality !== "preview") {
-      // Keep nothing on the CPU for rendered files; RAW data stays for context-loss recovery.
+    let gpu: GpuSource;
+    try {
+      gpu = this.pipeline.upload(assetId, data.data, data.info);
+    } finally {
+      releaseDecoded(data);
     }
-    this.sources.set(assetId, { gpu, quality, data });
+    this.sources.set(assetId, { gpu, quality });
     if (old) this.pipeline.disposeSource(old.gpu);
     this.evict(assetId);
     this.invalidate();
@@ -249,9 +280,15 @@ export class DevelopEngine {
 
   /** Uploads a photo decoded ahead of time without touching what is on screen. */
   preloadSource(assetId: AssetId, data: LoadedSource, quality: Loaded["quality"]) {
-    if (!this.warm.has(assetId) || this.lost) return;
+    if (!this.warm.has(assetId) || this.lost) return releaseDecoded(data);
     const old = this.sources.get(assetId);
-    this.sources.set(assetId, { gpu: this.pipeline.upload(assetId, data.data, data.info), quality, data });
+    let gpu: GpuSource;
+    try {
+      gpu = this.pipeline.upload(assetId, data.data, data.info);
+    } finally {
+      releaseDecoded(data);
+    }
+    this.sources.set(assetId, { gpu, quality });
     if (old) this.pipeline.disposeSource(old.gpu);
     this.evict(assetId);
   }
@@ -259,8 +296,7 @@ export class DevelopEngine {
   // Keep few decoded photos on the GPU: the one in Develop, those in the open composition,
   // and either its warm neighbours (exactly those) or, with none, the last one used.
   private evict(justSet: AssetId | null) {
-    const doc = composite.getState().doc;
-    const inDoc = new Set(doc ? flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])) : []);
+    const inDoc = this.inComposition();
     const open = develop.getState().assetId;
     const keep = (id: AssetId) => id === justSet || id === open || inDoc.has(id) || this.warm.has(id);
     const limit = this.warm.size ? 0 : Math.max(2, inDoc.size + 1);
@@ -878,9 +914,11 @@ export class DevelopEngine {
           if (!gpu) {
             const loaded = await loadSource(asset);
             if (this.lost) break;
-            gpu = temporary = this.pipeline.upload(id, loaded.data, loaded.info);
-            // The pixels are on the GPU now; a decoded bitmap is not needed on the CPU.
-            if (loaded.data.kind === "image" && "close" in loaded.data.image) loaded.data.image.close();
+            try {
+              gpu = temporary = this.pipeline.upload(id, loaded.data, loaded.info);
+            } finally {
+              releaseDecoded(loaded);
+            }
           }
           const type = recipe.masks.some((m) => m.cutout && m.visible) ? "image/webp" : "image/jpeg";
           try {

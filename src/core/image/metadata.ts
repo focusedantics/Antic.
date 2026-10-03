@@ -86,7 +86,8 @@ const options = {
   mergeOutput: true,
 } as const;
 
-export async function readMetadata(bytes: ArrayBuffer | Uint8Array, fallback?: Uint8Array): Promise<ParsedMetadata> {
+/** EXIF of a file; given a Blob, exifr reads only the parts it needs. */
+export async function readMetadata(bytes: ArrayBuffer | Uint8Array | Blob, fallback?: Uint8Array): Promise<ParsedMetadata> {
   let parsed: Raw | undefined;
   try {
     parsed = (await exifr.parse(bytes, options)) as Raw | undefined;
