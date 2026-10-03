@@ -385,7 +385,9 @@ void main() {
 export const effects = `${header}
 ${common}
 uniform sampler2D uInput;
+/** The whole output's size, and where this render's pixel (0, 0) sits in it (windowed renders). */
 uniform vec2 uOutSize;
+uniform vec2 uOrigin;
 uniform float uFullScale;
 uniform float uVignette;
 uniform float uVigMid;
@@ -402,7 +404,8 @@ float valueNoise(vec2 p) {
 }
 void main() {
   vec4 c = texelFetch(uInput, ivec2(gl_FragCoord.xy), 0);
-  vec2 uv = gl_FragCoord.xy / uOutSize;
+  vec2 pos = gl_FragCoord.xy + uOrigin;
+  vec2 uv = pos / uOutSize;
   if (uVignette != 0.0) {
     vec2 d = uv - 0.5;
     float aspect = uOutSize.x / uOutSize.y;
@@ -419,7 +422,7 @@ void main() {
   }
   if (uGrain > 0.0) {
     // Grain lives in full-resolution pixels so previews and exports match.
-    vec2 full = gl_FragCoord.xy * uFullScale;
+    vec2 full = pos * uFullScale;
     float size = mix(1.0, 4.0, uGrainSize);
     float n = valueNoise(full / size);
     float n2 = valueNoise(full / (size * 0.5) + 17.0);
@@ -453,11 +456,14 @@ uniform vec2 uCanvasSize;
 uniform sampler2D uOverlay;
 uniform int uOverlayMode;
 uniform int uOverlayInvert;
+/** The part of the photo the images hold, in photo uv (x, y, width, height): all of it, or a zoomed-in window. */
+uniform vec4 uImageWindow;
 void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uCanvasToImage * vec3(px, 1.0);
-  vec2 uv = h.xy / h.z;
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = uBackground; return; }
+  vec2 whole = h.xy / h.z;
+  if (whole.x < 0.0 || whole.y < 0.0 || whole.x > 1.0 || whole.y > 1.0) { outColor = uBackground; return; }
+  vec2 uv = (whole - uImageWindow.xy) / uImageWindow.zw;
   bool before = uSplit == 1 && px.x < uSplitX;
   vec4 c = before ? texture(uBefore, uv) : texture(uImage, uv);
   vec3 rgb = toDisplay(c.rgb);

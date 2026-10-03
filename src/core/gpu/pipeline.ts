@@ -3,7 +3,7 @@ import { outputToSource, outputSize, type Size } from "@/core/develop/geometry";
 import type { DevelopRecipe } from "@/core/develop/recipe";
 import { whiteBalanceFor } from "@/core/develop/white-balance";
 import { device } from "@/lib/device";
-import { toGlMat3 } from "@/lib/math";
+import { type Mat3, mul3, toGlMat3 } from "@/lib/math";
 import { bakeCurves, isToneCurveActive, LUT_SIZE, toHalfArray } from "./curves";
 import type { Gpu, Target, Texture, TextureFormat } from "./gl";
 import { gradingUniforms, isGradingActive, isMixerActive, mixerUniform } from "./mixer";
@@ -47,7 +47,15 @@ export type RenderOptions = {
   readonly draft?: boolean;
   /** Mask renderer hook (Stage 3). */
   readonly masks?: MaskStage;
+  /**
+   * Render only part of the output: `width × height` px at (x, y), top-left, of a render
+   * that would be `fullWidth × fullHeight`. Zoomed-in views render what is on screen
+   * (plus a margin for blurs) instead of the whole photo at full size.
+   */
+  readonly window?: RenderWindow;
 };
+
+export type RenderWindow = { readonly x: number; readonly y: number; readonly fullWidth: number; readonly fullHeight: number };
 
 export type MaskStage = (input: Target, context: MaskContext) => Target;
 export type MaskContext = {
@@ -60,6 +68,8 @@ export type MaskContext = {
   readonly blurLarge: Texture;
   readonly width: number;
   readonly height: number;
+  /** The part of the output rendered, in output uv (x, y, width, height); absent: all of it. */
+  readonly window?: readonly [number, number, number, number];
 };
 
 /** Most GPU memory idle pooled targets may hold (about three 4K float targets; less on phones). */
@@ -339,6 +349,42 @@ export class DevelopPipeline {
     return result;
   }
 
+  /** The dehaze estimate from a small render of the whole photo (for windowed renders). */
+  private wholeAtmosphere(key: string, source: GpuSource, recipe: DevelopRecipe, base: Texture, toSource: Mat3): [number, number, number] {
+    const full = outputSize(source.size, recipe.geometry);
+    const scale = Math.min(1, 512 / Math.max(full.width, full.height));
+    const w = Math.max(8, Math.round(full.width * scale));
+    const h = Math.max(8, Math.round(full.height * scale));
+    const geometry = this.acquire(w, h);
+    this.gpu.pass("geometry", S.geometry, {
+      target: geometry,
+      textures: { uBase: base },
+      uniforms: {
+        uOutToSrc: toGlMat3(toSource),
+        uSrcSize: [source.size.width, source.size.height],
+        uOutSize: [w, h],
+        uDistortion: (recipe.optics.distortion / 100) * 0.12,
+        uVignetting: (recipe.optics.vignetting / 100) * 1.5,
+        uVignettingMid: 1 + ((100 - recipe.optics.vignettingMidpoint) / 100) * 4,
+        uLodBias: Math.log2(1 / source.downscale),
+        uBaseSrgb: source.srgb ? 1 : 0,
+      },
+    });
+    const prepared = this.acquire(w, h);
+    this.gpu.pass("prepare", S.prepare, {
+      target: prepared,
+      textures: { uInput: geometry },
+      uniforms: { uWhiteBalance: toGlMat3(whiteBalanceFor(recipe.whiteBalance, source.info)), uExposure: recipe.basic.exposure },
+    });
+    this.release(geometry);
+    const half = this.acquire(Math.ceil(w / 2), Math.ceil(h / 2));
+    this.gpu.pass("lightness", S.lightness, { target: half, textures: { uInput: prepared } });
+    this.release(prepared);
+    const result = this.atmosphere(key, half);
+    this.release(half);
+    return result;
+  }
+
   /**
    * Renders `recipe` applied to `source` into a new target of `options.width ×
    * options.height`. The caller releases the returned target.
@@ -348,9 +394,15 @@ export class DevelopPipeline {
     const width = Math.max(1, Math.round(options.width));
     const height = Math.max(1, Math.round(options.height));
     const full = outputSize(source.size, recipe.geometry);
+    const win = options.window;
+    const fullWidth = win?.fullWidth ?? width;
+    const fullHeight = win?.fullHeight ?? height;
     // Full-resolution output pixels per working pixel: radii are specified at full resolution.
-    const fullScale = full.width / width;
-    const outToSrc = toGlMat3(outputToSource(source.size, recipe.geometry));
+    const fullScale = full.width / fullWidth;
+    // A window maps this render's uv to its part of the whole output.
+    const windowUv: [number, number, number, number] | undefined = win ? [win.x / fullWidth, win.y / fullHeight, width / fullWidth, height / fullHeight] : undefined;
+    const toSource = outputToSource(source.size, recipe.geometry);
+    const outToSrc = toGlMat3(windowUv ? mul3(toSource, [windowUv[2], 0, windowUv[0], 0, windowUv[3], windowUv[1], 0, 0, 1]) : toSource);
 
     // 1. Spot repairs (cached), then geometry + lens corrections.
     const base = this.retouched(source, recipe.retouch);
@@ -399,7 +451,8 @@ export class DevelopPipeline {
       blurLarge = this.blur(half, Math.max(1, (longSide * 0.02) / fullScale / 2));
       if (b.dehaze !== 0 || recipe.masks.some((m) => m.adjustments.dehaze)) {
         const key = `${source.id}:${recipe.whiteBalance.temperature}:${recipe.whiteBalance.tint}:${b.exposure}`;
-        atmosphere = this.atmosphere(key, half);
+        // The haze colour is a property of the whole photo: a window estimates it from a small full render.
+        atmosphere = this.atmosphereCache.get(key) ?? (win ? this.wholeAtmosphere(key, source, recipe, base, toSource) : this.atmosphere(key, half));
       }
       this.release(half);
     }
@@ -448,6 +501,7 @@ export class DevelopPipeline {
         recipe,
         outToSrc,
         fullScale,
+        window: windowUv,
         blurSmall: blurSmall ?? current,
         blurLarge: blurLarge ?? current,
         width,
@@ -503,7 +557,8 @@ export class DevelopPipeline {
         target: next,
         textures: { uInput: current },
         uniforms: {
-          uOutSize: [width, height],
+          uOutSize: [fullWidth, fullHeight],
+          uOrigin: [win?.x ?? 0, win?.y ?? 0],
           uFullScale: fullScale,
           uVignette: e.vignetteAmount / 100,
           uVigMid: e.vignetteMidpoint / 100,

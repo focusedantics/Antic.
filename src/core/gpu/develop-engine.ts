@@ -479,22 +479,29 @@ export class DevelopEngine {
     width = Math.round(width / over);
     height = Math.round(height / over);
 
+    // Zoomed in: render only what the canvas shows (see `viewWindow`).
+    const win = state.view.fit ? null : this.viewWindow(regions, width, height, state.compare === "side-by-side");
+    const window = win ? { x: win.x, y: win.y, fullWidth: width, fullHeight: height } : undefined;
+    const renderSize = { width: win?.width ?? width, height: win?.height ?? height, window };
+    const imageWindow = win ? [win.x / width, win.y / height, win.width / width, win.height / height] : [0, 0, 1, 1];
+
     const overlayMode = state.tool === "mask" && state.activeMaskId ? (state.maskBw ? 2 : state.maskOverlay ? 1 : 0) : 0;
-    const key = [src.gpu, recipe, width, height, draft, state.activeMaskId, overlayMode > 0];
+    const key = [src.gpu, recipe, width, height, draft, state.activeMaskId, overlayMode > 0, win?.x, win?.y, win?.width, win?.height];
     if (!this.result || !sameKey(this.result.key, key)) {
       this.pipeline.release(this.result?.target);
       this.viewRender = true;
-      const target = this.pipeline.render(src.gpu, recipe, { width, height, draft, masks: this.masks });
+      const target = this.pipeline.render(src.gpu, recipe, { ...renderSize, draft, masks: this.masks });
       this.viewRender = false;
       this.result = { target, key };
-      if (!draft) this.scheduleHistogram();
+      // A window shows part of the photo; the histogram is of all of it.
+      if (!draft) this.scheduleHistogram(win ? { source: src.gpu, recipe } : null);
     }
     let beforeTarget: Target | null = null;
     if (state.compare !== "off" || state.peek) {
-      const beforeKey = [src.gpu, recipe.geometry, width, height];
+      const beforeKey = [src.gpu, recipe.geometry, width, height, win?.x, win?.y, win?.width, win?.height];
       if (!this.before || !sameKey(this.before.key, beforeKey)) {
         this.pipeline.release(this.before?.target);
-        const target = this.pipeline.render(src.gpu, DevelopPipeline.beforeRecipe(recipe, src.gpu.info), { width, height, draft });
+        const target = this.pipeline.render(src.gpu, DevelopPipeline.beforeRecipe(recipe, src.gpu.info), { ...renderSize, draft });
         this.before = { target, key: beforeKey };
       }
       beforeTarget = this.before.target;
@@ -521,6 +528,7 @@ export class DevelopEngine {
           uCanvasSize: [this.canvas.width, this.canvas.height],
           uOverlayMode: overlay ? overlayMode : 0,
           uOverlayInvert: recipe.masks.find((m) => m.id === state.activeMaskId)?.invert ? 1 : 0,
+          uImageWindow: imageWindow,
         },
       });
     };
@@ -539,6 +547,42 @@ export class DevelopEngine {
       drawRegion(regions[0], shown, state.compare === "split" && !!beforeTarget);
     }
     this.onFrame?.();
+  }
+
+  /**
+   * The part of a `width × height` view render that the canvas shows when zoomed in
+   * (working px, top-left origin), with a margin for the local-contrast blurs (3σ of the
+   * largest) and snapped to a 128 px grid so small pans reuse the render. Null when most
+   * of the photo is visible anyway. At 100 % a 4096 px photo on a phone shows about a
+   * fifth of its pixels: every pass, the before image and the mask overlay shrink alike.
+   */
+  private viewWindow(regions: ReturnType<DevelopEngine["regions"]>, width: number, height: number, sideBySide: boolean) {
+    // The photo is drawn over the whole canvas (under floating panels too); side by side, each region is clipped.
+    const rects = sideBySide ? regions.map((r) => ({ x: r.x - 4, y: r.y - 4, width: r.width + 8, height: r.height + 8 })) : [{ x: 0, y: 0, width: this.canvas.width, height: this.canvas.height }];
+    let u0 = 1;
+    let v0 = 1;
+    let u1 = 0;
+    let v1 = 0;
+    rects.forEach((rect, i) => {
+      const m = this.canvasToOutput(sideBySide ? regions[i] : regions[0]);
+      u0 = Math.min(u0, m[0] * rect.x + m[2]);
+      v0 = Math.min(v0, m[4] * rect.y + m[5]);
+      u1 = Math.max(u1, m[0] * (rect.x + rect.width) + m[2]);
+      v1 = Math.max(v1, m[4] * (rect.y + rect.height) + m[5]);
+    });
+    u0 = Math.max(0, u0);
+    v0 = Math.max(0, v0);
+    u1 = Math.min(1, u1);
+    v1 = Math.min(1, v1);
+    if (u1 <= u0 || v1 <= v0 || (u1 - u0) * (v1 - v0) > 0.6) return null;
+    const margin = Math.ceil(0.06 * Math.max(width, height)) + 8;
+    const grid = 128;
+    const x0 = Math.max(0, Math.floor((u0 * width - margin) / grid) * grid);
+    const y0 = Math.max(0, Math.floor((v0 * height - margin) / grid) * grid);
+    const x1 = Math.min(width, Math.ceil((u1 * width + margin) / grid) * grid);
+    const y1 = Math.min(height, Math.ceil((v1 * height + margin) / grid) * grid);
+    if ((x1 - x0) * (y1 - y0) > 0.75 * width * height) return null;
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
 
   // ─── Composite ───────────────────────────────────────────────────────────
@@ -811,12 +855,21 @@ export class DevelopEngine {
     return this.loadingSources.size > 0;
   }
 
-  private scheduleHistogram() {
+  /** Updates the histogram from the view render, or (`whole`: the view is a zoomed-in window) a small render of the whole photo. */
+  private scheduleHistogram(whole: { source: GpuSource; recipe: DevelopRecipe } | null = null) {
     if (this.histogramTimer) clearTimeout(this.histogramTimer);
     this.histogramTimer = setTimeout(() => {
       this.histogramTimer = null;
       if (!this.result || this.lost) return;
-      develop.setState({ histogram: this.histogram(this.result.target) });
+      if (!whole) return develop.setState({ histogram: this.histogram(this.result.target) });
+      const size = outputSize(whole.source.size, whole.recipe.geometry);
+      const scale = Math.min(1, 320 / Math.max(size.width, size.height));
+      const target = this.pipeline.render(whole.source, whole.recipe, { width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)), masks: this.masks });
+      try {
+        develop.setState({ histogram: this.histogram(target) });
+      } finally {
+        this.pipeline.release(target);
+      }
     }, 60);
   }
 

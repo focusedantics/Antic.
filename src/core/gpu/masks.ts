@@ -52,6 +52,8 @@ export class MaskRenderer {
   overlay: { maskId: string; target: Target } | null = null;
   /** Small copy of the image entering the mask stage, for color and luminance picking. */
   private sampleImage: Target | null = null;
+  /** The part of the photo (output uv) `sampleImage` shows: all of it, or a zoomed-in window. */
+  private sampleWindow: readonly [number, number, number, number] = [0, 0, 1, 1];
   onRasterLoaded: (() => void) | null = null;
 
   constructor(
@@ -230,6 +232,7 @@ export class MaskRenderer {
         this.sampleImage = this.gpu.target(w, h);
       }
       this.gpu.pass("mask-sample-copy", M.resample, { target: this.sampleImage, textures: { uInput: input } });
+      this.sampleWindow = ctx.window ?? [0, 0, 1, 1];
     }
     for (const mask of ctx.recipe.masks) {
       if (!mask.components.length) continue;
@@ -268,7 +271,11 @@ export class MaskRenderer {
   sample(u: number, v: number): [number, number, number] | null {
     const t = this.sampleImage;
     if (!t) return null;
-    const [r, g, b] = this.gpu.readPixelFloat(t, u * t.width, v * t.height);
+    const [wx, wy, ww, wh] = this.sampleWindow;
+    const x = (u - wx) / ww;
+    const y = (v - wy) / wh;
+    if (x < 0 || y < 0 || x > 1 || y > 1) return null;
+    const [r, g, b] = this.gpu.readPixelFloat(t, x * t.width, y * t.height);
     return [r, g, b];
   }
 
