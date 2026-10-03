@@ -29,7 +29,7 @@ describe("device profile", () => {
 
   it("gives phones the memory limits and the lighter animations", () => {
     const p = profileFor(iPhone);
-    expect(p).toMatchObject({ phone: true, lite: true, maxSide: LITE_MAX_SIDE, dprCap: 2, workers: 2 });
+    expect(p).toMatchObject({ phone: true, lite: true, maxSide: LITE_MAX_SIDE, dprCap: 3, workers: 2 });
     expect(p.poolBudget).toBeLessThan(100 * 1024 * 1024);
     const android = profileFor({ ...desktop, userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36", coarse: true, screenShort: 412 });
     expect(android).toMatchObject({ phone: true, lite: true });

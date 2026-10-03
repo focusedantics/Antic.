@@ -183,6 +183,15 @@ Radii are specified in full-resolution pixels and scaled by the working resoluti
 low-resolution preview matches the full-resolution export. While a slider is dragged the
 pipeline renders at reduced resolution and re-renders at full view resolution on release.
 
+**Moving views** (`DevelopEngine.motion`). A pinch, a pan, a panel or the viewer
+resizing, or the tap-to-hide glide changes only how the photo maps to the screen. Until
+the view rests for 140 ms, frames redraw the render at hand under the new mapping (one
+display pass, as Lightroom does) instead of developing the photo again; then a sharp
+render of what is on screen replaces it. While zoomed in, a render of the whole photo
+(`overview`: the fit render kept on zooming in, or rendered shortly after an edit) is
+shown where the window does not reach, so panning never shows a blank edge. The
+histogram is not worked out while the interface is hidden.
+
 **Windows** (`RenderOptions.window`). A render can cover just part of the output: every
 pass then works in the whole output's coordinates (the geometry and masks through the
 composed `outToSrc`, vignette and grain through `uOrigin`), and the dehaze estimate comes
@@ -662,6 +671,16 @@ Every workspace renders through `Shell` with `left`, `center`, `right` and an op
   root carries `data-compact` for their styles. `(pointer: coarse)` raises touch targets (sliders 36 px, buttons 32–34 px,
   16 px inputs so iOS does not zoom). The Develop viewer adds touch gestures: two
   fingers pinch-zoom and pan (captured before tools), a double tap toggles 100 %.
+  A single tap on the photo while editing it whole (Edit tools, no compare) hides the
+  interface, as in Lightroom (`layout.immersive`, `toggleImmersive` in
+  `features/develop/View.tsx`; it waits 280 ms for a second tap, which zooms instead):
+  the bars, dock, panel and histogram go at once, the viewer covers the screen on black
+  (and `theme-color` turns black), and the photo glides from where it was to fill the
+  screen edge to edge (`DevelopEngine.setImmersive`/`glide`: the canvas is drawn for the
+  new layout and moved back to the old place with a transform, which then eases away).
+  Another tap brings the interface back (it fades in and the panel rises) with the
+  zoom kept; zoom, pan and hold-to-see-the-original work meanwhile. The viewer renders
+  at the screen's own resolution on phones (3 device px per point).
 - **Device profile** (`lib/device.ts`, decided once per load; desktops get the full
   profile, which changes nothing). `lite` (phones, tablets, ≤2 GB): photos are uploaded
   at most 4096 px on the long side (`DevelopPipeline.upload`; RAW goes through

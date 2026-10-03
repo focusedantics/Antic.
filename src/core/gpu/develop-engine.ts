@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "@/lib/pacing";
 import { placeClear } from "@/lib/fit";
 import { device, viewDpr } from "@/lib/device";
 import { beginActivity } from "@/lib/activity";
@@ -45,7 +46,23 @@ export class DevelopEngine {
   private gpu: Gpu;
   private pipeline: DevelopPipeline;
   private sources = new Map<AssetId, Loaded>();
-  private result: { target: Target; key: unknown[] } | null = null;
+  /**
+   * The view render: `content` says what it shows (photo, recipe, draft, mask overlay),
+   * `key` also how (size, window); `window` is the part of the photo it holds (uv x, y, w, h).
+   */
+  private result: { target: Target; key: unknown[]; content: unknown[]; window: number[] } | null = null;
+  /** A render of the whole photo kept while the view shows a zoomed-in window: shown around it while moving. */
+  private overview: { target: Target; content: unknown[] } | null = null;
+  /** Until when view changes count as motion (pinch, pan, glide): drawn from the renders at hand, sharpened after. */
+  private motionUntil = 0;
+  private settleTimer = 0;
+  private overviewTimer = 0;
+  /** Phones: the photo alone, edge to edge (tap to hide the interface). */
+  private immersive = false;
+  /** A glide waiting for the next resize: where the photo was on screen before the layout changed. */
+  private pendingGlide: { rect: DOMRect; at: number } | null = null;
+  /** A histogram update skipped while the interface was hidden. */
+  private deferredHistogram: { whole: { source: GpuSource; recipe: DevelopRecipe } | null } | null = null;
   private before: { target: Target; key: unknown[] } | null = null;
   private frameRequested = false;
   private histogramTimer: ReturnType<typeof setTimeout> | null = null;
@@ -101,6 +118,7 @@ export class DevelopEngine {
         this.maskRenderer.trim(0);
       });
     develop.subscribe((s, prev) => {
+      if (s.view !== prev.view) this.motion();
       if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.peek !== prev.peek || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
         this.requestRender();
       if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.scheduleThumbnails();
@@ -241,6 +259,16 @@ export class DevelopEngine {
       this.canvas.height = h;
       this.canvas.style.width = `${container.clientWidth}px`;
       this.canvas.style.height = `${container.clientHeight}px`;
+      // Resizing cleared the canvas: draw it again before it is shown, from the renders at hand.
+      this.motion();
+      if (!this.lost && !this.drawing) {
+        try {
+          this.frame();
+        } catch (error) {
+          console.error(error);
+        }
+      }
+      this.glide();
     }
     this.requestRender();
   }
@@ -331,6 +359,8 @@ export class DevelopEngine {
   }
 
   invalidate() {
+    this.pipeline.release(this.overview?.target);
+    this.overview = null;
     this.pipeline.release(this.result?.target);
     this.pipeline.release(this.before?.target);
     this.pipeline.release(this.compositeResult?.target);
@@ -407,12 +437,73 @@ export class DevelopEngine {
   setCover(cssPx: number) {
     if (Math.abs(cssPx - this.cover) < 0.5) return;
     this.cover = cssPx;
+    this.motion();
     this.requestRender();
+  }
+
+  /**
+   * Phones' tap-to-hide view: the photo fills the screen edge to edge. `from` is where
+   * the photo was on screen (`photoRect()` before the layout changed): it glides from
+   * there to its new place once the viewer has its new size.
+   */
+  setImmersive(on: boolean, from?: DOMRect | null) {
+    if (this.immersive === on) return;
+    this.immersive = on;
+    if (!on && this.deferredHistogram) {
+      const { whole } = this.deferredHistogram;
+      this.deferredHistogram = null;
+      this.scheduleHistogram(whole);
+    }
+    this.pendingGlide = from && !prefersReducedMotion() ? { rect: from, at: performance.now() } : null;
+    this.motion();
+    this.requestRender();
+  }
+
+  /** Where the developed photo is drawn, in client px (null when nothing is open). */
+  photoRect(): DOMRect | null {
+    if (this.mode !== "develop" || !this.outputSize()) return null;
+    const [x0, y0] = this.outputToClient(0, 0);
+    const [x1, y1] = this.outputToClient(1, 1);
+    return new DOMRect(x0, y0, x1 - x0, y1 - y0);
+  }
+
+  /**
+   * Marks the view as moving (zoom, pan, a panel or the viewer resizing): until it rests
+   * for SETTLE_MS, frames redraw the renders at hand under the new mapping (one cheap
+   * pass, like Lightroom's), then a sharp render replaces them.
+   */
+  private motion() {
+    this.motionUntil = performance.now() + SETTLE_MS;
+    clearTimeout(this.settleTimer);
+    this.settleTimer = window.setTimeout(() => this.requestRender(), SETTLE_MS + 16);
+  }
+
+  /** Starts a pending glide: the canvas is moved and scaled so the photo sits where it was, then eases into place. */
+  private glide() {
+    const pending = this.pendingGlide;
+    this.pendingGlide = null;
+    if (!pending || performance.now() - pending.at > 500) return;
+    const to = this.photoRect();
+    if (!to || to.width < 1 || pending.rect.width < 1) return;
+    const canvas = this.canvas;
+    const box = canvas.getBoundingClientRect();
+    const k = pending.rect.width / to.width;
+    const tx = pending.rect.x - box.x - k * (to.x - box.x);
+    const ty = pending.rect.y - box.y - k * (to.y - box.y);
+    canvas.style.transition = "none";
+    canvas.style.transformOrigin = "0 0";
+    canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${k})`;
+    void canvas.offsetWidth; // apply it before the transition starts
+    canvas.style.transition = `transform ${GLIDE_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
+    canvas.style.transform = "";
+    window.setTimeout(() => {
+      if (!canvas.style.transform) canvas.style.transition = "";
+    }, GLIDE_MS + 50);
   }
 
   /** Canvas regions (device px) the photo is drawn into: one, or two for side-by-side. */
   regions(): { x: number; y: number; width: number; height: number }[] {
-    const pad = Math.round(16 * viewDpr());
+    const pad = this.immersive ? 0 : Math.round(16 * viewDpr());
     const w = this.canvas.width;
     const h = this.canvas.height;
     if (this.cover > 0 && develop.getState().compare !== "side-by-side") {
@@ -534,16 +625,38 @@ export class DevelopEngine {
     const imageWindow = win ? [win.x / width, win.y / height, win.width / width, win.height / height] : [0, 0, 1, 1];
 
     const overlayMode = state.tool === "mask" && state.activeMaskId ? (state.maskBw ? 2 : state.maskOverlay ? 1 : 0) : 0;
-    const key = [src.gpu, recipe, width, height, draft, state.activeMaskId, overlayMode > 0, win?.x, win?.y, win?.width, win?.height];
+    const content = [src.gpu, recipe, draft, state.activeMaskId, overlayMode > 0];
+    const key = [...content, width, height, win?.x, win?.y, win?.width, win?.height];
     const beforeKey = [src.gpu, recipe.geometry, width, height, win?.x, win?.y, win?.width, win?.height];
-    const stale = !this.result || !sameKey(this.result.key, key) || ((state.compare !== "off" || state.peek) && (!this.before || !sameKey(this.before.key, beforeKey)));
+    const comparing = state.compare !== "off" || state.peek;
+
+    // Moving (pinch, pan, a glide): the same picture under a new mapping. Draw what is
+    // rendered (the window, and the whole photo around it) and sharpen once it rests.
+    if (this.result && !comparing && sameKey(this.result.content, content) && !sameKey(this.result.key, key) && performance.now() < this.motionUntil) {
+      const overview = this.overview && sameKey(this.overview.content, content) ? this.overview.target : null;
+      this.present(regions, recipe, this.result.target, this.result.window, null, overview, overlayMode);
+      return;
+    }
+
+    const stale = !this.result || !sameKey(this.result.key, key) || (comparing && (!this.before || !sameKey(this.before.key, beforeKey)));
     if (!render && stale) return this.requestRender();
     if (!this.result || !sameKey(this.result.key, key)) {
-      this.pipeline.release(this.result?.target);
+      const previous = this.result;
       this.viewRender = true;
       const target = this.pipeline.render(src.gpu, recipe, { ...renderSize, draft, masks: this.masks });
       this.viewRender = false;
-      this.result = { target, key };
+      this.result = { target, key, content, window: imageWindow };
+      if (!previous) {
+        // Nothing to keep.
+      } else if (win && previous.window[2] === 1 && previous.window[3] === 1 && sameKey(previous.content, content)) {
+        // Zooming in: the whole-photo render stays, to show around the window while moving.
+        this.pipeline.release(this.overview?.target);
+        this.overview = { target: previous.target, content };
+      } else this.pipeline.release(previous.target);
+      if (!win) {
+        this.pipeline.release(this.overview?.target);
+        this.overview = null;
+      } else if (!this.overview || !sameKey(this.overview.content, content)) this.scheduleOverview();
       // A window shows part of the photo; the histogram is of all of it.
       if (!draft) this.scheduleHistogram(win ? { source: src.gpu, recipe } : null);
     }
@@ -557,18 +670,29 @@ export class DevelopEngine {
       beforeTarget = this.before.target;
     }
 
+    this.present(regions, recipe, this.result.target, imageWindow, beforeTarget, null, overlayMode);
+  }
+
+  /**
+   * Draws the view: `image` holds the `window` part of the photo (uv), `overview` (if any)
+   * all of it, shown where the window does not reach (while moving).
+   */
+  private present(regions: ReturnType<DevelopEngine["regions"]>, recipe: DevelopRecipe, image: Target, window: number[], beforeTarget: Target | null, overview: Target | null, overlayMode: number) {
+    const state = develop.getState();
+    const { gl } = this.gpu;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     // Transparent around the image: .develop-view paints the surround (or the glow backdrop shows through).
     const background = [0, 0, 0, 0];
-    const drawRegion = (region: (typeof regions)[number], image: Target, split: boolean) => {
+    const overlay = this.maskRenderer.overlay?.target ?? null;
+    const drawRegion = (region: (typeof regions)[number], shown: Target, split: boolean) => {
       const m = this.canvasToOutput(region);
       this.gpu.pass("display", S.display, {
         target: null,
         viewport: [0, 0, this.canvas.width, this.canvas.height],
-        textures: { uImage: image, uBefore: beforeTarget ?? image, uOverlay: overlay },
+        textures: { uImage: shown, uBefore: beforeTarget ?? shown, uOverlay: overlay, uOverview: overview ?? shown },
         uniforms: {
           uCanvasToImage: toGlMat3(m),
           uBackground: background,
@@ -578,25 +702,46 @@ export class DevelopEngine {
           uCanvasSize: [this.canvas.width, this.canvas.height],
           uOverlayMode: overlay ? overlayMode : 0,
           uOverlayInvert: recipe.masks.find((m) => m.id === state.activeMaskId)?.invert ? 1 : 0,
-          uImageWindow: imageWindow,
+          uImageWindow: window,
+          uHasOverview: overview ? 1 : 0,
         },
       });
     };
-    const overlay = this.maskRenderer.overlay?.target ?? null;
-    const { gl: g } = this.gpu;
     if (state.compare === "side-by-side" && beforeTarget) {
-      g.enable(g.SCISSOR_TEST);
+      gl.enable(gl.SCISSOR_TEST);
       for (const [i, region] of regions.entries()) {
-        g.scissor(region.x - 4, this.canvas.height - (region.y + region.height) - 4, region.width + 8, region.height + 8);
-        drawRegion(region, i === 0 ? this.result.target : beforeTarget, false);
+        gl.scissor(region.x - 4, this.canvas.height - (region.y + region.height) - 4, region.width + 8, region.height + 8);
+        drawRegion(region, i === 0 ? image : beforeTarget, false);
       }
-      g.disable(g.SCISSOR_TEST);
+      gl.disable(gl.SCISSOR_TEST);
     } else {
       // Held on the photo: the original in place of the edit.
-      const shown = state.peek && beforeTarget && state.compare === "off" ? beforeTarget : this.result.target;
+      const shown = state.peek && beforeTarget && state.compare === "off" ? beforeTarget : image;
       drawRegion(regions[0], shown, state.compare === "split" && !!beforeTarget);
     }
     this.onFrame?.();
+  }
+
+  /**
+   * Zoomed in after an edit: renders the whole photo again at the size it fits the view,
+   * shortly after, for the next pinch or pan to show around the window.
+   */
+  private scheduleOverview() {
+    clearTimeout(this.overviewTimer);
+    this.overviewTimer = window.setTimeout(() => {
+      const state = develop.getState();
+      const result = this.result;
+      const src = state.assetId ? this.sources.get(state.assetId) : null;
+      const recipe = this.displayRecipe();
+      if (!result || !src || !recipe || this.lost || this.mode !== "develop" || (result.window[2] === 1 && result.window[3] === 1)) return;
+      if (currentHistory()?.status().editing) return this.scheduleOverview();
+      if (this.overview && sameKey(this.overview.content, result.content)) return;
+      const size = outputSize(src.gpu.size, recipe.geometry);
+      const scale = Math.min(1, this.fitScale(size));
+      const target = this.pipeline.render(src.gpu, recipe, { width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)), draft: result.content[2] as boolean, masks: this.masks });
+      this.pipeline.release(this.overview?.target);
+      this.overview = { target, content: result.content };
+    }, 120);
   }
 
   /**
@@ -913,6 +1058,12 @@ export class DevelopEngine {
   /** Updates the histogram from the view render, or (`whole`: the view is a zoomed-in window) a small render of the whole photo. */
   private scheduleHistogram(whole: { source: GpuSource; recipe: DevelopRecipe } | null = null) {
     if (this.histogramTimer) clearTimeout(this.histogramTimer);
+    // Not shown while the interface is hidden: worked out when it comes back (each one
+    // waits for the GPU to finish the render, a pause in a pinch).
+    if (this.immersive) {
+      this.deferredHistogram = { whole };
+      return;
+    }
     this.histogramTimer = setTimeout(() => {
       this.histogramTimer = null;
       if (!this.result || this.lost) return;
@@ -1195,6 +1346,11 @@ function smallCopy(canvas: OffscreenCanvas, longSide: number): ImageData {
   ctx.drawImage(canvas, 0, 0, w, h);
   return ctx.getImageData(0, 0, w, h);
 }
+
+/** How long the view must rest after moving before it is rendered sharp again. */
+const SETTLE_MS = 140;
+/** The photo's glide into and out of the tap-to-hide view. */
+const GLIDE_MS = 260;
 
 function sameKey(a: unknown[], b: unknown[]) {
   return a.length === b.length && a.every((v, i) => v === b[i]);

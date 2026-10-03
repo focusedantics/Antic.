@@ -194,3 +194,12 @@ Measured with the benchmark after each step (single runs, so ±10 % noise).
 - The downloadable AI models (MODNet, BiRefNet, DETR, SlimSAM) cannot be fetched from
   this environment; the AI changes were tested with the bundled U²-Netp, and the
   DETR/SlimSAM paths only by type checking and reading Transformers.js's code.
+
+## Later: smooth zoom and native resolution on phones
+
+Phones now render the viewer at the screen's own 3 device pixels per point (was 2), and
+a zoomed-in view keeps a render of the whole photo to show around its window while
+moving. One benchmark run afterwards: highest point 1114 MB (was 1042–1067 MB over three
+runs), GPU textures at 100 % zoom 164 MB (was 147 MB); within the run-to-run noise.
+A pinch or pan now redraws the render at hand instead of developing the photo again
+each step (e2e/immersive.spec.ts: at most one render during a 12-step pinch).

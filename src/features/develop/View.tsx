@@ -38,6 +38,17 @@ export function zoomTo(zoom: number, clientX?: number, clientY?: number) {
   develop.setState({ view: { fit: false, zoom, centerX: clamp(center.x), centerY: clamp(center.y) } });
 }
 
+/**
+ * Hides or shows the interface around the photo (phones): the photo glides from where it
+ * is to fill the screen, or back, keeping its zoom.
+ */
+export function toggleImmersive() {
+  const on = !layout.getState().immersive;
+  // Where the photo is now, before the layout changes: it glides from there.
+  developEngine().setImmersive(on, developEngine().photoRect());
+  layout.setState({ immersive: on });
+}
+
 export function DevelopView() {
   const ref = useRef<HTMLDivElement>(null);
   const tool = useStore(develop, (s) => s.tool);
@@ -51,7 +62,29 @@ export function DevelopView() {
   // the phone's Curve is drawn over the photo above it.
   const cover = useStore(layout, (s) => (s.compact ? s.cover : 0));
   const sheetOpen = useStore(layout, (s) => s.sheet === "right");
-  const curveOnPhoto = useStore(deck, (s) => s.group === "curve") && compact && sheetOpen && tool === "adjust";
+  const immersive = useStore(layout, (s) => s.immersive);
+  const curveOnPhoto = useStore(deck, (s) => s.group === "curve") && compact && sheetOpen && tool === "adjust" && !immersive;
+  // The tap-to-hide view lasts while editing the whole photo (tools take taps for themselves).
+  useEffect(() => {
+    if (immersive && (!compact || tool !== "adjust" || compare !== "off")) layout.setState({ immersive: false });
+  }, [immersive, compact, tool, compare]);
+  useEffect(() => {
+    developEngine().setImmersive(immersive);
+    if (!immersive) return;
+    // The browser's own bars (status bar on iPhone) go dark with it.
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    const previous = meta?.content;
+    if (meta) meta.content = "#000000";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") toggleImmersive();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      if (meta && previous) meta.content = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [immersive]);
+  useEffect(() => () => layout.setState({ immersive: false }), []);
   useEffect(() => developEngine().setCover(cover), [cover]);
   const assetId = useStore(develop, (s) => s.assetId);
   const peeking = useStore(develop, (s) => s.peek);
@@ -171,6 +204,39 @@ export function DevelopView() {
     // toggles 100% like a double click. Mouse and pen input are unchanged.
     let lastTap = { t: 0, x: 0, y: 0 };
     let touchDoubled = 0;
+    // A single tap on the photo (phones, editing the whole photo) hides or shows the
+    // interface, as in Lightroom. It waits a moment for a second tap, which zooms instead.
+    let tapStart: { id: number; x: number; y: number; t: number } | null = null;
+    let tapTimer = 0;
+    let lastPointer = "mouse";
+    const onTapDown = (e: PointerEvent) => {
+      lastPointer = e.pointerType;
+      if (e.pointerType === "mouse" && e.button !== 0) return void (tapStart = null);
+      if (!(e.target instanceof Element) || !(e.target === el || e.target.matches("canvas.develop-canvas"))) return void (tapStart = null);
+      tapStart = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() };
+    };
+    const onTapUp = (e: PointerEvent) => {
+      const start = tapStart;
+      tapStart = null;
+      if (!start || e.pointerId !== start.id || touches.size > 0) return;
+      const t = performance.now();
+      if (t - start.t > 300 || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10 || develop.getState().peek) return;
+      if (t - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+        // A double tap: zoom (the mouse's comes as dblclick).
+        lastTap = { t: 0, x: 0, y: 0 };
+        clearTimeout(tapTimer);
+        if (e.pointerType !== "mouse") {
+          touchDoubled = t;
+          onDouble(e);
+        }
+        return;
+      }
+      lastTap = { t, x: e.clientX, y: e.clientY };
+      const { tool, compare } = develop.getState();
+      if (!layout.getState().compact || tool !== "adjust" || compare !== "off") return;
+      clearTimeout(tapTimer);
+      tapTimer = window.setTimeout(toggleImmersive, 280);
+    };
     const midpoint = () => {
       const [a, b] = [...touches.values()];
       return { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -181,6 +247,7 @@ export function DevelopView() {
       if (touches.size === 2) {
         pinch = midpoint();
         panning = null;
+        tapStart = null;
         // The second finger turns the gesture into a pinch; tools underneath do not see it.
         e.stopPropagation();
         e.preventDefault();
@@ -211,17 +278,12 @@ export function DevelopView() {
       const wasPinch = !!pinch;
       touches.delete(e.pointerId);
       if (touches.size < 2) pinch = null;
-      if (wasPinch || touches.size) return;
-      const t = performance.now();
-      if (t - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
-        lastTap = { t: 0, x: 0, y: 0 };
-        touchDoubled = t;
-        onDouble(e);
-      } else lastTap = { t, x: e.clientX, y: e.clientY };
+      if (wasPinch) tapStart = null;
     };
     const onDoubleClick = (e: MouseEvent) => {
-      // A double tap already handled above; browsers may also send dblclick for it.
-      if (performance.now() - touchDoubled < 600) return;
+      // Touch double taps are handled above; browsers also send dblclick for them (and
+      // for a tap following one), so only a mouse's counts here.
+      if (lastPointer !== "mouse" || performance.now() - touchDoubled < 600) return;
       onDouble(e);
     };
     el.addEventListener("pointerdown", onHoldDown, true);
@@ -229,6 +291,8 @@ export function DevelopView() {
     window.addEventListener("pointerup", onHoldUp, true);
     window.addEventListener("pointercancel", onHoldUp, true);
     window.addEventListener("blur", endHold);
+    el.addEventListener("pointerdown", onTapDown, true);
+    el.addEventListener("pointerup", onTapUp);
     el.addEventListener("pointerdown", onTouchDown, true);
     el.addEventListener("pointermove", onTouchMove, true);
     el.addEventListener("pointerup", onTouchUp, true);
@@ -247,6 +311,9 @@ export function DevelopView() {
       window.removeEventListener("pointerup", onHoldUp, true);
       window.removeEventListener("pointercancel", onHoldUp, true);
       window.removeEventListener("blur", endHold);
+      clearTimeout(tapTimer);
+      el.removeEventListener("pointerdown", onTapDown, true);
+      el.removeEventListener("pointerup", onTapUp);
       el.removeEventListener("pointerdown", onTouchDown, true);
       el.removeEventListener("pointermove", onTouchMove, true);
       el.removeEventListener("pointerup", onTouchUp, true);
@@ -262,7 +329,12 @@ export function DevelopView() {
   }, []);
 
   return (
-    <div className="develop-view" ref={ref} style={{ "--cover": `${cover}px` } as React.CSSProperties} data-histogram={floatHistogram || undefined}>
+    <div className="develop-view" ref={ref} style={{ "--cover": `${cover}px` } as React.CSSProperties} data-histogram={floatHistogram || undefined} data-immersive={immersive || undefined}>
+      {immersive && (
+        <button type="button" className="sr-only" onClick={toggleImmersive}>
+          Show the interface
+        </button>
+      )}
       {tool === "crop" && <CropOverlay />}
       {tool === "mask" && <MaskOverlay />}
       {tool === "heal" && <HealOverlay />}

@@ -458,6 +458,9 @@ uniform int uOverlayMode;
 uniform int uOverlayInvert;
 /** The part of the photo the images hold, in photo uv (x, y, width, height): all of it, or a zoomed-in window. */
 uniform vec4 uImageWindow;
+/** While moving: the whole photo, shown where the window does not reach. */
+uniform sampler2D uOverview;
+uniform int uHasOverview;
 void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uCanvasToImage * vec3(px, 1.0);
@@ -465,7 +468,9 @@ void main() {
   if (whole.x < 0.0 || whole.y < 0.0 || whole.x > 1.0 || whole.y > 1.0) { outColor = uBackground; return; }
   vec2 uv = (whole - uImageWindow.xy) / uImageWindow.zw;
   bool before = uSplit == 1 && px.x < uSplitX;
-  vec4 c = before ? texture(uBefore, uv) : texture(uImage, uv);
+  bool inWindow = uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0;
+  if (!inWindow && uHasOverview == 0) { outColor = uBackground; return; }
+  vec4 c = before ? texture(uBefore, uv) : inWindow ? texture(uImage, uv) : texture(uOverview, whole);
   vec3 rgb = toDisplay(c.rgb);
   // Transparency over a checkerboard.
   vec2 cell = floor(px / 8.0);
@@ -476,7 +481,7 @@ void main() {
     if (max(lin.r, max(lin.g, lin.b)) >= 0.999) rgb = vec3(1.0, 0.15, 0.1);
     else if (max(lin.r, max(lin.g, lin.b)) <= 0.0015) rgb = vec3(0.1, 0.35, 1.0);
   }
-  if (uOverlayMode > 0 && !before) {
+  if (uOverlayMode > 0 && !before && inWindow) {
     float m = texture(uOverlay, uv).r;
     // An unusable coverage value (NaN) would turn every pixel it touches black: count it
     // as unselected so the photo always shows.

@@ -206,12 +206,27 @@ export function App() {
     };
   }, []);
 
+  // Phones' tap-to-hide view (see features/develop/View.tsx): the interface comes back with a short entrance.
+  const immersive = useStore(layout, (s) => s.immersive);
+  const [chromeReturn, setChromeReturn] = useState(false);
+  const [wasImmersive, setWasImmersive] = useState(false);
+  if (immersive !== wasImmersive) {
+    setWasImmersive(immersive);
+    setChromeReturn(!immersive);
+  }
+  useEffect(() => {
+    if (!chromeReturn) return;
+    const t = window.setTimeout(() => setChromeReturn(false), 400);
+    return () => clearTimeout(t);
+  }, [chromeReturn]);
   const isFileDrag = (e: DragEvent) => e.dataTransfer.types.includes("Files");
   return (
     <div
       className="app"
       data-backdrop={backdrop ? "on" : "off"}
       data-compact={compact}
+      data-immersive={immersive || undefined}
+      data-chrome-return={chromeReturn || undefined}
       onDragOver={(e) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();

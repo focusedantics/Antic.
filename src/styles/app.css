@@ -887,3 +887,23 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
   }
   .workspace.compact > .dock .dock-btn { flex: none; min-height: 52px; max-width: none; }
 }
+
+/* Tap-to-hide view (phones, features/develop/View.tsx): the photo alone, edge to edge on
+   black. The interface goes at once; the photo glides into place (DevelopEngine.glide). */
+.app[data-immersive] .topbar,
+.app[data-immersive] .dock,
+.app[data-immersive] .filmstrip,
+.app[data-immersive] .sheet,
+.app[data-immersive] .histogram-float { display: none !important; }
+.app[data-immersive] .develop-view { position: fixed; inset: 0; z-index: 40; background: #000; }
+.app[data-immersive] { background: #000; }
+/* Coming back: the bars fade in and the panel rises into place, as in Lightroom. */
+@media (prefers-reduced-motion: no-preference) {
+  .app[data-chrome-return] .topbar,
+  .app[data-chrome-return] .dock,
+  .app[data-chrome-return] .filmstrip,
+  .app[data-chrome-return] .histogram-float { animation: chrome-return 220ms ease-out both; }
+  .app[data-chrome-return] .sheet { animation: sheet-return 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+}
+@keyframes chrome-return { from { opacity: 0; } }
+@keyframes sheet-return { from { opacity: 0; transform: translateY(28px); } }

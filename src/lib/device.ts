@@ -7,7 +7,8 @@
  *
  * - `lite`: tight memory. Photos are kept on the GPU and exported at most
  *   `maxSide` px on the long side, the idle render-target pool is small, the
- *   viewer renders at most 2 device pixels per CSS pixel, fewer decode workers.
+ *   viewer renders at most 3 device pixels per CSS pixel (every iPhone screen: renders
+ *   stay sharp, and zoomed-in views only render what is on screen), fewer decode workers.
  * - `phone`: a handheld screen. Decorative animations (the glow, the export
  *   marble's motion, the Remove Background particles) give way to simple fades.
  *
@@ -54,7 +55,7 @@ export function profileFor(i: DeviceInputs): DeviceProfile {
   else if (i.override === "full") phone = lite = false;
   const cores = Math.max(1, i.cores || 4);
   return lite
-    ? { phone, lite, maxSide: LITE_MAX_SIDE, poolBudget: 64 * 1024 * 1024, dprCap: 2, workers: Math.max(1, Math.min(2, cores - 1)) }
+    ? { phone, lite, maxSide: LITE_MAX_SIDE, poolBudget: 64 * 1024 * 1024, dprCap: 3, workers: Math.max(1, Math.min(2, cores - 1)) }
     : { phone, lite, maxSide: Number.POSITIVE_INFINITY, poolBudget: 320 * 1024 * 1024, dprCap: Number.POSITIVE_INFINITY, workers: Math.max(1, Math.min(4, cores - 1)) };
 }
 

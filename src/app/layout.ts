@@ -23,9 +23,11 @@ export const layout = createStore<{
   sheet: SheetSide | null;
   /** CSS px of the viewer's bottom that a floating sheet covers (0 when none floats). */
   cover: number;
-}>(() => ({ compact: !!media?.matches, sideways: !!sideways?.matches, sheet: null, cover: 0 }));
+  /** Phones: a tap on the photo hid the interface; the photo fills the screen until the next tap. */
+  immersive: boolean;
+}>(() => ({ compact: !!media?.matches, sideways: !!sideways?.matches, sheet: null, cover: 0, immersive: false }));
 
-media?.addEventListener("change", (e) => layout.setState({ compact: e.matches, sheet: null }));
+media?.addEventListener("change", (e) => layout.setState({ compact: e.matches, sheet: null, immersive: false }));
 sideways?.addEventListener("change", (e) => layout.setState({ sideways: e.matches }));
 
 export const openSheet = (sheet: SheetSide | null) => layout.setState({ sheet });
