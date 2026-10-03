@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { toast } from "@/app/state";
 import type { MenuItem } from "@/components/Menu";
-import { aiImage, describeAiStatus, prepareObjectSelection, selectObject, selectSemantic, selectSubject } from "@/core/ai/client";
+import { aiImage, describeAiStatus, objectSelectionReady, prepareObjectSelection, selectObject, selectSemantic, selectSubject } from "@/core/ai/client";
 import { runCutout } from "@/components/cutoutFx";
 import type { RasterRecord } from "@/core/catalog/db";
 import { addComponent, addMask, aiTargetLabels, newComponent, setCutout, updateComponent, updateMask } from "@/core/develop/masks";
@@ -121,7 +121,8 @@ export async function objectClick(x: number, y: number, positive: boolean) {
   const points = [...(existing && existing.shape.kind === "ai" ? (existing.shape.points ?? []) : []), { x, y, positive }];
   try {
     const pendingObject = objectSelection.getState().pending;
-    if (!existing && !pendingObject) {
+    // The analysis is redone when the AI worker was ended while idle (phones free it quickly).
+    if (!objectSelectionReady(assetId)) {
       const { source, engine } = currentSource();
       await prepareObjectSelection(assetId, aiImage(engine.pipelineRef, source));
     }

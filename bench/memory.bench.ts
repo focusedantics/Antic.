@@ -222,6 +222,10 @@ test("phone memory: import, develop, swipe, masks, zoom", async ({ page, browser
     await page.getByRole("menuitemradio", { name: "Library" }).tap();
   });
 
+  await phase("idle 20 s", async () => {
+    await page.waitForTimeout(20_000);
+  });
+
   sampling = false;
   await sampler;
   const label = process.env.BENCH_LABEL ?? "run";

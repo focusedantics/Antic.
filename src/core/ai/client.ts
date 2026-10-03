@@ -53,8 +53,40 @@ aiPreferences.subscribe((s) => {
 let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+/** The photo the worker holds SAM embeddings for (object selection), if any. */
+let samKey: string | null = null;
+
+/**
+ * The worker is ended when idle: ONNX Runtime's WASM heap only ever grows, and loaded
+ * models hold their weights and GPU buffers. Ending it is the only way to give all of
+ * that back. Phones end it soon after each selection (longer while clicking out an
+ * object, whose image analysis would otherwise be redone); computers after a few
+ * minutes. Models come back from the browser's cache in a second or two.
+ */
+const IDLE_MS = () => (device.lite ? (samKey ? 90_000 : 15_000) : 300_000);
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleIdle() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    if (pending.size) return scheduleIdle();
+    endWorker();
+  }, IDLE_MS());
+}
+
+function endWorker() {
+  worker?.terminate();
+  worker = null;
+  samKey = null;
+}
+
+/** True when object selection for this photo can take clicks without analysing it again. */
+export const objectSelectionReady = (assetId: string) => samKey === assetId && !!worker;
 
 function getWorker() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
   if (worker) return worker;
   worker = new Worker(new URL("./ai.worker.ts", import.meta.url), { type: "module", name: "ai" });
   worker.onmessage = (event: MessageEvent<AiResponse>) => {
@@ -72,8 +104,7 @@ function getWorker() {
   worker.onerror = (event) => {
     for (const job of pending.values()) job.reject(new Error(event.message || "The AI worker stopped."));
     pending.clear();
-    worker?.terminate();
-    worker = null;
+    endWorker();
   };
   return worker;
 }
@@ -87,11 +118,12 @@ async function call<T>(label: string, request: Request, transfer: Transferable[]
     return await new Promise<T>((resolve, reject) => {
       const id = nextId++;
       pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      getWorker().postMessage({ ...request, id } as AiRequest, transfer);
+      getWorker().postMessage({ ...request, id, lite: device.lite } as AiRequest, transfer);
     });
   } finally {
     end();
     aiStatus.setState({ busy: null, model: null });
+    if (worker && !pending.size) scheduleIdle();
   }
 }
 
@@ -131,6 +163,7 @@ export async function selectSemantic(assetId: string, image: ImageInput, target:
 export async function prepareObjectSelection(assetId: string, image: ImageInput) {
   const copy = { ...image, data: new Uint8ClampedArray(image.data) };
   await call("Analyzing photo for object selection", { op: "sam-encode", key: assetId, image: copy }, [copy.data.buffer]);
+  samKey = assetId;
 }
 
 export async function selectObject(assetId: string, points: Point[]) {

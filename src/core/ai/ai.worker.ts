@@ -22,12 +22,14 @@ env.useBrowserCache = true;
 export type ImageInput = { data: Uint8ClampedArray; width: number; height: number };
 export type Point = { x: number; y: number; positive: boolean };
 
-export type AiRequest =
+/** `lite`: a phone or tablet (see lib/device): models are kept small and one at a time. */
+export type AiRequest = { lite?: boolean } & (
   | { id: number; op: "subject"; image: ImageInput; prefer: "quality" | "fast" | "offline" }
   | { id: number; op: "semantic"; image: ImageInput; target: "sky" | "person" }
   | { id: number; op: "sam-encode"; key: string; image: ImageInput }
   | { id: number; op: "sam-decode"; key: string; points: Point[] }
-  | { id: number; op: "device" };
+  | { id: number; op: "device" }
+);
 
 export type AiMask = { mask: Uint8Array; width: number; height: number; model: string; device: string };
 export type AiResponse =
@@ -61,15 +63,42 @@ function toRaw(image: ImageInput) {
 
 // ─── Model cache ────────────────────────────────────────────────────────────
 
+/** Set per request: on phones only one model stays loaded (see `cached`). */
+let lite = false;
+
+type Disposable = { dispose?: () => Promise<unknown> | unknown; release?: () => Promise<unknown> | unknown };
 const loaded = new Map<string, Promise<unknown>>();
-function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
-  let p = loaded.get(key) as Promise<T> | undefined;
-  if (!p) {
-    p = load();
-    loaded.set(key, p);
-    // A failed load (offline, blocked) must not poison later attempts.
-    p.catch(() => loaded.delete(key));
+
+/** Releases a loaded model's ONNX sessions (their WASM or GPU memory). */
+async function release(value: unknown) {
+  const parts = value && typeof value === "object" && "model" in value ? [(value as { model: unknown }).model] : [value];
+  for (const part of parts as Disposable[]) {
+    try {
+      if (part?.dispose) await part.dispose();
+      else if (part?.release) await part.release();
+    } catch (error) {
+      console.warn("[ai] could not release a model:", error);
+    }
   }
+}
+
+/**
+ * Loads a model once. On phones, loading one first releases the others: a subject
+ * model, DETR and SAM together are more than a phone's browser tab can hold.
+ */
+async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  let p = loaded.get(key) as Promise<T> | undefined;
+  if (p) return p;
+  if (lite)
+    for (const [other, model] of [...loaded]) {
+      loaded.delete(other);
+      if (other.startsWith("sam:")) sam = null;
+      await release(await model.catch(() => null));
+    }
+  p = load();
+  loaded.set(key, p);
+  // A failed load (offline, blocked) must not poison later attempts.
+  p.catch(() => loaded.delete(key));
   return p;
 }
 
@@ -163,15 +192,26 @@ async function subject(image: ImageInput, prefer: "quality" | "fast" | "offline"
 
 type Segmenter = (image: RawImage) => Promise<{ label: string; score: number; mask: RawImage }[]>;
 
+/**
+ * DETR's panoptic mask head runs once per query (100 of them) at a quarter of the input
+ * resolution: at its usual 800 × 1333 input that is gigabytes of activations. Phones run
+ * the 8-bit model on the CPU at a 400 px short side (a sixth of the pixels); sky and
+ * people are large regions, and the guided filter below restores the edges at full size.
+ */
+const LITE_PANOPTIC_SIZE = { shortest_edge: 400, longest_edge: 667 };
+
 async function semantic(image: ImageInput, target: "sky" | "person"): Promise<AiMask> {
-  const dev = await device();
-  const segmenter = (await cached(`panoptic:${dev}`, () =>
-    pipeline("image-segmentation", MODELS.panoptic.id, {
+  const dev = lite ? "wasm" : await device();
+  const segmenter = (await cached(`panoptic:${dev}:${lite}`, async () => {
+    const pipe = await pipeline("image-segmentation", MODELS.panoptic.id, {
       device: dev,
       dtype: MODELS.panoptic.dtype[dev],
       progress_callback: progress(MODELS.panoptic.label),
-    } as never),
-  )) as unknown as Segmenter;
+    } as never);
+    const processor = (pipe as unknown as { processor?: { image_processor?: { size?: unknown } } }).processor?.image_processor;
+    if (lite && processor) processor.size = LITE_PANOPTIC_SIZE;
+    return pipe;
+  })) as unknown as Segmenter;
   const segments = await segmenter(toRaw(image));
   const labels = SEMANTIC_LABELS[target];
   const parts = segments
@@ -198,7 +238,8 @@ type SamState = {
 let sam: SamState | null = null;
 
 async function samModel() {
-  const dev = await device();
+  // Phones: the 8-bit model on the CPU (its memory goes when the worker ends).
+  const dev = lite ? "wasm" : await device();
   return cached(`sam:${dev}`, async () => {
     const spec = MODELS.slimsam;
     const [model, processor] = await Promise.all([
@@ -246,11 +287,12 @@ async function samDecode(key: string, points: Point[]): Promise<AiMask> {
   for (let i = 0; i < w * h; i++) mask[i] = all[offset + i] ? 255 : 0;
   const scaled = w === sam.image.width && h === sam.image.height ? mask : resizeU8(mask, w, h, sam.image.width, sam.image.height);
   const refined = guidedFilter(scaled, sam.image.data, sam.image.width, sam.image.height, Math.max(2, Math.round(Math.max(sam.image.width, sam.image.height) / 250)), 1e-3);
-  return { mask: refined, width: sam.image.width, height: sam.image.height, model: MODELS.slimsam.label, device: await device() };
+  return { mask: refined, width: sam.image.width, height: sam.image.height, model: MODELS.slimsam.label, device: lite ? "wasm" : await device() };
 }
 
 self.onmessage = async (event: MessageEvent<AiRequest>) => {
   const r = event.data;
+  lite = !!r.lite;
   try {
     let result: AiResponse extends infer T ? (T extends { result: infer R } ? R : never) : never;
     switch (r.op) {
