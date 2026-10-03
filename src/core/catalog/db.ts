@@ -2,6 +2,7 @@ import { appleTouch } from "@/lib/device";
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import type { RecipeClip } from "@/core/develop/operations";
 import type { DevelopRecipe } from "@/core/develop/recipe";
+import { deleteStoredFile, type FileRef, fileStoreAvailable, isFileRef, readStoredFile, writeStoredFile } from "./file-store";
 import type { Asset, AssetId, Collection } from "./types";
 
 /**
@@ -71,7 +72,7 @@ export type DocumentRecord = {
 interface FocusedDB extends DBSchema {
   assets: { key: string; value: Asset; indexes: { fingerprint: string } };
   collections: { key: string; value: Collection };
-  originals: { key: string; value: Blob | StoredBytes };
+  originals: { key: string; value: Blob | StoredBytes | FileRef };
   thumbs: { key: string; value: ThumbRecord };
   rasters: { key: string; value: RasterRecord; indexes: { assetId: string } };
   presets: { key: string; value: PresetRecord };
@@ -79,7 +80,7 @@ interface FocusedDB extends DBSchema {
   documents: { key: string; value: DocumentRecord };
   settings: { key: string; value: unknown };
   videos: { key: string; value: VideoRecord };
-  videoFiles: { key: string; value: Blob | StoredBytes };
+  videoFiles: { key: string; value: Blob | StoredBytes | FileRef };
   looks: { key: string; value: unknown };
 }
 
@@ -137,7 +138,10 @@ export async function putAssets(assets: readonly Asset[]) {
 export async function deleteAssets(ids: readonly AssetId[]) {
   const db = await catalogDb();
   const tx = db.transaction(["assets", "originals", "thumbs", "rasters", "snapshots"], "readwrite");
+  const files: FileRef[] = [];
   for (const id of ids) {
+    const original = await tx.objectStore("originals").get(id);
+    if (isFileRef(original)) files.push(original);
     void tx.objectStore("assets").delete(id);
     void tx.objectStore("originals").delete(id);
     void tx.objectStore("thumbs").delete(id);
@@ -147,6 +151,7 @@ export async function deleteAssets(ids: readonly AssetId[]) {
       void tx.objectStore("snapshots").delete(key);
   }
   await tx.done;
+  for (const file of files) await deleteStoredFile(file);
 }
 
 export async function putCollection(collection: Collection) {
@@ -170,21 +175,51 @@ export async function findByFingerprint(fingerprint: string) {
 export type StoredBytes = { readonly bytes: ArrayBuffer; readonly type: string };
 
 const toBytes = async (blob: Blob): Promise<StoredBytes> => ({ bytes: await blob.arrayBuffer(), type: blob.type });
-const toBlob = (v: Blob | StoredBytes | undefined): Blob | undefined => (!v ? undefined : v instanceof Blob ? v : new Blob([v.bytes], { type: v.type }));
+const toBlob = async (v: Blob | StoredBytes | FileRef | undefined): Promise<Blob | undefined> =>
+  !v ? undefined : v instanceof Blob ? v : isFileRef(v) ? readStoredFile(v) : new Blob([v.bytes], { type: v.type });
 
 /** Largest file copied into memory to store it as bytes (videos can be gigabytes). */
 const BYTES_LIMIT = 600e6;
 
+/**
+ * A file to keep as an original or a clip. On iPhone and iPad it goes to the private file
+ * system (read back from disk, see file-store.ts), else as bytes; elsewhere as a Blob,
+ * falling back to the file system, then bytes, when the Blob is refused.
+ */
+async function storable(name: string, blob: Blob, attempt: (value: Blob | StoredBytes | FileRef) => Promise<void>) {
+  const toFile = async () => {
+    const ref = await writeStoredFile(name, blob);
+    try {
+      await attempt(ref);
+    } catch (error) {
+      await deleteStoredFile(ref);
+      throw error;
+    }
+  };
+  if (appleTouch()) {
+    if (await fileStoreAvailable()) {
+      try {
+        return await toFile();
+      } catch (error) {
+        console.warn("Could not keep the file in the private file system; storing it in the database.", error);
+      }
+    }
+    if (blob.size <= BYTES_LIMIT) return attempt(await toBytes(blob));
+  }
+  try {
+    await attempt(blob);
+  } catch (error) {
+    if (await fileStoreAvailable()) return toFile();
+    if (blob.size > BYTES_LIMIT) throw error;
+    await attempt(await toBytes(blob));
+  }
+}
+
 export async function putOriginal(id: AssetId, blob: Blob) {
   const db = await catalogDb();
-  // On iPhone and iPad, photos go in as bytes from the start; elsewhere only when a Blob is refused.
-  if (appleTouch() && blob.size <= BYTES_LIMIT) return void (await db.put("originals", await toBytes(blob), id));
-  try {
-    await db.put("originals", blob, id);
-  } catch (error) {
-    if (blob.size > BYTES_LIMIT) throw error;
-    await db.put("originals", await toBytes(blob), id);
-  }
+  const previous = await db.get("originals", id);
+  await storable(`original-${id}`, blob, async (value) => void (await db.put("originals", value, id)));
+  if (isFileRef(previous) && !isFileRef(await db.get("originals", id))) await deleteStoredFile(previous);
 }
 
 export async function getStoredOriginal(id: AssetId): Promise<Blob | undefined> {
@@ -255,19 +290,15 @@ export async function getVideo(id: string) {
 }
 export async function putVideo(record: VideoRecord, file?: Blob) {
   const db = await catalogDb();
-  const write = async (value?: Blob | StoredBytes) => {
+  const write = async (value?: Blob | StoredBytes | FileRef) => {
     const tx = db.transaction(["videos", "videoFiles"], "readwrite");
     await tx.objectStore("videos").put(record);
     if (value) await tx.objectStore("videoFiles").put(value, record.id);
     await tx.done;
   };
-  try {
-    await write(file);
-  } catch (error) {
-    // iOS can refuse picker files as Blobs (see StoredBytes); store the bytes when they fit in memory.
-    if (!file || file.size > BYTES_LIMIT) throw error;
-    await write(await toBytes(file));
-  }
+  if (!file) return write();
+  // iOS can refuse picker files as Blobs (see StoredBytes): see `storable`.
+  await storable(`video-${record.id}`, file, write);
 }
 export async function getVideoFile(id: string): Promise<Blob | undefined> {
   return toBlob(await (await catalogDb()).get("videoFiles", id));
@@ -275,9 +306,11 @@ export async function getVideoFile(id: string): Promise<Blob | undefined> {
 export async function deleteVideo(id: string) {
   const db = await catalogDb();
   const tx = db.transaction(["videos", "videoFiles"], "readwrite");
+  const file = await tx.objectStore("videoFiles").get(id);
   await tx.objectStore("videos").delete(id);
   await tx.objectStore("videoFiles").delete(id);
   await tx.done;
+  if (isFileRef(file)) await deleteStoredFile(file);
 }
 
 /** Saved looks (validated by core/looks when read). */

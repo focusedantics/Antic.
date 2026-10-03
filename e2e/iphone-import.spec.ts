@@ -18,14 +18,20 @@ async function jpeg(page: Page) {
   return Buffer.from(b64, "base64");
 }
 
-async function fresh(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("focused:prefs", JSON.stringify({ tourDone: true })));
+async function fresh(page: Page, fileStore?: "worker" | "off") {
+  await page.addInitScript((mode) => {
+    localStorage.setItem("focused:prefs", JSON.stringify({ tourDone: true }));
+    if (mode) localStorage.setItem("focused:file-store", mode);
+  }, fileStore);
   await page.goto("/");
-  await page.evaluate(() => indexedDB.deleteDatabase("focused-catalog"));
+  await page.evaluate(async () => {
+    indexedDB.deleteDatabase("focused-catalog");
+    await (await navigator.storage.getDirectory()).removeEntry("focused-files", { recursive: true }).catch(() => undefined);
+  });
   await page.reload();
 }
 
-/** The first value of the originals store, described (Blob or bytes). */
+/** The first value of the originals store, described (Blob, bytes, or a file in the private file system). */
 const storedOriginal = (page: Page) =>
   page.evaluate(
     () =>
@@ -35,7 +41,7 @@ const storedOriginal = (page: Page) =>
           const req = open.result.transaction("originals").objectStore("originals").getAll();
           req.onsuccess = () => {
             const v = req.result[0];
-            resolve(v instanceof Blob ? "blob" : v && v.bytes instanceof ArrayBuffer ? `bytes:${v.type}` : String(v));
+            resolve(v instanceof Blob ? "blob" : v && v.bytes instanceof ArrayBuffer ? `bytes:${v.type}` : v && typeof v.opfs === "string" ? `file:${v.type}:${v.size}` : String(v));
             open.result.close();
           };
         };
@@ -45,25 +51,53 @@ const storedOriginal = (page: Page) =>
 test.describe("iPhone", () => {
   test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
 
-  test("photo library import: the picker stays in the page, asks for every photo, and the original is stored as bytes", async ({ page }) => {
-    await fresh(page);
-    const buffer = await jpeg(page);
-    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).tap()]);
-    // iOS only reports the chosen files for an input that is in the document.
-    expect(await chooser.element().evaluate((el: HTMLInputElement) => [el.isConnected, el.accept, el.multiple])).toEqual([true, "image/*,video/*", true]);
-    await chooser.setFiles({ name: "IMG_0001.JPG", mimeType: "image/jpeg", buffer });
-    await expect(page.locator(".cell img")).toHaveCount(1, { timeout: 30_000 });
-    // The picker's input is gone once it has delivered.
-    await expect(page.locator('input[type="file"]')).toHaveCount(0);
-    expect(await storedOriginal(page)).toBe("bytes:image/jpeg");
-    // And it reads back: the photo opens in Develop.
-    await page.locator(".cell").first().tap();
-    await page.getByRole("button", { name: /^Workspace:/ }).tap();
-    await page.getByRole("menuitemradio", { name: "Develop" }).tap();
-    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
-    await expect(page.getByTestId("sheet").getByRole("slider", { name: "Exposure" })).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(".develop-status.error")).toHaveCount(0);
-  });
+  for (const fileStore of [undefined, "worker", "off"] as const)
+    test(`photo library import: the picker stays in the page, asks for every photo, and the original is kept ${fileStore === "off" ? "as bytes (no private file system)" : `in the private file system${fileStore ? " (worker writer)" : ""}`}`, async ({ page }) => {
+      await fresh(page, fileStore);
+      const buffer = await jpeg(page);
+      const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).tap()]);
+      // iOS only reports the chosen files for an input that is in the document.
+      expect(await chooser.element().evaluate((el: HTMLInputElement) => [el.isConnected, el.accept, el.multiple])).toEqual([true, "image/*,video/*", true]);
+      await chooser.setFiles({ name: "IMG_0001.JPG", mimeType: "image/jpeg", buffer });
+      await expect(page.locator(".cell img")).toHaveCount(1, { timeout: 30_000 });
+      // The picker's input is gone once it has delivered.
+      await expect(page.locator('input[type="file"]')).toHaveCount(0);
+      // Read back from disk on demand rather than held in memory: the bytes path is only a fallback.
+      expect(await storedOriginal(page)).toBe(fileStore === "off" ? "bytes:image/jpeg" : `file:image/jpeg:${buffer.length}`);
+      // And it reads back: the photo opens in Develop.
+      await page.locator(".cell").first().tap();
+      await page.getByRole("button", { name: /^Workspace:/ }).tap();
+      await page.getByRole("menuitemradio", { name: "Develop" }).tap();
+      await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Edit" }).tap();
+      await expect(page.getByTestId("sheet").getByRole("slider", { name: "Exposure" })).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator(".develop-status.error")).toHaveCount(0);
+      // Byte for byte the file that was imported, and gone from disk once the photo is deleted.
+      const back = await page.evaluate(async () => {
+        const { catalog } = await import("/src/core/catalog/store.ts" as string);
+        const { readOriginal } = await import("/src/core/catalog/originals.ts" as string);
+        const asset = [...catalog.getState().assets.values()][0];
+        const blob: Blob = await readOriginal(asset);
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let hash = 0;
+        for (const b of bytes) hash = (hash * 31 + b) >>> 0;
+        return { size: blob.size, type: blob.type, hash, id: asset.id };
+      });
+      let hash = 0;
+      for (const b of buffer) hash = (hash * 31 + b) >>> 0;
+      expect(back).toMatchObject({ size: buffer.length, type: "image/jpeg", hash });
+      const files = () => page.evaluate(async () => {
+        const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("focused-files", { create: true });
+        const names: string[] = [];
+        for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) names.push(name);
+        return names;
+      });
+      expect(await files()).toEqual(fileStore === "off" ? [] : [`original-${back.id}`]);
+      await page.evaluate(async (id) => {
+        const { deleteAssets } = await import("/src/core/catalog/db.ts" as string);
+        await deleteAssets([id]);
+      }, back.id);
+      expect(await files()).toEqual([]);
+    });
 
   test("the Library's top bar has a clear Import button, also once photos are there", async ({ page }) => {
     await fresh(page);
