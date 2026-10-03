@@ -183,6 +183,45 @@ export function compareAssets(key: SortKey, descending: boolean) {
   };
 }
 
+/**
+ * Ranks of strings in collator order (strings the collator finds equal share a rank),
+ * so a sort compares integers instead of calling the collator N log N times (80 ms for
+ * 20,000 file names, several times that on a phone, on every catalog change).
+ */
+function collationRanks(values: Iterable<string>): Map<string, number> {
+  const unique = [...new Set(values)].sort(collator.compare);
+  const ranks = new Map<string, number>();
+  let rank = 0;
+  unique.forEach((v, i) => {
+    if (i > 0 && collator.compare(unique[i - 1], v) !== 0) rank++;
+    ranks.set(v, rank);
+  });
+  return ranks;
+}
+
+/** File-name ranks of the whole catalog, kept until a name appears that it lacks (ratings, flags and edits keep it). */
+let nameRanks: Map<string, number> | null = null;
+
+function fileNameRanks(all: readonly Asset[]): Map<string, number> {
+  if (!nameRanks || all.some((a) => !nameRanks!.has(a.fileName))) nameRanks = collationRanks(all.map((a) => a.fileName));
+  return nameRanks;
+}
+
+/** Sorts like `compareAssets`, with each value worked out once and strings compared by rank. */
+export function sortAssets(list: Asset[], key: SortKey, descending: boolean, all: readonly Asset[] = list): Asset[] {
+  const dir = descending ? -1 : 1;
+  const names = fileNameRanks(all);
+  const values = list.map((a) => sortValue(a, key));
+  const strings = typeof values[0] === "string" ? (key === "fileName" ? null : collationRanks(values as string[])) : null;
+  const rows = list.map((a, i) => {
+    const name = names.get(a.fileName) ?? 0;
+    const v = values[i];
+    return { a, primary: typeof v === "number" ? v : key === "fileName" ? name : strings!.get(v)!, name };
+  });
+  rows.sort((x, y) => (x.primary - y.primary || x.name - y.name || x.a.id.localeCompare(y.a.id)) * dir);
+  return rows.map((r) => r.a);
+}
+
 export type StackInfo = { readonly count: number; readonly expanded: boolean };
 
 /**
@@ -200,8 +239,12 @@ export function runQuery(
     all.push(a);
     if (a.importedAt > latestImport) latestImport = a.importedAt;
   }
-  const matched = all.filter((a) => inSource(a, query.source, collections, latestImport) && matchesFilter(a, query.filter));
-  matched.sort(compareAssets(query.sort, query.descending));
+  const matched = sortAssets(
+    all.filter((a) => inSource(a, query.source, collections, latestImport) && matchesFilter(a, query.filter)),
+    query.sort,
+    query.descending,
+    all,
+  );
   const stacks = new Map<string, StackInfo>();
   if (!query.collapseStacks) return { ids: matched.map((a) => a.id), stacks };
   const counts = new Map<string, number>();

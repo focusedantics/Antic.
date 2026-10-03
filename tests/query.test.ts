@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyFilter, type LibraryQuery, matchesSmart, runQuery } from "@/core/catalog/query";
+import { compareAssets, emptyFilter, type LibraryQuery, matchesSmart, runQuery, type SortKey, sortAssets } from "@/core/catalog/query";
 import type { Asset } from "@/core/catalog/types";
 
 let n = 0;
@@ -74,5 +74,34 @@ describe("library query", () => {
     expect(collapsed.ids).toEqual(["s0", "x"]);
     expect(collapsed.stacks.get("S")?.count).toBe(2);
     expect(runQuery(stacked, query({ expandedStacks: ["S"] }), new Map()).ids).toEqual(["s1", "s0", "x"]);
+  });
+});
+
+describe("sorting by rank", () => {
+  it("orders exactly like the collator comparator, ties and all, for every key and direction", () => {
+    let seed = 7;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    const stems = ["IMG_", "img_", "DSC", "dsc", "Été ", "ete ", "photo-", "Photo ", "_A", "a"];
+    const makes = ["Apple", "apple", "SONY", "Sony", "Canon", "", "Fujifilm"];
+    const photos: Asset[] = [];
+    for (let i = 0; i < 400; i++)
+      photos.push(
+        asset({
+          fileName: `${stems[Math.floor(random() * stems.length)]}${Math.floor(random() * 120)}${random() < 0.3 ? ".JPG" : ".jpg"}`,
+          rating: Math.floor(random() * 6),
+          captureTime: random() < 0.5 ? Math.floor(random() * 50) : undefined,
+          fileModified: Math.floor(random() * 50),
+          importedAt: Math.floor(random() * 5),
+          byteSize: Math.floor(random() * 20),
+          exif: { make: makes[Math.floor(random() * makes.length)], model: random() < 0.5 ? "X1" : "x1" },
+          developRevision: random() < 0.3 ? 1 : 0,
+          develop: random() < 0.3 ? ({} as Asset["develop"]) : undefined,
+        }),
+      );
+    for (const key of ["captureTime", "importedAt", "fileName", "rating", "byteSize", "camera", "edited"] as SortKey[])
+      for (const descending of [false, true]) {
+        const expected = [...photos].sort(compareAssets(key, descending)).map((a) => a.id);
+        expect(sortAssets([...photos], key, descending).map((a) => a.id), `${key} ${descending ? "descending" : "ascending"}`).toEqual(expected);
+      }
   });
 });
