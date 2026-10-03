@@ -6,6 +6,8 @@
 
 export type TextureFormat = "rgba16f" | "rgba8" | "r16f" | "r8" | "srgba8" | "rgb16ui" | "rgba16ui";
 
+const BYTES_PER_TEXEL: Record<TextureFormat, number> = { rgba16f: 8, rgba8: 4, srgba8: 4, r16f: 2, r8: 1, rgb16ui: 6, rgba16ui: 8 };
+
 type FormatInfo = { internal: number; format: number; type: number; filterable: boolean; integer?: boolean };
 
 export type Texture = {
@@ -120,7 +122,9 @@ export class Gpu {
   private readonly programs = new Map<string, Program>();
   private readonly vao: WebGLVertexArrayObject;
   private readonly formats: Record<TextureFormat, FormatInfo>;
-  private live = new Set<WebGLTexture>();
+  /** Live textures and their approximate size in bytes (mip levels included). */
+  private live = new Map<WebGLTexture, number>();
+  private bytes = 0;
 
   constructor(readonly canvas: HTMLCanvasElement | OffscreenCanvas) {
     const gl = canvas.getContext("webgl2", {
@@ -184,7 +188,9 @@ export class Gpu {
     const wrap = options.wrap === "repeat" ? gl.REPEAT : gl.CLAMP_TO_EDGE;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
-    this.live.add(texture);
+    const size = width * height * BYTES_PER_TEXEL[format] * (options.mipmaps ? 4 / 3 : 1);
+    this.live.set(texture, size);
+    this.bytes += size;
     return { texture, width, height, format, mipmaps: !!options.mipmaps };
   }
 
@@ -228,6 +234,7 @@ export class Gpu {
     const { gl } = this;
     if ("framebuffer" in texture) gl.deleteFramebuffer(texture.framebuffer);
     gl.deleteTexture(texture.texture);
+    this.bytes -= this.live.get(texture.texture) ?? 0;
     this.live.delete(texture.texture);
   }
 
@@ -253,6 +260,11 @@ export class Gpu {
   /** Number of textures currently allocated, for leak checks. */
   get textureCount() {
     return this.live.size;
+  }
+
+  /** Approximate GPU memory held by live textures, in bytes. */
+  get textureBytes() {
+    return this.bytes;
   }
 
   // ─── Programs ────────────────────────────────────────────────────────────

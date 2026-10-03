@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "bench": "playwright test -c bench/playwright.config.ts"
   },
   "dependencies": {
     "@fontsource/anton": "5.3.0",

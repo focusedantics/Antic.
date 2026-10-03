@@ -121,6 +121,18 @@ export class DevelopEngine {
     return this.pipeline;
   }
 
+  /** Memory the engine holds, for diagnostics and the memory benchmark (bench/). */
+  stats() {
+    let cpuBytes = 0;
+    for (const s of this.sources.values()) {
+      const d = s.data?.data;
+      if (!d) continue;
+      if (d.kind === "rgb16-linear") cpuBytes += d.data.byteLength;
+      else if (!(d.image instanceof ImageBitmap) || d.image.width > 0) cpuBytes += d.width * d.height * 4;
+    }
+    return { gpuBytes: this.gpu.textureBytes, textures: this.gpu.textureCount, sources: this.sources.size, cpuBytes };
+  }
+
   private createCompositor() {
     return new Compositor(this.gpu, this.pipeline, this.maskRenderer, (id) => this.compositeSource(id));
   }

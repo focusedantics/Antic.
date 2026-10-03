@@ -5,3 +5,4 @@ playwright-report
 *.local
 .DS_Store
 .scratch
+bench/results
