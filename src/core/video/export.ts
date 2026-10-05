@@ -12,12 +12,21 @@ import { device } from "@/lib/device";
 import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
+import { aacAudioSpecificConfig, aacObjectType } from "./aac";
 import { audioParts, decodeClipAudio, Soundtrack } from "./soundtrack";
 import { type ClipInfo, compile, frameAt, isUntouched } from "./timeline";
 import { i420Frame, rotateI420, visibleI420 } from "./yuv";
 
 export type ExportProgress = { readonly done: number; readonly total: number; readonly stage: string };
-export type ExportResult = { readonly blob: Blob; readonly extension: "mkv" | "mp4"; readonly frames: number; readonly lossless: boolean; readonly copied: boolean };
+export type ExportResult = {
+  readonly blob: Blob;
+  readonly extension: "mkv" | "mp4";
+  readonly frames: number;
+  readonly lossless: boolean;
+  readonly copied: boolean;
+  /** Said to the user with the result: the clip has sound this device couldn't decode, so the file has none. */
+  readonly note?: string;
+};
 
 const MICRO = 1e6;
 
@@ -138,6 +147,7 @@ async function run(
 
   // ── Audio ────────────────────────────────────────────────────────────────
   let soundtrack: Channels | null = null;
+  let note: string | undefined;
   if (edit.output.audio) {
     onProgress({ done: 0, total: 1, stage: "Rendering the soundtrack…" });
     const engine = new Soundtrack();
@@ -153,6 +163,8 @@ async function run(
       engine.dispose();
     }
     signal.throwIfAborted();
+    // Sound the clips have but nothing here could decode: never a quietly silent file.
+    if (!soundtrack && [...clips.values()].some((m) => m.media.audio)) note = "The sound couldn't be decoded on this device, so the video was saved without it.";
   }
 
   // ── Muxer ────────────────────────────────────────────────────────────────
@@ -318,7 +330,16 @@ async function run(
         }
       } else {
         let audioFailure: unknown = null;
-        const audioEncoder = new AudioEncoder({ output: (chunk, meta) => mp4!.addAudioChunk(chunk, meta), error: (e) => (audioFailure = e) });
+        // AAC: the AudioSpecificConfig is ours, not the encoder's (see aac.ts: Safari's is
+        // wrong, and the MP4 it makes plays silent).
+        const config = audioCodec.config;
+        const objectType = aacObjectType(config.codec);
+        const asc = objectType !== null ? aacAudioSpecificConfig(SAMPLE_RATE, 2, objectType) : null;
+        const output = (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => {
+          if (asc) meta = { ...meta, decoderConfig: { ...meta?.decoderConfig, codec: config.codec, sampleRate: SAMPLE_RATE, numberOfChannels: 2, description: asc } };
+          mp4!.addAudioChunk(chunk, meta);
+        };
+        const audioEncoder = new AudioEncoder({ output, error: (e) => (audioFailure = e) });
         audioEncoder.configure(audioCodec.config);
         for (let i = 0; i < l.length; i += block) {
           const n = Math.min(block, l.length - i);
@@ -337,10 +358,10 @@ async function run(
     }
     if (mkv) {
       mkv.finalize();
-      return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false };
+      return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false, note };
     }
     mp4!.finalize();
-    return { blob: new Blob([mp4Target.buffer], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false };
+    return { blob: new Blob([mp4Target.buffer], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note };
   } finally {
     for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();

@@ -318,7 +318,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [firstFrames, setFirstFrames] = useState<Record<string, ExportPreview>>({});
   const [item, setItem] = useState(0);
   const [mood, setMood] = useState<MarbleMood>("idle");
-  const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean } | null>(null);
+  const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean; notes: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => () => controllerRef.current?.abort(), []);
@@ -337,6 +337,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     let frames = 0;
     let lossless = true;
     let copied = true;
+    const notes = new Set<string>();
     setError(null);
     const started = performance.now();
     setMood("working");
@@ -362,6 +363,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         frames += out.frames;
         lossless &&= out.lossless;
         copied &&= out.copied;
+        if (out.note) notes.add(chosen.length > 1 ? `${clip.name}: ${out.note}` : out.note);
       }
       setProgress({ done: 1, total: 1, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
       await sink.finish();
@@ -370,8 +372,9 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       setMood("done");
       setProgress({ done: 1, total: 1, label: `Saved ${count} video${count === 1 ? "" : "s"} ✓` });
       await sleep(PACE.doneBeat);
-      setResult({ count, bytes, frames, lossless, copied });
+      setResult({ count, bytes, frames, lossless, copied, notes: [...notes] });
       toast(`Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
+      for (const n of notes) toast(n, "error");
     } catch (err) {
       if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -431,6 +434,11 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         <p data-testid="export-result">
           Saved {result.count} video{result.count === 1 ? "" : "s"} · {result.frames} frames, none dropped · {formatBytes(result.bytes)} · {describeDestination(destination)}
           {result.copied ? " · original frames copied bit for bit" : result.lossless ? " · lossless" : ""}
+          {result.notes.map((n) => (
+            <span key={n} style={{ display: "block", color: "var(--danger)" }}>
+              {n}
+            </span>
+          ))}
         </p>
       ) : (
         !busy && (
