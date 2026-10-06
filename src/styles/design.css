@@ -145,7 +145,15 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 
 /* Carousels */
 .slides-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--panel); }
-.slides-bar .slides { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* Room above and to the right inside the scrolling strip, so the current slide's ⋯ is not cut off. */
+.slides-bar .slides { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 8px 8px 0 0; margin-top: -8px; --fade-before: #000; --fade-after: #000; mask-image: linear-gradient(90deg, var(--fade-before), #000 22px, #000 calc(100% - 22px), var(--fade-after)); }
+.slides-bar .slides::-webkit-scrollbar { display: none; }
+.slides-bar .slides[data-more-before="true"] { --fade-before: transparent; }
+.slides-bar .slides[data-more-after="true"] { --fade-after: transparent; }
+/* On a phone the slides get the room: tap or swipe the strip instead of ‹ ›, and Preview is its icon. */
+:root[data-compact="true"] .slides-bar { gap: 5px; padding: 6px 8px; }
+:root[data-compact="true"] .slides-bar .slide-step { display: none; }
+:root[data-compact="true"] .slide-preview { min-width: 34px; height: 30px; justify-content: center; }
 .slide-item { position: relative; display: inline-flex; }
 .slide-chip {
   flex: none; min-width: 34px; height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line-strong);

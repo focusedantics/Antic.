@@ -249,14 +249,43 @@ export function SlidesBar({ onPreview }: { onPreview: () => void }) {
   useStore(composite, (s) => s.view);
   const [picking, setPicking] = useState<{ after?: number } | null>(null);
   const current = currentSlide();
+  const strip = useRef<HTMLDivElement>(null);
+  const n = doc ? slideCount(doc) : 0;
+  // More slides than fit: the strip scrolls; its edges fade where there are more to see.
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const edges = () => {
+      el.dataset.moreBefore = String(el.scrollLeft > 1);
+      el.dataset.moreAfter = String(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    };
+    edges();
+    el.addEventListener("scroll", edges, { passive: true });
+    const sizes = new ResizeObserver(edges);
+    sizes.observe(el);
+    return () => {
+      el.removeEventListener("scroll", edges);
+      sizes.disconnect();
+    };
+  }, [n, !!doc]);
+  // The slide being worked on (with its ⋯) is always in view in the strip.
+  useEffect(() => {
+    const el = strip.current;
+    const chip = current === null ? null : el?.querySelectorAll<HTMLElement>(".slide-item")[current];
+    if (!el || !chip) return;
+    const pad = 24;
+    const box = el.getBoundingClientRect();
+    const r = chip.getBoundingClientRect();
+    if (r.left - pad < box.left) el.scrollLeft -= box.left - (r.left - pad);
+    else if (r.right + pad > box.right) el.scrollLeft += r.right + pad - box.right;
+  }, [current, n]);
   if (!doc) return null;
-  const n = slideCount(doc);
   return (
     <div className="slides-bar" role="toolbar" aria-label="Slides">
-      <button type="button" className="btn small ghost" aria-label="Previous slide" disabled={current === null ? false : current === 0} onClick={() => focusSlide(current === null ? 0 : current - 1)}>
+      <button type="button" className="btn small ghost slide-step" aria-label="Previous slide" disabled={current === null ? false : current === 0} onClick={() => focusSlide(current === null ? 0 : current - 1)}>
         ‹
       </button>
-      <div className="slides" role="group" aria-label={`${n} slides`}>
+      <div ref={strip} className="slides" role="group" aria-label={`${n} slides`}>
         {doc.carousel && (
           <button type="button" className="slide-chip all" aria-pressed={current === null} onClick={showAllSlides}>
             All
@@ -293,12 +322,12 @@ export function SlidesBar({ onPreview }: { onPreview: () => void }) {
         </button>
       </div>
       {picking && <SlideTemplates after={picking.after} onClose={() => setPicking(null)} />}
-      <button type="button" className="btn small ghost" aria-label="Next slide" disabled={current !== null && current >= n - 1} onClick={() => focusSlide(current === null ? 0 : current + 1)}>
+      <button type="button" className="btn small ghost slide-step" aria-label="Next slide" disabled={current !== null && current >= n - 1} onClick={() => focusSlide(current === null ? 0 : current + 1)}>
         ›
       </button>
       {doc.carousel && (
-        <button type="button" className="btn small" onClick={onPreview} title="Swipe through the carousel as it will be posted">
-          <Icon name="play" size={12} /> Preview
+        <button type="button" className="btn small slide-preview" aria-label="Preview" onClick={onPreview} title="Swipe through the carousel as it will be posted">
+          <Icon name="play" size={12} /> <span className="slide-add-label">Preview</span>
         </button>
       )}
     </div>

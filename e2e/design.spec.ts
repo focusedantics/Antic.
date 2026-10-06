@@ -697,6 +697,38 @@ test.describe("phone: carousels", () => {
     await expect(page.locator(".carousel-count")).toHaveText("1/3");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
+
+  test("with many slides every one is in reach, and a slide can be deleted from its ⋯", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).tap();
+    await page.getByRole("button", { name: /^Carousel square, 3 slides/ }).tap();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    const add = bar.getByRole("button", { name: "Add slide", exact: true });
+    await add.tap();
+    await add.tap();
+    // Five slides: All and all five buttons fit beside + and Template.
+    const strip = (await bar.getByRole("group", { name: "5 slides" }).boundingBox())!;
+    for (let i = 1; i <= 5; i++) {
+      const chip = (await bar.getByRole("button", { name: `Slide ${i}`, exact: true }).boundingBox())!;
+      expect(chip.x, `slide ${i}`).toBeGreaterThanOrEqual(strip.x - 1);
+      expect(chip.x + chip.width, `slide ${i}`).toBeLessThanOrEqual(strip.x + strip.width + 1);
+    }
+    // More than fit: the strip scrolls to the slide being worked on, whose ⋯ shows whole.
+    for (let i = 0; i < 4; i++) await add.tap();
+    const strip9 = (await bar.getByRole("group", { name: "9 slides" }).boundingBox())!;
+    await expect(bar.getByRole("button", { name: "Slide 9", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const more = bar.getByRole("button", { name: "Slide 9 options" });
+    const m = (await more.boundingBox())!;
+    expect(m.y).toBeGreaterThanOrEqual(strip9.y - 1);
+    expect(m.x + m.width).toBeLessThanOrEqual(strip9.x + strip9.width + 1);
+    page.once("dialog", (d) => d.accept());
+    await more.tap();
+    await page.getByRole("menuitem", { name: "Delete slide…" }).tap();
+    await expect(bar.getByRole("group", { name: "8 slides" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
 });
 
 /** Pixels between red and white (a soft edge) along row `y` and column `x` of an exported PNG. */
