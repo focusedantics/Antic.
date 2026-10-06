@@ -63,6 +63,26 @@ const pill = (k: Kit, x: number, y: number, w: number, h: number, fill: string, 
 
 const P = (doc: Pick<CompositeDocument, "width" | "height">, w: number, h: number) => kit(doc, w, h, 1);
 
+/**
+ * The "yes / but" post: the edited photo over the same photo as shot, each with a word
+ * low on it. The lower frame shows the photo before its Develop edits, and filling the
+ * upper one fills it too, so one photo makes the post.
+ */
+function yesBut(k: Kit, height: number, photoHeight: number, gap: number, size: number): Layer[] {
+  const top = (height - photoHeight * 2 - gap) / 2;
+  const below = top + photoHeight + gap;
+  const caption = { size, font: PLAYFAIR, weight: 400, color: "#ffffff" };
+  // A faint shadow keeps the words readable on a bright sky.
+  const soft = fx(k, { shadow: { color: "#000000", opacity: 0.35, angle: 90, distance: 2, blur: 18, spread: 0 } });
+  const word = (y: number, value: string) => text(k, 20, y + photoHeight * 0.86 - size * 0.8, 1040, size * 1.6, value, caption, { name: `“${value}”`, fx: soft });
+  return [
+    frame(k, 20, top, 1040, photoHeight, "rectangle", { name: "Edited photo", placeholder: "#d8a35f" }),
+    frame(k, 20, below, 1040, photoHeight, "rectangle", { name: "Before edits", placeholder: "#8e949c", original: true }),
+    word(top, "yes"),
+    word(below, "but"),
+  ];
+}
+
 export const TEMPLATES: readonly Template[] = [
   // ─── Posts (1080 × 1080 / 1350) ───
   {
@@ -171,6 +191,16 @@ export const TEMPLATES: readonly Template[] = [
         ...pill(k, 800, 960, 240, 80, "#ffffff", "AFTER", "#111111", 34),
       ];
     },
+  },
+  {
+    id: "post-yes-but",
+    name: "Yes / but (edit vs. as shot)",
+    category: "Posts",
+    tags: ["yes but", "before after", "edit", "editing", "sooc", "straight out of camera", "raw", "comparison", "photography", "reel"],
+    width: 1080,
+    height: 1350,
+    background: "#f7f6f3",
+    build: (doc) => yesBut(P(doc, 1080, 1350), 1350, 655, 4, 72),
   },
   {
     id: "post-tips",
@@ -290,6 +320,16 @@ export const TEMPLATES: readonly Template[] = [
         element(k, "doodle-circle", "#e0457b", 0.3, 860, 1720, 0),
       ];
     },
+  },
+  {
+    id: "story-yes-but",
+    name: "Yes / but story",
+    category: "Stories",
+    tags: ["yes but", "before after", "edit", "editing", "sooc", "straight out of camera", "raw", "comparison", "photography", "reel", "story"],
+    width: 1080,
+    height: 1920,
+    background: "#0b0b0b",
+    build: (doc) => yesBut(P(doc, 1080, 1920), 1920, 693, 6, 80),
   },
   {
     id: "story-poll",

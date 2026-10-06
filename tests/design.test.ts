@@ -105,6 +105,11 @@ describe("path, frame and style layers", () => {
     expect(j1.shape).toEqual({ kind: "rectangle", points: 48, ratio: 0, round: 0 });
     expect(j1.fx).toEqual({ shadow: { color: "#000000", opacity: 1, angle: 90, distance: 10, blur: 0, spread: 0 } });
     expect(j2.paths).toEqual([{ closed: false, nodes: [{ x: 100, y: 0, in: { x: 0.5, y: 0 } }] }]);
+    // "Before edits" frames: only a real true is kept.
+    const asShot = (original: unknown) => (sanitizeDocument({ ...saved, layers: [{ ...frame, original }] }).layers[0] as SlotLayer).original;
+    expect(asShot(true)).toBe(true);
+    expect(asShot("yes")).toBeUndefined();
+    expect(asShot(undefined)).toBeUndefined();
     // Layer blur: kept when positive, clamped, dropped when zero or junk.
     const blurred = (fx: unknown) => (sanitizeDocument({ ...saved, layers: [{ ...star, fx }] }).layers[0] as PathLayer).fx;
     expect(blurred({ blur: 12 })).toEqual({ blur: 12 });

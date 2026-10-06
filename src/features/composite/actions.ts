@@ -6,7 +6,7 @@ import { getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
 import type { CompositeDocument, Layer } from "@/core/document/model";
-import { createDocument, documentAssets, flatten, imageLayer, insertLayer, updateLayer } from "@/core/document/operations";
+import { createDocument, documentAssets, flatten, imageLayer, insertLayer, updateLayer, updateLayers } from "@/core/document/operations";
 import { chooseFiles, pickerAccept } from "@/lib/files";
 import { acceptAttribute } from "@/core/image/formats";
 import { fingerprint, importItems, itemsFromFileList } from "@/core/catalog/import";
@@ -84,8 +84,15 @@ export async function importPhotosFromDevice(multiple = true): Promise<string[]>
 }
 
 /** Puts a photo in a frame (replacing the one there), centred and unzoomed. */
-export function fillSlot(slotId: string, assetId: string) {
-  editDocument("Photo in frame", (d) => updateLayer(d, slotId, (l) => (l.kind === "slot" ? { ...l, assetId, fit: { zoom: 1, x: 0, y: 0 } } : l)));
+/**
+ * Puts a photo in a frame. With `pair`, empty "before edits" frames get the same photo
+ * (one undoable step), so one photo fills a before/after design.
+ */
+export function fillSlot(slotId: string, assetId: string, pair = true) {
+  editDocument("Photo in frame", (d) => {
+    const before = pair ? flatten(d.layers).filter((l) => l.kind === "slot" && l.original && !l.assetId && !l.locked && l.id !== slotId).map((l) => l.id) : [];
+    return updateLayers(d, [slotId, ...before], (l) => (l.kind === "slot" ? { ...l, assetId, fit: { zoom: 1, x: 0, y: 0 } } : l));
+  });
 }
 
 /**
@@ -117,10 +124,12 @@ export async function placePhotos(ids: readonly string[]) {
   const first = selection.at(-1);
   const order = first && empty.includes(first) ? [first, ...empty.filter((id) => id !== first)] : empty;
   const queue = [...ids];
+  // One photo pairs with "before edits" frames; several go one per frame.
+  const pair = ids.length === 1;
   for (const slot of order) {
     const id = queue.shift();
     if (!id) break;
-    fillSlot(slot, id);
+    fillSlot(slot, id, pair);
   }
   if (queue.length) await addAssetsToComposite(queue);
 }

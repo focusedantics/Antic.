@@ -968,3 +968,84 @@ test.describe("phone: reordering layers", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });
+
+/** Average brightness (0–255) of small squares around document points, from an exported PNG. */
+async function exportedLuma(page: Page, points: [number, number][]) {
+  await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+  const dialog = page.getByRole("dialog", { name: /^Export/ });
+  const [file] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+  const png = readFileSync(await file.path()).toString("base64");
+  return page.evaluate(
+    async ([b64, pts]) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+      const g = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      return pts.map(([x, y]) => {
+        const d = g.getImageData(x - 10, y - 10, 20, 20).data;
+        let sum = 0;
+        for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        return sum / (d.length / 4);
+      });
+    },
+    [png, points] as const,
+  );
+}
+
+test.describe("computer: yes / but template", () => {
+  test("one photo fills both frames; the lower one shows it before its Develop edits, after a reload too", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("searchbox").first().fill("yes but");
+    await page.locator(".template-card", { hasText: "Yes / but (edit vs. as shot)" }).click();
+    await expect(layerNames(page)).toHaveCount(4);
+    const right = page.locator("aside.side.right");
+    // The lower frame is set to show the photo as shot.
+    await row(page, "Before edits").locator(".name").click();
+    await expect(right.getByRole("checkbox", { name: /Before edits/ })).toBeChecked();
+    await row(page, "Edited photo").locator(".name").click();
+    await expect(right.getByRole("checkbox", { name: /Before edits/ })).not.toBeChecked();
+
+    // One photo in the upper frame fills the lower one too, in one undo step.
+    await right.getByRole("button", { name: "Add photo…" }).click();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("menuitem", { name: "From this device…" }).click()]);
+    await chooser.setFiles(await jpeg(page, "#707070"));
+    await expect(right.getByRole("button", { name: "Replace photo…" })).toBeVisible({ timeout: 30_000 });
+    await row(page, "Before edits").locator(".name").click();
+    await expect(right.getByRole("button", { name: "Replace photo…" })).toBeVisible();
+    // Frame centres: upper (540, 345), lower (540, 1004).
+    const centres: [number, number][] = [[540, 345], [540, 1004]];
+    const [a, b] = await exportedLuma(page, centres);
+    expect(Math.abs(a - b)).toBeLessThan(4);
+
+    // Brighten the photo in Develop: only the upper frame follows.
+    await go(page, "Library");
+    await page.locator(".cell").first().click();
+    await page.keyboard.press("d");
+    const exposure = page.getByRole("slider", { name: "Exposure" });
+    await expect(exposure).toBeVisible();
+    await exposure.focus();
+    for (let i = 0; i < 15; i++) await page.keyboard.press("Shift+ArrowRight");
+    await page.waitForTimeout(1500);
+    await go(page, "Design");
+    // Design shows the open design, or its home: wait for one, then open the design if needed.
+    await expect(page.locator(".design-tile, .layer-list .layer-row").first()).toBeVisible();
+    const tile = page.locator(".design-tile").first();
+    if (await tile.isVisible()) await tile.getByRole("button", { name: /^Open/ }).click();
+    await expect(layerNames(page)).toHaveCount(4);
+    const [edited, asShot] = await exportedLuma(page, centres);
+    expect(edited).toBeGreaterThan(asShot + 40);
+    expect(Math.abs(asShot - b)).toBeLessThan(4);
+
+    // The setting is data: it survives a reload.
+    await page.waitForTimeout(1200);
+    await page.reload();
+    await go(page, "Design");
+    // After a reload Design starts at its home: open the design from there.
+    await page.locator(".design-tile").first().getByRole("button", { name: /^Open/ }).click();
+    await expect(layerNames(page)).toHaveCount(4);
+    const [edited2, asShot2] = await exportedLuma(page, centres);
+    expect(Math.abs(edited2 - edited)).toBeLessThan(4);
+    expect(Math.abs(asShot2 - asShot)).toBeLessThan(4);
+  });
+});

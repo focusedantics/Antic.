@@ -213,4 +213,22 @@ export function recipeFor(assetId: AssetId): DevelopRecipe | null {
   return recipe;
 }
 
+const originals = new WeakMap<DevelopRecipe, DevelopRecipe>();
+
+/**
+ * A photo as shot: the default recipe with none of its edits, but with the edited
+ * recipe's crop, rotation and straightening, so an edited and an unedited copy line up
+ * side by side. One object per edited recipe, so renders keyed by identity stay cached.
+ */
+export function originalRecipeFor(assetId: AssetId): DevelopRecipe | null {
+  const edited = recipeFor(assetId);
+  if (!edited) return null;
+  let recipe = originals.get(edited);
+  if (!recipe) {
+    recipe = { ...createDefaultRecipe(infoFor(assetId)), geometry: edited.geometry };
+    originals.set(edited, recipe);
+  }
+  return recipe;
+}
+
 export const colorInfoFor = infoFor;

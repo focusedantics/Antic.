@@ -261,7 +261,15 @@ export type PathLayer = LayerBase & { readonly kind: "path"; readonly shape: Sma
  * panned by `fit`; without a photo it shows a placeholder. Replacing the photo keeps the
  * frame, transform, styles and mask.
  */
-export type SlotLayer = LayerBase & { readonly kind: "slot"; readonly frame: SmartShape; readonly assetId: string | null; readonly fit: SlotFit; readonly placeholder: string };
+export type SlotLayer = LayerBase & {
+  readonly kind: "slot";
+  readonly frame: SmartShape;
+  readonly assetId: string | null;
+  readonly fit: SlotFit;
+  readonly placeholder: string;
+  /** Shows the photo before its Develop edits (still cropped and straightened as edited), for before/after posts. */
+  readonly original?: boolean;
+};
 /** Brushes for paint layers. */
 export type BrushKind = "round" | "soft" | "marker" | "pencil" | "spray" | "calligraphy" | "eraser";
 /**

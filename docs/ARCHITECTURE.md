@@ -284,7 +284,12 @@ at the size it shows at (`developed`, shared with image layers), then `slotFill`
 into a frame-sized texture cut to the frame's shape; empty frames render a placeholder.
 Every photo reference goes through `layerAsset` / `documentAssets`, so frames load,
 export, save in `.focused` projects (remapped like image layers) and appear in looks as
-empty frames.
+empty frames. A frame with `original: true` shows its photo before the Develop edits:
+`originalRecipeFor` (`core/develop/session.ts`) is the default recipe with the edited
+recipe's geometry, so the two copies of a before/after pair are framed alike, and it is
+one object per edited recipe, so renders stay cached. Putting one photo in a frame also
+fills empty "before edits" frames (`fillSlot`), which is how the "yes / but" templates
+fill from a single photo.
 
 **Layer styles** (`fx`) are made on the GPU from a layer's placed, canvas-sized content,
 after its clipped layers: drop shadow and glow are `pipeline.blur` of it (offset, spread

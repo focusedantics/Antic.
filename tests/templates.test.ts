@@ -102,3 +102,25 @@ describe("saved design assets", () => {
     expect(assetData({ kind: "font", data: { family: "X", file: "not a blob" } })).toBeNull();
   });
 });
+
+describe("yes / but templates", () => {
+  it("stack an edited frame over a before-edits frame, inside the canvas, with the two words", () => {
+    for (const id of ["post-yes-but", "story-yes-but"]) {
+      const t = TEMPLATES.find((x) => x.id === id)!;
+      const layers = sanitizeDocument({ ...createDocument(t.width, t.height), layers: t.build({ width: t.width, height: t.height }) }).layers;
+      const slots = flatten(layers).filter((l): l is SlotLayer => l.kind === "slot");
+      expect(slots.map((s) => [s.name, !!s.original]), id).toEqual([
+        ["Edited photo", false],
+        ["Before edits", true],
+      ]);
+      const [upper, lower] = slots.map((s) => s.transform);
+      expect(upper.y).toBeLessThan(lower.y);
+      expect(upper.width).toBe(lower.width);
+      expect(lower.y + lower.height / 2).toBeLessThanOrEqual(t.height);
+      expect(upper.y - upper.height / 2).toBeGreaterThanOrEqual(0);
+      const words = layers.filter((l) => l.kind === "text").map((l) => (l.kind === "text" ? l.style.text : ""));
+      expect(words).toEqual(["yes", "but"]);
+      expect(matchesTemplate(t, "before after")).toBe(true);
+    }
+  });
+});

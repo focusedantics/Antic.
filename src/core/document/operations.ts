@@ -833,6 +833,7 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
         assetId: typeof l.assetId === "string" && l.assetId ? l.assetId.slice(0, 64) : null,
         fit: { zoom: num(f?.zoom, 1, 1, 20), x: num(f?.x, 0, -1, 1), y: num(f?.y, 0, -1, 1) },
         placeholder: color(l.placeholder, "#c9ccd1"),
+        ...(l.original === true ? { original: true } : {}),
       };
     }
     case "shape": {

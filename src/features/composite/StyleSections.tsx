@@ -192,6 +192,22 @@ export function SlotSection({ layer }: { layer: SlotLayer }) {
           </button>
         )}
       </div>
+      <label className="check" style={{ marginTop: 6 }}>
+        <input
+          type="checkbox"
+          checked={!!layer.original}
+          onChange={(e) => {
+            const on = e.target.checked;
+            set(layer.id, on ? "Show before edits" : "Show with edits", (l) => {
+              if (l.kind !== "slot") return l;
+              const { original: _off, ...rest } = l;
+              return on ? { ...rest, original: true } : rest;
+            });
+          }}
+        />{" "}
+        Before edits (as shot)
+      </label>
+      {layer.original && <p className="faint" style={{ fontSize: 10, margin: "2px 0 6px" }}>Shows the photo without its Develop edits, cropped the same. A photo put in another frame fills this one too while it is empty.</p>}
       {layer.assetId && (
         <>
           <Gesture label="Zoom" history="Photo zoom" value={Math.round(fit.zoom * 100)} min={100} max={800} def={100} format={pct} onChange={(v) => setFit("Photo zoom", { zoom: v / 100 })} />

@@ -1,5 +1,5 @@
 import { device } from "@/lib/device";
-import { recipeFor } from "@/core/develop/session";
+import { originalRecipeFor, recipeFor } from "@/core/develop/session";
 import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
 import { canvasToContent, layerPaths } from "@/core/document/operations";
@@ -306,7 +306,7 @@ export class Compositor {
     });
     if (!layer.assetId) return shape;
     const source = this.sources(layer.assetId);
-    const recipe = recipeFor(layer.assetId);
+    const recipe = layer.original ? originalRecipeFor(layer.assetId) : recipeFor(layer.assetId);
     if (!source || !recipe) return null;
     const full = outputSize(source.size, recipe.geometry);
     // The photo covers the frame, times the zoom; it is developed at the size it shows at.

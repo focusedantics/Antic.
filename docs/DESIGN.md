@@ -55,7 +55,8 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
 | T1 | Size presets: Instagram post / portrait / story, TikTok, Facebook post and cover, X post and header, YouTube thumbnail and banner, LinkedIn, Pinterest pin, phone and desktop wallpaper, contact poster, profile picture, logo, flyer (Letter, A4, A5), poster, business card, invitation, postcard, presentation, custom | New: `design/presets.ts`, cards drawn to scale | ✅ |
-| T2 | Template gallery: categories, tags, search, one tap to start | New: 35 original templates written as code (`design/templates.ts`) in 8 categories, previewed as SVG sketches | ✅ |
+| T2 | Template gallery: categories, tags, search, one tap to start | New: 40 original templates written as code (`design/templates.ts`) in 9 categories, previewed as SVG sketches | ✅ |
+| T7 | "Yes / but" before-and-after posts (edit vs. as shot) | New: post and story templates whose lower frame shows the photo before its Develop edits (`slot.original`); one photo fills both | ✅ |
 | T3 | Templates with photo slots ("tap to add your photo"), replace photo | New: `slot` layer kind (frame shape, zoom and pan); replacing keeps transform, clip, mask and styles; photo layers get "Replace photo" too | ✅ |
 | T4 | Save a design as my template, in folders | New: `designAssets` store (IndexedDB), folders by path; More → Save as template; My templates in the gallery (use, rename, move, delete) | ✅ |
 | T5 | Collages: grid layouts with photo slots, spacing and corner radius | New: collage groups (16 layouts, spacing, rounding, shuffle; re-layout any time), collage templates, "Collage from your photos" (Library selection or device) | ✅ |
