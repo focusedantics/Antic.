@@ -137,9 +137,9 @@ test("effects: liquid glass, glass blobs and liquid metal render without errors 
   await expect(page.getByRole("button", { name: /Animate/ })).toBeVisible();
   await expect(page.getByLabel("Custom color")).toHaveCount(0);
   const chrome = await settled(page);
-  await page.getByLabel("Metal").selectOption("gold");
+  await page.getByRole("combobox", { name: "Metal", exact: true }).selectOption("gold");
   expect(await settled(page)).not.toBe(chrome);
-  await page.getByLabel("Metal").selectOption("custom");
+  await page.getByRole("combobox", { name: "Metal", exact: true }).selectOption("custom");
   await expect(page.getByLabel("Custom color")).toBeVisible();
   await expect(page.locator(".toast.error")).toHaveCount(0);
   expect(errors).toEqual([]);

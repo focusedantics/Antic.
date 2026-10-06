@@ -81,10 +81,11 @@ void main() {
     d *= (1.0 - a * r2) / (1.0 - a);
     uv = d / uSrcSize + 0.5;
   }
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = vec4(0.0); return; }
-  // Level of detail from the local scale of the mapping.
+  // Level of detail from the local scale of the mapping, taken before any pixel leaves
+  // (derivatives across pixels that returned are undefined).
   vec2 dx = dFdx(uv) * uSrcSize;
   vec2 dy = dFdy(uv) * uSrcSize;
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = vec4(0.0); return; }
   float lod = max(0.0, 0.5 * log2(max(dot(dx, dx), dot(dy, dy))) + uLodBias);
   vec4 c = textureLod(uBase, vec2(uv.x, uv.y), lod);
   // A linear map, so converting after filtering equals filtering converted texels.
@@ -465,12 +466,17 @@ void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uCanvasToImage * vec3(px, 1.0);
   vec2 whole = h.xy / h.z;
-  if (whole.x < 0.0 || whole.y < 0.0 || whole.x > 1.0 || whole.y > 1.0) { outColor = uBackground; return; }
   vec2 uv = (whole - uImageWindow.xy) / uImageWindow.zw;
+  // Slopes for the mip level, before any pixel leaves or picks its texture per pixel.
+  vec2 wx = dFdx(whole);
+  vec2 wy = dFdy(whole);
+  vec2 ux = dFdx(uv);
+  vec2 uy = dFdy(uv);
+  if (whole.x < 0.0 || whole.y < 0.0 || whole.x > 1.0 || whole.y > 1.0) { outColor = uBackground; return; }
   bool before = uSplit == 1 && px.x < uSplitX;
   bool inWindow = uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0;
   if (!inWindow && uHasOverview == 0) { outColor = uBackground; return; }
-  vec4 c = before ? texture(uBefore, uv) : inWindow ? texture(uImage, uv) : texture(uOverview, whole);
+  vec4 c = before ? textureGrad(uBefore, uv, ux, uy) : inWindow ? textureGrad(uImage, uv, ux, uy) : textureGrad(uOverview, whole, wx, wy);
   vec3 rgb = toDisplay(c.rgb);
   // Transparency over a checkerboard.
   vec2 cell = floor(px / 8.0);
@@ -482,7 +488,7 @@ void main() {
     else if (max(lin.r, max(lin.g, lin.b)) <= 0.0015) rgb = vec3(0.1, 0.35, 1.0);
   }
   if (uOverlayMode > 0 && !before && inWindow) {
-    float m = texture(uOverlay, uv).r;
+    float m = textureGrad(uOverlay, uv, ux, uy).r;
     // An unusable coverage value (NaN) would turn every pixel it touches black: count it
     // as unselected so the photo always shows.
     m = m >= 0.0 ? min(m, 1.0) : 0.0;

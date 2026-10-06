@@ -158,6 +158,12 @@ and one labelled step. Snapshots are named recipes stored per asset.
 The working space is **linear Rec.2020, RGBA16F**, scene-referred with headroom above
 1.0. Passes (fullscreen fragment shaders over render targets):
 
+A rule for every shader that samples a mipmapped texture: take the coordinate's slope
+(`dFdx`/`dFdy`) before any early `return` or per-pixel choice of texture, and sample with
+`textureGrad`. The mip level comes from neighbouring pixels in a 2 × 2 block; after some
+of them returned it is undefined, and some GPUs then read the smallest mip, which drew a
+line in the photo's average colour around layer boxes (photo frames showed it most).
+
 1. **Source** — upload once per photo, mipmapped: RAW (and 16-bit files) as linear
    Rec.2020 RGBA16F; 8-bit files stay as their own sRGB pixels in an `SRGB8_ALPHA8`
    texture (half the memory, no staging copy), which the geometry pass converts to

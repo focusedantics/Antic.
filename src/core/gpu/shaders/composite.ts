@@ -66,14 +66,20 @@ vec4 gradientAt(vec2 uv) {
 void main() {
   vec3 h = uToContent * vec3(gl_FragCoord.xy, 1.0);
   vec2 uv = h.xy / h.z;
+  // The mip level comes from how uv changes across neighbouring pixels: take that slope
+  // before any pixel leaves. texture() after the early return would read it from pixels
+  // that already returned (undefined in GLSL; some GPUs then pick the smallest mip, which
+  // drew a faint line in the photo's average colour around every layer's box).
+  vec2 gx = dFdx(uv);
+  vec2 gy = dFdy(uv);
   if (h.z <= 0.0 || uv.x < uCrop.x || uv.y < uCrop.y || uv.x > uCrop.z || uv.y > uCrop.w) { outColor = vec4(0.0); return; }
   vec4 c;
-  if (uKind == 0) c = texture(uContent, uv);
+  if (uKind == 0) c = textureGrad(uContent, uv, gx, gy);
   else if (uKind == 1) c = gradientAt(uv);
   else c = uColor;
   float a = c.a * uFill;
   if (uMaskOn == 1) {
-    float m = texture(uMask, uv).r;
+    float m = textureGrad(uMask, uv, gx, gy).r;
     if (uMaskInvert == 1) m = 1.0 - m;
     a *= 1.0 - uMaskDensity * (1.0 - m);
   }
@@ -228,8 +234,11 @@ void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uScreenToDoc * vec3(px, 1.0);
   vec2 d = h.xy / h.z;
+  // Slope before the early return (see place).
+  vec2 gx = dFdx(d / uDocSize);
+  vec2 gy = dFdy(d / uDocSize);
   if (d.x < 0.0 || d.y < 0.0 || d.x > uDocSize.x || d.y > uDocSize.y) { outColor = vec4(0.0); return; }
-  vec4 c = texture(uImage, d / uDocSize);
+  vec4 c = textureGrad(uImage, d / uDocSize, gx, gy);
   vec2 cell = floor(px / 8.0);
   vec3 checker = mod(cell.x + cell.y, 2.0) < 1.0 ? vec3(0.8) : vec3(0.62);
   outColor = vec4(c.rgb + checker * (1.0 - c.a), 1.0);
