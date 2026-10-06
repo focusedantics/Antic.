@@ -280,10 +280,18 @@ export type PaintOp = PaintStroke | PaintFill;
 /** A drawing: strokes and fills kept as data, drawn at whatever resolution is needed. */
 export type PaintLayer = LayerBase & { readonly kind: "paint"; readonly ops: readonly PaintOp[] };
 
+/**
+ * A group that is a collage: its frames are laid out by `layout` inside `area` (canvas
+ * px), `spacing` apart (a share of the area's short side), corners rounded by `radius`
+ * (0..1 of each frame's short side / 2). Changing these re-lays the frames out.
+ */
+export type CollageInfo = { readonly layout: string; readonly spacing: number; readonly radius: number; readonly area: { readonly x: number; readonly y: number; readonly width: number; readonly height: number } };
+
 export type GroupLayer = LayerBase & {
   readonly kind: "group";
   readonly children: readonly Layer[];
   readonly expanded: boolean;
+  readonly collage?: CollageInfo;
 };
 
 export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | PathLayer | SlotLayer | PaintLayer | AdjustmentLayer | EffectLayer | GroupLayer;

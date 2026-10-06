@@ -322,6 +322,19 @@ Layers and Properties). "Move to Composite" and "Bring a composition here" move 
 document between the two by changing `purpose`. Photos added from the device are
 imported into the Library first, since every photo layer references an asset.
 
+**Templates, elements and collages.** Built-in templates (`features/design/templates.ts`)
+and elements (`elements.ts`) are code: each builds editable layers with a small kit
+(`kit.ts`: shapes, paths, text, frames and styles in a local frame mapped onto the
+canvas), so they are original, resolution independent and need no downloads. The
+gallery and panels preview them with `LayerSketch` (`preview.tsx`), an SVG sketch of a
+layer tree (no GPU, no photos; clipping included). Inserted text boxes are widened to
+their text once its font has loaded (`insert.ts: fitTextBoxes`). A collage is a group
+with `collage` info (layout, spacing, rounding, area; `core/document/collage.ts`):
+`relayout` places its frames again, keeping their photos, so layouts can change after the
+fact. A user's templates, elements (and, from phase 5, palettes, gradients, brushes and
+fonts) live in the `designAssets` store with a folder path; `core/design/assets.ts`
+validates them on every read.
+
 Switching documents saves the one being replaced (`openDocument` flushes the pending
 save), and `pagehide` / hidden visibility flush too, so the last edits before leaving
 survive; a flush keeps the stored thumbnail, which it remembers rather than reads, so the

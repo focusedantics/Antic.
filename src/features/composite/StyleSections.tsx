@@ -3,7 +3,8 @@ import { ui } from "@/app/state";
 import { openMenu } from "@/components/Menu";
 import { Slider } from "@/components/Slider";
 import { getAsset } from "@/core/catalog/store";
-import type { GlowStyle, Gradient, Layer, LayerFx, OutlineStyle, PathLayer, PathStyle, ShadowStyle, SlotLayer, SmartShape, TextLayer, TextStyle } from "@/core/document/model";
+import { COLLAGE_LAYOUTS, relayout, rotatePhotos } from "@/core/document/collage";
+import type { CollageInfo, GlowStyle, Gradient, GroupLayer, Layer, LayerFx, OutlineStyle, PathLayer, PathStyle, ShadowStyle, SlotLayer, SmartShape, TextLayer, TextStyle } from "@/core/document/model";
 import { defaultGradient, toEditablePath } from "@/core/document/operations";
 import { SMART_SHAPES, smartShape } from "@/core/document/shapes";
 import { beginDocGesture, composite, endDocGesture } from "@/core/document/session";
@@ -356,6 +357,39 @@ export function StylesSection({ layer }: { layer: Layer }) {
         </div>
       )}
       {(sh || gl || ol) && layer.fillOpacity < 1 && <p className="faint" style={{ fontSize: 10 }}>Fill opacity fades the layer but not its styles: at 0 % only the styles show.</p>}
+    </>
+  );
+}
+
+// ─── Collages ────────────────────────────────────────────────────────────────
+
+/** Layout, spacing and roundness of a collage (shown for it or any frame in it). */
+export function CollageSection({ group }: { group: GroupLayer }) {
+  const info = group.collage!;
+  const frames = group.children.filter((c) => c.kind === "slot").length;
+  const change = (label: string, patch: Partial<Omit<CollageInfo, "area">>) => set(group.id, label, (l) => (l.kind === "group" ? relayout(l, patch) : l));
+  const filled = group.children.filter((c) => c.kind === "slot" && c.assetId).length;
+  return (
+    <>
+      <div className="subhead">Collage</div>
+      <label className="field">
+        <span>Layout</span>
+        <select className="input" value={info.layout} onChange={(e) => change("Collage layout", { layout: e.target.value })}>
+          {COLLAGE_LAYOUTS.map((l) => (
+            <option key={l.id} value={l.id} disabled={l.cells.length < filled}>
+              {l.label} ({l.cells.length})
+            </option>
+          ))}
+        </select>
+      </label>
+      <Gesture label="Spacing" history="Collage spacing" value={Math.round(info.spacing * 1000)} min={0} max={100} def={20} format={(v) => `${(v / 10).toFixed(1)}%`} onChange={(v) => change("Collage spacing", { spacing: v / 1000 })} />
+      <Gesture label="Rounding" history="Collage rounding" value={Math.round(info.radius * 100)} min={0} max={100} def={0} format={pct} onChange={(v) => change("Collage rounding", { radius: v / 100 })} />
+      <button type="button" className="btn small" disabled={filled < 2} title="Move every photo one frame on" onClick={() => set(group.id, "Shuffle photos", (l) => (l.kind === "group" ? rotatePhotos(l) : l))}>
+        Shuffle photos
+      </button>
+      <p className="faint" style={{ fontSize: 10 }}>
+        {frames} frames, {filled} with photos. Tap an empty frame twice, or drop a photo on it, to fill it.
+      </p>
     </>
   );
 }

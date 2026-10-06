@@ -13,7 +13,10 @@ import { addLibraryPhotos, addPhotosFromDevice } from "./actions";
 import { ELEMENT_GROUPS, ELEMENTS, type Element, type ElementGroup } from "./elements";
 import { insertElement } from "./insert";
 import { LayerSketch } from "./preview";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { openMenu } from "@/components/Menu";
+import { assetData, designAssets, type ElementData, loadDesignAssets, removeDesignAsset, updateDesignAsset } from "@/core/design/assets";
+import { insertMyElement } from "./actions";
 
 /** Text to start from, sized to the canvas (a fraction of its short side). */
 export const TEXT_STYLES: readonly { id: string; label: string; size: number; style: Partial<TextStyle> }[] = [
@@ -132,10 +135,63 @@ function ElementGrid({ group }: { group: ElementGroup }) {
   );
 }
 
-/** Badges, doodles, decorations and photo frames (text combinations are with the text). */
+/** My saved elements, sketched from their layers. */
+function MyElements() {
+  const items = useStore(designAssets, (s) => s.items);
+  const mine = useMemo(() => items.filter((a) => a.kind === "element"), [items]);
+  if (!mine.length) return <p className="faint">Select layers in a design, then More → Save selection as element.</p>;
+  return (
+    <div className="element-grid">
+      {mine.map((a) => {
+        const data = assetData(a) as ElementData | null;
+        if (!data) return null;
+        return (
+          <div key={a.id} className="element-mine">
+            <button type="button" className="element-tile" title={a.folder ? `${a.name} (${a.folder})` : a.name} aria-label={`Add ${a.name}`} onClick={() => void insertMyElement(a)}>
+              <LayerSketch className="element-sketch" width={data.width} height={data.height} layers={data.layers} />
+            </button>
+            <button
+              type="button"
+              className="btn ghost small element-more"
+              aria-label={`More for ${a.name}`}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                openMenu(r.left, r.bottom + 4, [
+                  {
+                    label: "Rename…",
+                    onSelect: () => {
+                      const name = prompt("Element name", a.name);
+                      if (name) void updateDesignAsset(a.id, { name });
+                    },
+                  },
+                  {
+                    label: "Move to folder…",
+                    onSelect: () => {
+                      const folder = prompt("Folder (empty for none; use / for subfolders)", a.folder);
+                      if (folder !== null) void updateDesignAsset(a.id, { folder });
+                    },
+                  },
+                  "separator",
+                  { label: "Delete…", onSelect: () => confirm(`Delete the element “${a.name}”?`) && void removeDesignAsset(a.id) },
+                ]);
+              }}
+            >
+              ⋯
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Badges, doodles, decorations and photo frames (text combinations are with the text), and mine. */
 function ElementsPanel() {
-  const groups = ELEMENT_GROUPS.filter((g) => g !== "Text");
-  const [group, setGroup] = useState<ElementGroup>(groups[0]);
+  const groups = [...ELEMENT_GROUPS.filter((g) => g !== "Text"), "Mine"] as const;
+  const [group, setGroup] = useState<(typeof groups)[number]>(groups[0]);
+  useEffect(() => {
+    void loadDesignAssets();
+  }, []);
   return (
     <Panel id="design-elements" title="Elements">
       <div className="chip-row" role="group" aria-label="Element groups">
@@ -145,7 +201,7 @@ function ElementsPanel() {
           </button>
         ))}
       </div>
-      <ElementGrid group={group} />
+      {group === "Mine" ? <MyElements /> : <ElementGrid group={group} />}
     </Panel>
   );
 }

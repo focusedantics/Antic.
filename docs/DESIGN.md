@@ -55,10 +55,10 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
 | T1 | Size presets: Instagram post / portrait / story, TikTok, Facebook post and cover, X post and header, YouTube thumbnail and banner, LinkedIn, Pinterest pin, phone and desktop wallpaper, contact poster, profile picture, logo, flyer (Letter, A4, A5), poster, business card, invitation, postcard, presentation, custom | New: `design/presets.ts`, cards drawn to scale | ✅ |
-| T2 | Template gallery: categories, tags, search, one tap to start | New: original templates written as code (`design/templates/`) | ⬜ |
+| T2 | Template gallery: categories, tags, search, one tap to start | New: 35 original templates written as code (`design/templates.ts`) in 8 categories, previewed as SVG sketches | ✅ |
 | T3 | Templates with photo slots ("tap to add your photo"), replace photo | New: `slot` layer kind (frame shape, zoom and pan); replacing keeps transform, clip, mask and styles; photo layers get "Replace photo" too | ✅ |
-| T4 | Save a design as my template, in folders | New: `designAssets` store | ⬜ |
-| T5 | Collages: grid layouts with photo slots, spacing and corner radius | New: collage templates and "Collage from selected photos" | ⬜ |
+| T4 | Save a design as my template, in folders | New: `designAssets` store (IndexedDB), folders by path; More → Save as template; My templates in the gallery (use, rename, move, delete) | ✅ |
+| T5 | Collages: grid layouts with photo slots, spacing and corner radius | New: collage groups (16 layouts, spacing, rounding, shuffle; re-layout any time), collage templates, "Collage from your photos" (Library selection or device) | ✅ |
 | T6 | Stock photos in templates | Skip: licensed stock costs money and needs a server. Templates use slots and the user's own photos | — |
 
 ### Photo editing (in a design)
@@ -80,7 +80,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | V1 | Pen tool, node editing | New: `path` layer kind (cubic Béziers), pen and node tool on the canvas | ✅ |
 | V2 | Smart shapes: polygon, star, heart, arrow, speech bubble, line, burst, ring… | New: shape generators producing paths | ✅ |
 | V3 | Fill and stroke with colours or gradients, dashes, caps | New: path fill and stroke styles | ✅ |
-| V4 | Save vector shapes in folders | New: elements library (`designAssets`) | ⬜ |
+| V4 | Save vector shapes in folders | New: More → Save selection as element; Elements → Mine (folders managed in P5) | ✅ |
 | V5 | SVG import and export | New: SVG subset parser (path, rect, circle, ellipse, line, polyline, polygon, transforms) and an SVG writer | ⬜ |
 | V6 | Curved text | New: text arc (bend) | ✅ |
 | V7 | Text fill gradient, outline, case, underline | New: text style fields (outline is the Outline layer style); plus a highlight box | ✅ |
@@ -123,7 +123,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 ### Social and motion
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
-| S1 | Profile pictures, posts, stories, wallpapers, contact posters | Sizes (T1) and templates (T2) | ⬜ |
+| S1 | Profile pictures, posts, stories, wallpapers, contact posters | Sizes (T1) and templates (T2) | ✅ |
 | S2 | Animator: animate any layer (fade, slide, zoom, pop, float, spin…), one tap to animate a whole design | New: layer `animation`, applied by the compositor over the loop; exports with the existing GIF/MP4 | ⬜ |
 | S3 | Wallpaper preview with the lock-screen clock | New: an overlay that is never exported | ⬜ |
 | S4 | Cloud sync, accounts | Skip: costs a server; designs stay local, `.focused` files move them | — |

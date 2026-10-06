@@ -109,8 +109,15 @@ export function fitLayers(look: NonNullable<Look["layers"]>, width: number, heig
   const sy = height / look.height;
   const u = Math.min(sx, sy);
   const target = { width, height };
+  // Styles scale with the layer (shadow distance and blur, glow, outline width).
+  const scaleFx = (fx: Layer["fx"]): Layer["fx"] =>
+    fx && {
+      ...(fx.shadow ? { shadow: { ...fx.shadow, distance: fx.shadow.distance * u, blur: fx.shadow.blur * u } } : {}),
+      ...(fx.glow ? { glow: { ...fx.glow, blur: fx.glow.blur * u } } : {}),
+      ...(fx.outline ? { outline: { ...fx.outline, width: fx.outline.width * u } } : {}),
+    };
   const fit = (l: Layer): Layer => {
-    const base = { ...l, id: createId("layer") };
+    const base = { ...l, id: createId("layer"), ...(l.fx ? { fx: scaleFx(l.fx) } : {}) } as Layer;
     const transform = coversCanvas(l) && !l.transform.corners ? { ...canvasTransform(target), rotation: l.transform.rotation } : fitTransform(l.transform, sx, sy, u);
     const mask = l.mask ? { ...l.mask, components: l.mask.components.map((c) => ({ ...c, id: createId("mc") })) } : null;
     switch (base.kind) {
@@ -121,7 +128,13 @@ export function fitLayers(look: NonNullable<Look["layers"]>, width: number, heig
       case "path":
         return { ...base, transform, mask, style: { ...base.style, strokeWidth: base.style.strokeWidth * u } };
       case "group":
-        return { ...base, transform, mask, children: base.children.map(fit) };
+        return {
+          ...base,
+          transform,
+          mask,
+          children: base.children.map(fit),
+          ...(base.collage ? { collage: { ...base.collage, area: { x: base.collage.area.x * sx, y: base.collage.area.y * sy, width: base.collage.area.width * sx, height: base.collage.area.height * sy } } } : {}),
+        };
       default:
         return { ...base, transform, mask };
     }

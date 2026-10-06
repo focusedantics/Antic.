@@ -22,10 +22,25 @@ import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/Effec
 import { openLooks } from "@/features/looks/LooksDialog";
 import { addPhotosFromDevice, moveToDesign, startFrom } from "./actions";
 import { DesignHome } from "./Home";
+import { TemplatesSection } from "./Gallery";
+import { SaveAssetDialog } from "./SaveDialog";
+import { moveToComposite } from "./actions";
 import { addPhotoFrame, addSmartShape, addTextStyle, MakePanel } from "./MakePanel";
 import { SMART_SHAPES } from "@/core/document/shapes";
 import { design } from "./state";
 import "@/styles/design.css";
+
+/** The design's "more" menu: saving it or a selection for reuse, moving it to Composite. */
+function moreMenu(e: React.MouseEvent<HTMLElement>, openSave: (kind: "template" | "element") => void) {
+  const r = e.currentTarget.getBoundingClientRect();
+  const { doc, selection } = composite.getState();
+  openMenu(r.left, r.bottom + 4, [
+    { label: "Save as template…", disabled: !doc, onSelect: () => openSave("template") },
+    { label: "Save selection as element…", disabled: !selection.length, onSelect: () => openSave("element") },
+    "separator",
+    { label: "Move to Composite", disabled: !doc, onSelect: () => doc && void moveToComposite(doc.id) },
+  ]);
+}
 
 /** Back to the start screen; the design stays saved. */
 export function goHome() {
@@ -63,7 +78,7 @@ function alignMenu(e: React.MouseEvent<HTMLElement>, selection: readonly string[
 }
 
 /** The strip above the canvas: the things a design is made of, then view and history. */
-function DesignToolbar({ onExport }: { onExport: () => void }) {
+function DesignToolbar({ onExport, onSave }: { onExport: () => void; onSave: (kind: "template" | "element") => void }) {
   const doc = useStore(composite, (s) => s.doc);
   const selection = useStore(composite, (s) => s.selection);
   const snap = useStore(composite, (s) => s.snap);
@@ -96,6 +111,7 @@ function DesignToolbar({ onExport }: { onExport: () => void }) {
         <ToolIcon icon="presets" label="Looks" onClick={() => openLooks({ kind: "composite" })} />
         {animated && <ToolIcon icon="animate" label={playing ? "Stop animating" : "Animate"} pressed={playing} onClick={() => composite.setState({ playing: !playing })} />}
         <ToolIcon icon="fit" label="Fit" pressed={view.fit} onClick={() => composite.setState({ view: { ...view, fit: true } })} />
+        <ToolIcon icon="more" label="More" onClick={(e) => moreMenu(e, onSave)} />
         {actions}
       </div>
     );
@@ -125,6 +141,9 @@ function DesignToolbar({ onExport }: { onExport: () => void }) {
       </button>
       <button type="button" className="btn small" onClick={() => openLooks({ kind: "composite" })} title="Save this design's effects as a look, or apply one">
         Looks…
+      </button>
+      <button type="button" className="btn small" aria-label="More" title="Save as template or element, move to Composite" onClick={(e) => moreMenu(e, onSave)}>
+        <Icon name="more" size={14} />
       </button>
       <span className="toolbar-sep" aria-hidden="true" />
       <button type="button" className="btn small" disabled={!selection.length} onClick={(e) => alignMenu(e, selection)}>
@@ -230,6 +249,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
   const doc = isDesign(open) ? open : null;
   const editing = !home && !!doc;
   const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState<"template" | "element" | null>(null);
   useEffect(() => registerShortcuts("design", (e) => {
     if (design.getState().home || !isDesign(composite.getState().doc)) return false;
     if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "t") {
@@ -259,11 +279,11 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
         center={
           editing ? (
             <>
-              <DesignToolbar onExport={() => setExporting(true)} />
+              <DesignToolbar onExport={() => setExporting(true)} onSave={setSaving} />
               <CompositeView />
             </>
           ) : (
-            <DesignHome />
+            <DesignHome templates={(q) => <TemplatesSection query={q} />} />
           )
         }
         right={
@@ -278,6 +298,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
       />
       <EffectsBrowserHost />
       {exporting && editing && <ExportDocumentDialog onClose={() => setExporting(false)} />}
+      {saving && editing && <SaveAssetDialog kind={saving} onClose={() => setSaving(null)} />}
     </>
   );
 }

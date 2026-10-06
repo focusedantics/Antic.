@@ -32,6 +32,44 @@ export function LayerSketch({ width, height, background, layers, className }: { 
     );
     return `url(#${id})`;
   };
+  let clips = 0;
+  /** A clip path from a layer's outline (shapes, paths, frames, boxes). */
+  const clipFrom = (l: Layer): string | null => {
+    const t = l.transform;
+    const box = `translate(${t.x} ${t.y}) rotate(${t.rotation}) scale(${t.flipX ? -1 : 1} ${t.flipY ? -1 : 1}) translate(${-t.width / 2} ${-t.height / 2})`;
+    let shape: React.ReactNode = null;
+    if (l.kind === "path") shape = <path transform={box} d={pathData(layerPaths(l), t.width, t.height, l.style.stroke !== null && l.style.strokeWidth > 0 ? l.style.strokeWidth / 2 : 0)} />;
+    else if (l.kind === "slot") shape = <path transform={box} d={pathData(shapePaths(l.frame, t.width / Math.max(1e-6, t.height)), t.width, t.height)} />;
+    else if (l.kind === "shape" && l.style.shape === "ellipse") shape = <ellipse transform={box} cx={t.width / 2} cy={t.height / 2} rx={t.width / 2} ry={t.height / 2} />;
+    else if (l.kind !== "group") shape = <rect transform={box} width={t.width} height={t.height} />;
+    if (!shape) return null;
+    const id = `${uid}c${clips++}`;
+    defs.push(
+      <clipPath key={id} id={id}>
+        {shape}
+      </clipPath>,
+    );
+    return `url(#${id})`;
+  };
+  /** A list of layers, clipped layers drawn inside their base's outline. */
+  const drawList = (list: readonly Layer[]): React.ReactNode[] => {
+    let base: string | null = null;
+    return list.map((l) => {
+      if (!l.clip) {
+        base = null;
+        const node = draw(l);
+        if (list.some((x) => x.clip)) base = clipFrom(l);
+        return node;
+      }
+      return base ? (
+        <g key={l.id} clipPath={base}>
+          {draw(l)}
+        </g>
+      ) : (
+        draw(l)
+      );
+    });
+  };
   const draw = (l: Layer): React.ReactNode => {
     if (!l.visible) return null;
     const t = l.transform;
@@ -41,7 +79,7 @@ export function LayerSketch({ width, height, background, layers, className }: { 
       case "group":
         return (
           <g key={l.id} opacity={opacity}>
-            {l.children.map(draw)}
+            {drawList(l.children)}
           </g>
         );
       case "fill":
@@ -133,7 +171,7 @@ export function LayerSketch({ width, height, background, layers, className }: { 
         return null;
     }
   };
-  const content = layers.map(draw);
+  const content = drawList(layers);
   return (
     <svg className={className} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <defs>{defs}</defs>

@@ -382,3 +382,70 @@ test.describe("phone: drawing", () => {
     await expect(sheet.getByRole("listbox", { name: "Layers" }).getByRole("option").first()).toContainText("Big number");
   });
 });
+
+test.describe("computer: templates and collages", () => {
+  test("start from a template, make a collage from photos, re-lay it out, save and reuse a template and an element", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    // Search finds a template; it opens as a design with its layers.
+    await page.getByRole("searchbox", { name: "Search sizes and templates" }).fill("wedding");
+    await page.getByRole("button", { name: /^Wedding invitation/ }).click();
+    await expect(page.getByRole("toolbar", { name: "Design tools" })).toBeVisible();
+    expect(await layerNames(page).count()).toBeGreaterThan(5);
+
+    // A collage from three photos on this device.
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Designs" }).click();
+    await page.getByRole("button", { name: "Collages", exact: true }).click();
+    await page.getByRole("button", { name: "Collage from your photos" }).click();
+    const files = await Promise.all(["#e01010", "#10b010", "#1010e0"].map((c, i) => jpeg(page, c).then((f) => ({ ...f, name: `c${i}.jpg` }))));
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("menuitem", { name: "Photos from this device…" }).click()]);
+    await chooser.setFiles(files);
+    await expect(page.getByRole("toolbar", { name: "Design tools" })).toBeVisible({ timeout: 30_000 });
+    await expect(layerNames(page).first()).toContainText("Collage");
+    const red = "r > 180 && g < 70 && b < 70";
+    const green = "g > 140 && r < 70 && b < 80";
+    const blue = "b > 180 && r < 70 && g < 70";
+    for (const c of [red, green, blue]) await expect.poll(() => count(page, c), { timeout: 20_000 }).toBeGreaterThan(3000);
+
+    // Pick a photo in it: the Collage controls are there; more spacing shows more white.
+    const view = (await page.locator(".composite-view").boundingBox())!;
+    await page.mouse.click(view.x + view.width / 2 - 60, view.y + view.height / 2);
+    const right = page.locator("aside.side.right");
+    await expect(right.locator(".subhead", { hasText: "Collage" })).toBeVisible();
+    const white = "r > 245 && g > 245 && b > 245";
+    const before = await count(page, white);
+    const spacing = right.getByRole("slider", { name: "Spacing" });
+    await spacing.focus();
+    await page.keyboard.press("End");
+    expect(await count(page, white)).toBeGreaterThan(before * 1.5);
+    await right.getByRole("combobox", { name: "Layout" }).selectOption("3-cols");
+    for (const c of [red, green, blue]) expect(await count(page, c)).toBeGreaterThan(2000);
+
+    // Save it as a template; starting from it gives empty frames.
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "More" }).click();
+    await page.getByRole("menuitem", { name: "Save as template…" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name").fill("Three in a row");
+    await dialog.getByLabel("Folder").fill("Mine/Collages");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Designs" }).click();
+    await page.getByRole("button", { name: "My templates" }).click();
+    await page.getByRole("button", { name: "Use Three in a row" }).click();
+    await expect(page.getByRole("toolbar", { name: "Design tools" })).toBeVisible();
+    const placeholder = "Math.abs(r - 201) < 6 && Math.abs(g - 204) < 6 && Math.abs(b - 209) < 6";
+    expect(await count(page, placeholder)).toBeGreaterThan(5000);
+    expect(await count(page, red)).toBeLessThan(50);
+
+    // Save a selected layer as an element and add it again from Elements → Mine.
+    await page.locator("aside.side.left").getByRole("button", { name: "Add sale burst" }).click();
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "More" }).click();
+    await page.getByRole("menuitem", { name: "Save selection as element…" }).click();
+    await page.getByRole("dialog").getByLabel("Name").fill("My burst");
+    await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+    const layers = await layerNames(page).count();
+    await page.locator("aside.side.left").getByRole("button", { name: "Mine", exact: true }).click();
+    await page.locator("aside.side.left").getByRole("button", { name: "Add My burst" }).click();
+    await expect(layerNames(page)).toHaveCount(layers + 1);
+  });
+});

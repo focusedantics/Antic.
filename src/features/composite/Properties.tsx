@@ -16,7 +16,7 @@ import { emptyMask, fitTransform, locate, TEXT_MOTIONS } from "@/core/document/o
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
 import { GradientEditor, Num, set } from "./fields";
-import { PathSection, ReplacePhoto, SlotSection, StylesSection, TextExtras } from "./StyleSections";
+import { CollageSection, PathSection, ReplacePhoto, SlotSection, StylesSection, TextExtras } from "./StyleSections";
 import { EffectParams } from "@/features/effects/EffectParams";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { brush } from "@/features/develop/masks/brush";
@@ -577,6 +577,9 @@ export function PropertiesPanel() {
       </Panel>
     );
   const hasTransform = layer.kind !== "fill" && layer.kind !== "adjustment" && layer.kind !== "effect" && layer.kind !== "group";
+  // A collage, or a frame in one: its layout controls.
+  const parent = locate(doc.layers, layer.id)?.parent;
+  const collage = layer.kind === "group" && layer.collage ? layer : parent?.collage ? parent : null;
   return (
     <Panel id="cmp-props" title={`Properties · ${layer.name}`}>
       {layer.kind === "image" && <ImageSection layer={layer} />}
@@ -586,6 +589,7 @@ export function PropertiesPanel() {
       {layer.kind === "shape" && <ShapeSection layer={layer} />}
       {layer.kind === "path" && <PathSection layer={layer} />}
       {layer.kind === "slot" && <SlotSection layer={layer} />}
+      {collage && <CollageSection group={collage} />}
       {layer.kind === "adjustment" && <AdjustmentSection layer={layer} />}
       {layer.kind === "effect" && <EffectSection layer={layer} />}
       {layer.kind === "fill" && (

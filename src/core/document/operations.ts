@@ -804,13 +804,27 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
       const effect = sanitizeEffect(l.effect);
       return effect ? { ...common, kind: "effect", effect } : null;
     }
-    case "group":
+    case "group": {
+      const c = obj(l.collage);
+      const a = obj(c?.area);
+      const collage = c
+        ? {
+            collage: {
+              layout: str(c.layout, "4-grid", 40),
+              spacing: num(c.spacing, 0.02, 0, 0.25),
+              radius: num(c.radius, 0, 0, 1),
+              area: { x: num(a?.x, 0), y: num(a?.y, 0), width: num(a?.width, doc.width, 1), height: num(a?.height, doc.height, 1) },
+            },
+          }
+        : {};
       return {
         ...common,
+        ...collage,
         kind: "group",
         expanded: l.expanded !== false,
         children: (Array.isArray(l.children) ? l.children : []).map((c) => sanitizeLayer(c, doc, depth + 1)).filter((x): x is Layer => !!x),
       };
+    }
     default:
       return null;
   }

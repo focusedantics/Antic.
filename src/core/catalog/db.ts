@@ -69,6 +69,22 @@ export type DocumentRecord = {
   readonly thumb?: Blob;
 };
 
+/**
+ * Things a designer keeps for reuse (Design workspace): templates, elements, palettes,
+ * gradients, brushes and fonts, each in a folder. `data` is validated by
+ * core/design/assets when read.
+ */
+export type DesignAssetRecord = {
+  readonly id: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly folder: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly data: unknown;
+  readonly thumb?: Blob;
+};
+
 interface FocusedDB extends DBSchema {
   assets: { key: string; value: Asset; indexes: { fingerprint: string } };
   collections: { key: string; value: Collection };
@@ -82,10 +98,11 @@ interface FocusedDB extends DBSchema {
   videos: { key: string; value: VideoRecord };
   videoFiles: { key: string; value: Blob | StoredBytes | FileRef };
   looks: { key: string; value: unknown };
+  designAssets: { key: string; value: DesignAssetRecord; indexes: { kind: string } };
 }
 
 const DB_NAME = "focused-catalog";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 let dbPromise: Promise<IDBPDatabase<FocusedDB>> | null = null;
 
 export function catalogDb() {
@@ -97,6 +114,7 @@ export function catalogDb() {
         db.createObjectStore("videoFiles");
       }
       if (oldVersion < 3) db.createObjectStore("looks", { keyPath: "id" });
+      if (oldVersion < 4) db.createObjectStore("designAssets", { keyPath: "id" }).createIndex("kind", "kind");
     },
     blocking() {
       // Another tab upgraded the schema: release the connection so it can proceed.
@@ -322,4 +340,18 @@ export async function putLook(look: { id: string }) {
 }
 export async function deleteLook(id: string) {
   await (await catalogDb()).delete("looks", id);
+}
+
+export async function listDesignAssets(kind?: string) {
+  const db = await catalogDb();
+  return kind ? db.getAllFromIndex("designAssets", "kind", kind) : db.getAll("designAssets");
+}
+export async function getDesignAsset(id: string) {
+  return (await catalogDb()).get("designAssets", id);
+}
+export async function putDesignAsset(r: DesignAssetRecord) {
+  await (await catalogDb()).put("designAssets", r);
+}
+export async function deleteDesignAsset(id: string) {
+  await (await catalogDb()).delete("designAssets", id);
 }

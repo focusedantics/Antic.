@@ -1,8 +1,14 @@
 import { setWorkspace, toast, ui } from "@/app/state";
 import { getDocument, putDocument } from "@/core/catalog/db";
-import { createDocument, sanitizeDocument } from "@/core/document/operations";
-import type { CompositeDocument } from "@/core/document/model";
-import { composite, openDocument, openStoredDocument, refreshDocumentList } from "@/core/document/session";
+import { createDocument, flatten, groupLayer, sanitizeDocument } from "@/core/document/operations";
+import type { CompositeDocument, Layer } from "@/core/document/model";
+import { composite, flushDocument, openDocument, openStoredDocument, refreshDocumentList } from "@/core/document/session";
+import { buildCollage, defaultLayout } from "@/core/document/collage";
+import { assetData, type DesignAsset, type ElementData, saveDesignAsset, type TemplateData } from "@/core/design/assets";
+import { fitLayers } from "@/core/looks/look";
+import { loadFonts } from "@/core/text/fonts";
+import { fitTextBoxes, insertElement, layerFonts } from "./insert";
+import type { Template } from "./templates";
 import { createId } from "@/lib/id";
 import { importPhotosFromDevice, placePhotos } from "@/features/composite/actions";
 import { design } from "./state";
@@ -65,4 +71,74 @@ export async function addLibraryPhotos() {
 export async function addPhotosFromDevice() {
   const ids = await importPhotosFromDevice();
   if (ids.length) await placePhotos(ids);
+}
+
+// ─── Templates, collages and saved things ─────────────────────────────────────
+
+/** Starts a design from a built-in template (fonts loaded first so text boxes fit). */
+export async function startTemplate(t: Template) {
+  const doc = createDocument(t.width, t.height, t.name, t.background, "design");
+  const layers = t.build(doc);
+  await loadFonts(layerFonts(layers), 3000);
+  startFrom({ ...doc, layers: layers.map(fitTextBoxes) });
+}
+
+/** A collage of `ids` (Library photos) on a new design of `size`. */
+export function collageFromPhotos(ids: readonly string[], size: { width: number; height: number; name?: string } = { width: 1080, height: 1080 }) {
+  const doc = createDocument(size.width, size.height, size.name ?? "Collage", "#ffffff", "design");
+  const layout = defaultLayout(ids.length);
+  startFrom({ ...doc, layers: [buildCollage(doc, layout.id, { spacing: 0.015, photos: ids.slice(0, layout.cells.length) })] });
+}
+
+/** A copy of a layer tree with new ids (masks' component ids too). */
+const freshIds = (layers: readonly Layer[]): Layer[] =>
+  layers.map((l) => ({
+    ...l,
+    id: createId("layer"),
+    mask: l.mask ? { ...l.mask, components: l.mask.components.map((c) => ({ ...c, id: createId("mc") })) } : null,
+    ...(l.kind === "group" ? { children: freshIds(l.children) } : {}),
+  })) as Layer[];
+
+/** Frames lose their photos in a template (the user fills them); everything else is kept. */
+const emptyFrames = (layers: readonly Layer[]): Layer[] =>
+  layers.map((l) => (l.kind === "slot" ? { ...l, assetId: null, fit: { zoom: 1, x: 0, y: 0 } } : l.kind === "group" ? { ...l, children: emptyFrames(l.children) } : l)) as Layer[];
+
+/** Saves the open design as one of my templates (with its thumbnail). */
+export async function saveAsTemplate(name: string, folder: string) {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  await flushDocument();
+  const thumb = (await getDocument(doc.id))?.thumb;
+  const { purpose: _p, ...rest } = doc;
+  await saveDesignAsset("template", name, { document: { ...rest, layers: emptyFrames(doc.layers) } }, { folder, thumb });
+  toast(`Saved the template “${name}”.`);
+}
+
+/** Starts a design from one of my templates. */
+export function startMyTemplate(asset: DesignAsset) {
+  const data = assetData(asset) as TemplateData | null;
+  if (!data) return toast("This template could not be read.", "error");
+  const d = data.document;
+  startFrom({ ...d, id: createId("doc"), name: asset.name, createdAt: Date.now(), layers: freshIds(d.layers) });
+}
+
+/** Saves the selected layers as one of my elements. */
+export async function saveSelectionAsElement(name: string, folder: string) {
+  const { doc, selection } = composite.getState();
+  if (!doc || !selection.length) return;
+  const picked = flatten(doc.layers).filter((l) => selection.includes(l.id));
+  // Children of a picked group come with it.
+  const tops = picked.filter((l) => !picked.some((g) => g.kind === "group" && flatten(g.children).includes(l)));
+  await saveDesignAsset("element", name, { width: doc.width, height: doc.height, layers: emptyFrames(tops) }, { folder });
+  toast(`Saved the element “${name}”.`);
+}
+
+/** Adds one of my elements to the open design, scaled to it. */
+export async function insertMyElement(asset: DesignAsset) {
+  const doc = composite.getState().doc;
+  const data = assetData(asset) as ElementData | null;
+  if (!doc || !data) return;
+  const fitted = fitLayers({ width: data.width, height: data.height, items: data.layers }, doc.width, doc.height);
+  const layer = fitted.length === 1 ? fitted[0] : { ...groupLayer(doc, fitted, asset.name), expanded: false };
+  await insertElement(layer, `Add ${asset.name}`);
 }
