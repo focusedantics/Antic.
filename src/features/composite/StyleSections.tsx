@@ -10,7 +10,8 @@ import { SMART_SHAPES, smartShape } from "@/core/document/shapes";
 import { beginDocGesture, composite, endDocGesture } from "@/core/document/session";
 import { curveSag, fontShorthand, shownText } from "@/core/text/draw";
 import { fillSlot, importPhotosFromDevice, replaceImage } from "./actions";
-import { DocColor, GradientEditor, set } from "./fields";
+import { DocColor, GradientEditor, set, setOne } from "./fields";
+import { mergePatch } from "@/lib/merge";
 
 /** A slider that is one undoable step per drag. */
 function Gesture({ label, history, value, min, max, step, def, format, onChange }: { label: string; history?: string; value: number; min: number; max: number; step?: number; def: number; format?: (v: number) => string; onChange: (v: number) => void }) {
@@ -41,6 +42,15 @@ function ShapeParams({ shape, onChange }: { shape: SmartShape; onChange: (label:
   );
 }
 
+/**
+ * A shape-parameter change made on `shown`, for another selected layer's `own` shape:
+ * points and proportions mean the same only on the same kind of shape; rounding fits any.
+ */
+function shapePatch(own: SmartShape, shown: SmartShape, patch: Partial<SmartShape>): SmartShape {
+  if (own.kind === shown.kind) return { ...own, ...patch };
+  return patch.round !== undefined ? { ...own, round: patch.round } : own;
+}
+
 function ShapeKindSelect({ shape, onChange, label = "Shape" }: { shape: SmartShape; onChange: (s: SmartShape) => void; label?: string }) {
   return (
     <label className="field">
@@ -65,16 +75,24 @@ const DASHES: { id: string; label: string; dash: number[] }[] = [
 
 export function PathSection({ layer }: { layer: PathLayer }) {
   const s = layer.style;
-  const update = (label: string, patch: Partial<PathStyle>) => set(layer.id, label, (l) => (l.kind === "path" ? { ...l, style: { ...l.style, ...patch } } : l));
-  const setShape = (label: string, shape: SmartShape) => set(layer.id, label, (l) => (l.kind === "path" ? { ...l, shape, name: l.name === SMART_SHAPES.find((x) => x.kind === l.shape?.kind)?.label ? SMART_SHAPES.find((x) => x.kind === shape.kind)!.label : l.name } : l));
+  const update = (label: string, patch: Partial<PathStyle>) => set(layer.id, label, (l) => (l.kind === "path" ? { ...l, style: mergePatch(s, patch, l.style) } : l));
+  // Every selected smart shape (not hand-drawn paths) takes the new kind, keeping its own rounding and a custom name.
+  const setKind = (label: string, shape: SmartShape) =>
+    set(layer.id, label, (l) =>
+      l.kind === "path" && l.shape
+        ? { ...l, shape: { ...shape, round: l.shape.round }, name: l.name === SMART_SHAPES.find((x) => x.kind === l.shape?.kind)?.label ? SMART_SHAPES.find((x) => x.kind === shape.kind)!.label : l.name }
+        : l,
+    );
+  const setParams = (label: string, patch: Partial<SmartShape>) =>
+    set(layer.id, label, (l) => (l.kind === "path" && l.shape && layer.shape ? { ...l, shape: shapePatch(l.shape, layer.shape, patch) } : l));
   const dashId = DASHES.find((d) => d.dash.join() === s.dash.join())?.id ?? "dash";
   return (
     <>
       <div className="subhead">{layer.shape ? "Shape" : "Path"}</div>
       {layer.shape ? (
         <>
-          <ShapeKindSelect shape={layer.shape} onChange={(shape) => setShape("Change shape", shape)} />
-          <ShapeParams shape={layer.shape} onChange={(label, patch) => layer.shape && setShape(label, { ...layer.shape, ...patch })} />
+          <ShapeKindSelect shape={layer.shape} onChange={(shape) => setKind("Change shape", shape)} />
+          <ShapeParams shape={layer.shape} onChange={setParams} />
           <button type="button" className="btn small" style={{ marginTop: 4 }} title="Turn the shape into points you can move with the pen tool" onClick={() => set(layer.id, "Convert to path", (l) => (l.kind === "path" ? toEditablePath(l) : l))}>
             Convert to editable path
           </button>
@@ -176,7 +194,8 @@ function pickPhoto(e: React.MouseEvent<HTMLElement>, onPick: (assetId: string) =
 export function SlotSection({ layer }: { layer: SlotLayer }) {
   const fit = layer.fit;
   const setFit = (label: string, patch: Partial<SlotLayer["fit"]>) => set(layer.id, label, (l) => (l.kind === "slot" ? { ...l, fit: { ...l.fit, ...patch } } : l));
-  const setFrame = (label: string, frame: SmartShape) => set(layer.id, label, (l) => (l.kind === "slot" ? { ...l, frame } : l));
+  const setFrameKind = (label: string, frame: SmartShape) => set(layer.id, label, (l) => (l.kind === "slot" ? { ...l, frame: { ...frame, round: l.frame.round } } : l));
+  const setFrameParams = (label: string, patch: Partial<SmartShape>) => set(layer.id, label, (l) => (l.kind === "slot" ? { ...l, frame: shapePatch(l.frame, layer.frame, patch) } : l));
   const asset = layer.assetId ? getAsset(layer.assetId) : null;
   return (
     <>
@@ -187,7 +206,7 @@ export function SlotSection({ layer }: { layer: SlotLayer }) {
           {layer.assetId ? "Replace photo…" : "Add photo…"}
         </button>
         {layer.assetId && (
-          <button type="button" className="btn small" onClick={() => set(layer.id, "Empty frame", (l) => (l.kind === "slot" ? { ...l, assetId: null, fit: { zoom: 1, x: 0, y: 0 } } : l))}>
+          <button type="button" className="btn small" onClick={() => setOne(layer.id, "Empty frame", (l) => (l.kind === "slot" ? { ...l, assetId: null, fit: { zoom: 1, x: 0, y: 0 } } : l))}>
             Remove photo
           </button>
         )}
@@ -215,8 +234,8 @@ export function SlotSection({ layer }: { layer: SlotLayer }) {
           <Gesture label="Up ↕ down" history="Move photo" value={Math.round(-fit.y * 100)} min={-100} max={100} def={0} onChange={(v) => setFit("Move photo", { y: -v / 100 })} />
         </>
       )}
-      <ShapeKindSelect label="Frame shape" shape={layer.frame} onChange={(frame) => setFrame("Frame shape", frame)} />
-      <ShapeParams shape={layer.frame} onChange={(label, patch) => setFrame(label, { ...layer.frame, ...patch })} />
+      <ShapeKindSelect label="Frame shape" shape={layer.frame} onChange={(frame) => setFrameKind("Frame shape", frame)} />
+      <ShapeParams shape={layer.frame} onChange={setFrameParams} />
       {!layer.assetId && (
         <div className="row" style={{ marginTop: 4 }}>
           Placeholder <DocColor label="Placeholder colour" value={layer.placeholder} onChange={(c) => set(layer.id, "Placeholder colour", (l) => (l.kind === "slot" ? { ...l, placeholder: c } : l))} />
@@ -260,7 +279,7 @@ export function TextExtras({ layer }: { layer: TextLayer }) {
   const update = (label: string, patch: Partial<TextStyle>) =>
     set(layer.id, label, (l) => {
       if (l.kind !== "text") return l;
-      const style: TextStyle = { ...l.style, ...patch };
+      const style: TextStyle = mergePatch(s, patch, l.style);
       for (const k of Object.keys(patch) as (keyof TextStyle)[]) if (style[k] === undefined) delete (style as Record<string, unknown>)[k];
       return "curve" in patch ? fitCurve(l, style) : { ...l, style };
     });
@@ -317,10 +336,13 @@ export function StylesSection({ layer }: { layer: Layer }) {
   const fx = layer.fx ?? {};
   const doc = useStore(composite, (s) => s.doc);
   const big = doc ? Math.max(100, Math.round(Math.min(doc.width, doc.height) / 4)) : 200;
+  // Turning a style on keeps a layer's own if it has one; a tweak changes only the layers that have it (just the changed fields).
   const update = <K extends keyof LayerFx>(label: string, key: K, value: LayerFx[K] | undefined) =>
     set(layer.id, label, (l) => {
-      const next: Record<string, unknown> = { ...(l.fx ?? {}), [key]: value };
-      if (value === undefined) delete next[key];
+      const merged = value === undefined ? undefined : (mergePatch(fx, { [key]: value } as Partial<LayerFx>, l.fx ?? {})[key] as LayerFx[K] | undefined);
+      if (value !== undefined && merged === undefined) return l;
+      const next: Record<string, unknown> = { ...(l.fx ?? {}), [key]: merged };
+      if (merged === undefined) delete next[key];
       const { fx: _old, ...rest } = l;
       return Object.keys(next).length ? ({ ...rest, fx: next as LayerFx } as Layer) : (rest as Layer);
     });
@@ -384,7 +406,7 @@ export function StylesSection({ layer }: { layer: Layer }) {
 export function CollageSection({ group }: { group: GroupLayer }) {
   const info = group.collage!;
   const frames = group.children.filter((c) => c.kind === "slot").length;
-  const change = (label: string, patch: Partial<Omit<CollageInfo, "area">>) => set(group.id, label, (l) => (l.kind === "group" ? relayout(l, patch) : l));
+  const change = (label: string, patch: Partial<Omit<CollageInfo, "area">>) => setOne(group.id, label, (l) => (l.kind === "group" ? relayout(l, patch) : l));
   const filled = group.children.filter((c) => c.kind === "slot" && c.assetId).length;
   return (
     <>
@@ -401,7 +423,7 @@ export function CollageSection({ group }: { group: GroupLayer }) {
       </label>
       <Gesture label="Spacing" history="Collage spacing" value={Math.round(info.spacing * 1000)} min={0} max={100} def={20} format={(v) => `${(v / 10).toFixed(1)}%`} onChange={(v) => change("Collage spacing", { spacing: v / 1000 })} />
       <Gesture label="Rounding" history="Collage rounding" value={Math.round(info.radius * 100)} min={0} max={100} def={0} format={pct} onChange={(v) => change("Collage rounding", { radius: v / 100 })} />
-      <button type="button" className="btn small" disabled={filled < 2} title="Move every photo one frame on" onClick={() => set(group.id, "Shuffle photos", (l) => (l.kind === "group" ? rotatePhotos(l) : l))}>
+      <button type="button" className="btn small" disabled={filled < 2} title="Move every photo one frame on" onClick={() => setOne(group.id, "Shuffle photos", (l) => (l.kind === "group" ? rotatePhotos(l) : l))}>
         Shuffle photos
       </button>
       <p className="faint" style={{ fontSize: 10 }}>

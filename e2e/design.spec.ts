@@ -1049,3 +1049,102 @@ test.describe("computer: yes / but template", () => {
     expect(Math.abs(asShot2 - asShot)).toBeLessThan(4);
   });
 });
+
+/** The open document's layers (top-level), read from the app. */
+const docLayers = (page: Page) =>
+  page.evaluate(async () => {
+    const { composite } = await import("/src/core/document/session.ts" as string);
+    return JSON.parse(JSON.stringify(composite.getState().doc.layers)) as { name: string; kind: string; transform: { x: number; width: number; height: number }; style: Record<string, unknown>; shape?: { kind: string; points: number; round: number }; fx?: { shadow?: { color: string; blur: number } } }[];
+  });
+const byName = async (page: Page, name: string) => (await docLayers(page)).find((l) => l.name === name)!;
+
+test.describe("computer: editing several layers at once", () => {
+  test("a change goes to every selected layer it fits, keeping each one's own other settings", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    await left.getByRole("button", { name: "Add rectangle", exact: true }).click();
+    await right.getByRole("spinbutton", { name: "X" }).fill("300");
+    // The rectangle gets a red shadow of its own first.
+    await right.getByRole("checkbox", { name: "Shadow" }).check();
+    await right.getByRole("textbox", { name: "Shadow colour" }).fill("#ff0000");
+    await left.getByRole("button", { name: "Add star", exact: true }).click();
+    await right.getByRole("spinbutton", { name: "X" }).fill("700");
+    const before = { rect: await byName(page, "Rectangle"), star: await byName(page, "Star") };
+
+    // Select both (the star last: it is the one shown).
+    await row(page, "Rectangle").locator(".name").click();
+    await row(page, "Star").locator(".name").click({ modifiers: ["Control"] });
+    await expect(right.getByText(/2 layers selected/)).toBeVisible();
+
+    // Fill colour: both.
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#00aa55");
+    await expect.poll(async () => (await byName(page, "Rectangle")).style.fill).toBe("#00aa55");
+    expect((await byName(page, "Star")).style.fill).toBe("#00aa55");
+
+    // Star points: only the star; the rectangle stays a rectangle. Rounding fits both.
+    const points = right.getByRole("slider", { name: "Points" });
+    await points.focus();
+    await page.keyboard.press("ArrowRight");
+    expect((await byName(page, "Star")).shape!.points).toBe(before.star.shape!.points + 1);
+    expect((await byName(page, "Rectangle")).shape).toEqual(before.rect.shape);
+    const rounding = right.getByRole("slider", { name: "Rounding" });
+    await rounding.focus();
+    await page.keyboard.press("End");
+    expect((await byName(page, "Star")).shape!.round).toBe(1);
+    expect((await byName(page, "Rectangle")).shape!.round).toBe(1);
+    expect((await byName(page, "Rectangle")).shape!.kind).toBe("rectangle");
+
+    // Shadow on: the star gets one, the rectangle keeps its red one. A tweak changes only the blur on both.
+    await right.getByRole("checkbox", { name: "Shadow" }).check();
+    expect((await byName(page, "Star")).fx!.shadow!.color).toBe("#000000");
+    expect((await byName(page, "Rectangle")).fx!.shadow!.color).toBe("#ff0000");
+    const blur = right.locator(".style-group").getByRole("slider", { name: "Blur" });
+    await blur.focus();
+    await page.keyboard.press("End");
+    const starBlur = (await byName(page, "Star")).fx!.shadow!.blur;
+    expect((await byName(page, "Rectangle")).fx!.shadow!.blur).toBe(starBlur);
+    expect((await byName(page, "Rectangle")).fx!.shadow!.color).toBe("#ff0000");
+
+    // Position moves both by the same amount; width applies to each.
+    await right.getByRole("spinbutton", { name: "X" }).fill("750");
+    await right.getByRole("spinbutton", { name: "X" }).press("Enter");
+    await expect.poll(async () => (await byName(page, "Star")).transform.x).toBe(750);
+    expect((await byName(page, "Rectangle")).transform.x).toBe(350);
+    await right.getByRole("spinbutton", { name: "W" }).fill("200");
+    await right.getByRole("spinbutton", { name: "W" }).press("Enter");
+    await expect.poll(async () => (await byName(page, "Rectangle")).transform.width).toBe(200);
+    expect((await byName(page, "Star")).transform.width).toBe(200);
+
+    // One undo step per change.
+    await page.keyboard.press("Control+z");
+    await expect.poll(async () => (await byName(page, "Rectangle")).transform.width).toBe(before.rect.transform.width);
+    expect((await byName(page, "Star")).transform.width).toBe(before.star.transform.width);
+  });
+
+  test("text: styling goes to every selected text layer, the words stay with the one shown", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    await left.getByRole("button", { name: "Subheading", exact: true }).click();
+    await right.getByRole("textbox", { name: "Text", exact: true }).fill("First");
+    await left.getByRole("button", { name: "Subheading", exact: true }).click();
+    await right.getByRole("textbox", { name: "Text", exact: true }).fill("Second");
+    await left.getByRole("button", { name: "Add rectangle", exact: true }).click();
+    const rows = page.locator(".layer-list .layer-row");
+    // Select everything; the last text layer is shown.
+    await rows.nth(0).locator(".name").click();
+    await rows.nth(2).locator(".name").click({ modifiers: ["Control"] });
+    await rows.nth(1).locator(".name").click({ modifiers: ["Control"] });
+    await right.getByRole("textbox", { name: "Text color" }).fill("#ff3300");
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.kind === "text").map((l) => l.style.color)).toEqual(["#ff3300", "#ff3300"]);
+    // The rectangle has no text colour: untouched, still a path with its fill.
+    expect((await docLayers(page)).find((l) => l.kind === "path")!.style.color).toBeUndefined();
+    await right.getByRole("textbox", { name: "Text", exact: true }).fill("Changed");
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.kind === "text").map((l) => l.style.text).sort()).toEqual(["Changed", "First"]);
+  });
+});

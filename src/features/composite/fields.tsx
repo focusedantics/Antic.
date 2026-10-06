@@ -4,16 +4,29 @@ import { BUILT_IN_GRADIENTS } from "@/features/color/palettes";
 import { useStore } from "@/app/hooks";
 import { assetData, designAssets, type GradientData, saveDesignAsset } from "@/core/design/assets";
 import type { Gradient, GradientStop, Layer } from "@/core/document/model";
-import { updateLayer } from "@/core/document/operations";
-import { beginDocGesture, editDocument, endDocGesture } from "@/core/document/session";
+import { updateLayer, updateLayers } from "@/core/document/operations";
+import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 
 /** A colour in the document: a drag in the picker is one undoable step. */
 export function DocColor({ label, value, onChange, swatchOnly }: { label: string; value: string; onChange: (hex: string) => void; swatchOnly?: boolean }) {
   return <ColorField label={label} value={value} onChange={onChange} swatchOnly={swatchOnly} onGestureStart={() => beginDocGesture(label)} onGestureEnd={endDocGesture} />;
 }
 
-/** One undoable change to a layer. */
-export const set = (id: string, label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayer(d, id, change));
+/** The layers a change to `id` goes to: every selected layer when `id` is one of them. */
+export const editTargets = (id: string): readonly string[] => {
+  const { selection } = composite.getState();
+  return selection.includes(id) ? selection : [id];
+};
+
+/**
+ * One undoable change to a layer and, when it is selected with others, to each of them.
+ * Every change checks what it applies to (text, shapes, frames…) and returns other
+ * layers as they are, so with several selected, whatever fits changes.
+ */
+export const set = (id: string, label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayers(d, editTargets(id), change));
+
+/** A change that belongs to one layer only: its words, its mask, its collage. */
+export const setOne = (id: string, label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayer(d, id, change));
 
 export function Num({ label, value, onCommit, step = 1, suffix }: { label: string; value: number; onCommit: (v: number) => void; step?: number; suffix?: string }) {
   return (

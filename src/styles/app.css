@@ -397,6 +397,8 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 }
 .layer-grip:hover { color: var(--text); background: var(--panel-3); }
 .layer-grip:focus-visible { outline: 1px solid var(--focus); color: var(--text); }
+/* Properties with several layers selected: which one is shown, and that changes go to all that fit. */
+.multi-hint { margin: 0 0 8px; font-size: 11px; line-height: 1.4; }
 /* The Fill slider's room when the selected layer has no fill (sized by the .slider rules). */
 .fill-spacer { visibility: hidden; }
 .layer-row.layer-dragging { opacity: 0.35; }

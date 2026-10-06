@@ -18,36 +18,44 @@ import { effectById } from "@/core/effects/registry";
 import { emptyMask, fitTransform, locate, TEXT_MOTIONS } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
-import { DocColor, GradientEditor, Num, set } from "./fields";
+import { DocColor, GradientEditor, Num, set, setOne } from "./fields";
 import { CollageSection, PathSection, ReplacePhoto, SlotSection, StylesSection, TextExtras } from "./StyleSections";
 import { EffectParams } from "@/features/effects/EffectParams";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { brush } from "@/features/develop/masks/brush";
+import { mergePatch } from "@/lib/merge";
 
+
+/** Layers with a box of their own to move and size (fills, adjustments, effects and groups cover the canvas). */
+const hasBox = (l: Layer) => l.kind !== "fill" && l.kind !== "adjustment" && l.kind !== "effect" && l.kind !== "group";
 
 function TransformSection({ layer }: { layer: Layer }) {
   const t = layer.transform;
-  const update = (label: string, patch: Partial<Transform>) => set(layer.id, label, (l) => ({ ...l, transform: { ...l.transform, ...patch, corners: undefined } }));
-  const aspect = t.width / t.height;
+  /** Each selected layer with a box: `patch` computes its new transform from its own. */
+  const update = (label: string, patch: (own: Transform) => Partial<Transform>) =>
+    set(layer.id, label, (l) => (hasBox(l) ? { ...l, transform: { ...l.transform, ...patch(l.transform), corners: undefined } } : l));
+  const several = useStore(composite, (s) => s.selection.length > 1 && s.selection.includes(layer.id));
   return (
     <>
       <div className="subhead">Transform</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-        <Num label="X" value={t.x} onCommit={(x) => update("Move", { x })} />
-        <Num label="Y" value={t.y} onCommit={(y) => update("Move", { y })} />
-        <Num label="Angle°" value={t.rotation} step={0.1} onCommit={(rotation) => update("Rotate", { rotation })} />
-        <Num label="W" value={t.width} onCommit={(width) => update("Resize", { width: Math.max(1, width), height: Math.max(1, width / aspect) })} />
-        <Num label="H" value={t.height} onCommit={(height) => update("Resize", { height: Math.max(1, height), width: Math.max(1, height * aspect) })} />
+        {/* Position moves every selected layer by the same amount, so they keep their arrangement. */}
+        <Num label="X" value={t.x} onCommit={(x) => update("Move", (own) => ({ x: own.x + (x - t.x) }))} />
+        <Num label="Y" value={t.y} onCommit={(y) => update("Move", (own) => ({ y: own.y + (y - t.y) }))} />
+        <Num label="Angle°" value={t.rotation} step={0.1} onCommit={(rotation) => update("Rotate", () => ({ rotation }))} />
+        {/* Size: each layer keeps its own proportions. */}
+        <Num label="W" value={t.width} onCommit={(width) => update("Resize", (own) => ({ width: Math.max(1, width), height: Math.max(1, (width * own.height) / own.width) }))} />
+        <Num label="H" value={t.height} onCommit={(height) => update("Resize", (own) => ({ height: Math.max(1, height), width: Math.max(1, (height * own.width) / own.height) }))} />
       </div>
       <div className="row wrap" style={{ marginTop: 6 }}>
-        <button type="button" className="btn small" aria-pressed={t.flipX} onClick={() => update("Flip horizontal", { flipX: !t.flipX })}>
+        <button type="button" className="btn small" aria-pressed={t.flipX} onClick={() => update("Flip horizontal", () => ({ flipX: !t.flipX }))}>
           Flip H
         </button>
-        <button type="button" className="btn small" aria-pressed={t.flipY} onClick={() => update("Flip vertical", { flipY: !t.flipY })}>
+        <button type="button" className="btn small" aria-pressed={t.flipY} onClick={() => update("Flip vertical", () => ({ flipY: !t.flipY }))}>
           Flip V
         </button>
         {t.corners && (
-          <button type="button" className="btn small" onClick={() => update("Remove perspective", {})}>
+          <button type="button" className="btn small" onClick={() => update("Remove perspective", () => ({}))}>
             Reset perspective
           </button>
         )}
@@ -56,14 +64,16 @@ function TransformSection({ layer }: { layer: Layer }) {
           className="btn small"
           onClick={() => {
             const doc = composite.getState().doc;
-            if (doc) set(layer.id, "Fit to canvas", (l) => ({ ...l, transform: fitTransform(doc, t.width, t.height, true) }));
+            if (doc) set(layer.id, "Fit to canvas", (l) => (hasBox(l) ? { ...l, transform: fitTransform(doc, l.transform.width, l.transform.height, true) } : l));
           }}
         >
           Fill canvas
         </button>
       </div>
       <p className="faint" style={{ fontSize: 10 }}>
-        Drag corners to scale (Shift: free aspect), the round handle to rotate, Ctrl-drag a corner for perspective.
+        {several
+          ? "X and Y move all the selected layers together; size, angle and flips apply to each."
+          : "Drag corners to scale (Shift: free aspect), the round handle to rotate, Ctrl-drag a corner for perspective."}
       </p>
     </>
   );
@@ -83,6 +93,7 @@ function CropSection({ layer }: { layer: Layer }) {
       onGestureEnd={endDocGesture}
       onChange={(v) =>
         set(layer.id, "Crop layer", (l) => {
+          if (!hasBox(l)) return l;
           const next = { ...l.crop, [key]: key === "right" || key === "bottom" ? 1 - v / 100 : v / 100 };
           if (next.right - next.left < 0.02 || next.bottom - next.top < 0.02) return l;
           return { ...l, crop: next };
@@ -108,14 +119,14 @@ function MaskSection({ layer }: { layer: Layer }) {
   if (!mask)
     return (
       <div className="row" style={{ marginTop: 8 }}>
-        <button type="button" className="btn small" onClick={() => set(layer.id, "Add layer mask", (l) => ({ ...l, mask: emptyMask() }))}>
+        <button type="button" className="btn small" onClick={() => setOne(layer.id, "Add layer mask", (l) => ({ ...l, mask: emptyMask() }))}>
           Add layer mask
         </button>
       </div>
     );
   const add = (kind: "brush" | "linear" | "radial", operation: MaskComponent["operation"]) => {
     const component = newComponent(defaultMaskShape(kind, { x: 0.5, y: 0.5 }, 0.3, layer.transform.width / layer.transform.height), operation);
-    set(layer.id, `Mask: add ${shapeLabels[kind]}`, (l) => ({ ...l, mask: { ...l.mask!, components: [...l.mask!.components, component] } }));
+    setOne(layer.id, `Mask: add ${shapeLabels[kind]}`, (l) => ({ ...l, mask: { ...l.mask!, components: [...l.mask!.components, component] } }));
     composite.setState({ maskLayerId: layer.id, maskComponentId: component.id, tool: "mask" });
   };
   const editing = maskLayerId === layer.id;
@@ -125,13 +136,13 @@ function MaskSection({ layer }: { layer: Layer }) {
       <div className="subhead">Layer Mask</div>
       <div className="row wrap">
         <label className="check">
-          <input type="checkbox" checked={mask.enabled} onChange={(e) => set(layer.id, "Toggle mask", (l) => ({ ...l, mask: { ...l.mask!, enabled: e.target.checked } }))} /> Enabled
+          <input type="checkbox" checked={mask.enabled} onChange={(e) => setOne(layer.id, "Toggle mask", (l) => ({ ...l, mask: { ...l.mask!, enabled: e.target.checked } }))} /> Enabled
         </label>
         <label className="check">
-          <input type="checkbox" checked={mask.invert} onChange={(e) => set(layer.id, "Invert mask", (l) => ({ ...l, mask: { ...l.mask!, invert: e.target.checked } }))} /> Invert
+          <input type="checkbox" checked={mask.invert} onChange={(e) => setOne(layer.id, "Invert mask", (l) => ({ ...l, mask: { ...l.mask!, invert: e.target.checked } }))} /> Invert
         </label>
         <span className="spacer" />
-        <button type="button" className="btn small danger" onClick={() => set(layer.id, "Delete layer mask", (l) => ({ ...l, mask: null }))}>
+        <button type="button" className="btn small danger" onClick={() => setOne(layer.id, "Delete layer mask", (l) => ({ ...l, mask: null }))}>
           Delete
         </button>
       </div>
@@ -144,7 +155,7 @@ function MaskSection({ layer }: { layer: Layer }) {
         format={(v) => `${v}%`}
         onGestureStart={() => beginDocGesture("Mask density")}
         onGestureEnd={endDocGesture}
-        onChange={(v) => set(layer.id, "Mask density", (l) => ({ ...l, mask: { ...l.mask!, density: v / 100 } }))}
+        onChange={(v) => setOne(layer.id, "Mask density", (l) => ({ ...l, mask: { ...l.mask!, density: v / 100 } }))}
       />
       {mask.components.map((c) => (
         <div key={c.id} className="row">
@@ -154,10 +165,10 @@ function MaskSection({ layer }: { layer: Layer }) {
               {c.shape.kind === "ai" ? "AI" : shapeLabels[c.shape.kind]}
             </span>
           </button>
-          <button type="button" className="btn ghost small" aria-pressed={c.invert} onClick={() => set(layer.id, "Invert component", (l) => ({ ...l, mask: { ...l.mask!, components: l.mask!.components.map((x) => (x.id === c.id ? { ...x, invert: !x.invert } : x)) } }))}>
+          <button type="button" className="btn ghost small" aria-pressed={c.invert} onClick={() => setOne(layer.id, "Invert component", (l) => ({ ...l, mask: { ...l.mask!, components: l.mask!.components.map((x) => (x.id === c.id ? { ...x, invert: !x.invert } : x)) } }))}>
             Inv
           </button>
-          <button type="button" className="btn ghost small" aria-label="Delete mask component" onClick={() => set(layer.id, "Delete mask component", (l) => ({ ...l, mask: { ...l.mask!, components: l.mask!.components.filter((x) => x.id !== c.id) } }))}>
+          <button type="button" className="btn ghost small" aria-label="Delete mask component" onClick={() => setOne(layer.id, "Delete mask component", (l) => ({ ...l, mask: { ...l.mask!, components: l.mask!.components.filter((x) => x.id !== c.id) } }))}>
             ✕
           </button>
         </div>
@@ -193,7 +204,7 @@ function MaskToolControls({ layer, component }: { layer: Layer; component: MaskC
   const doc = useStore(composite, (st) => st.doc);
   const shape = component.shape;
   const setShape = (label: string, next: MaskComponent["shape"]) =>
-    set(layer.id, label, (l) => ({ ...l, mask: l.mask ? { ...l.mask, components: l.mask.components.map((c) => (c.id === component.id ? { ...c, shape: next } : c)) } : null }));
+    setOne(layer.id, label, (l) => ({ ...l, mask: l.mask ? { ...l.mask, components: l.mask.components.map((c) => (c.id === component.id ? { ...c, shape: next } : c)) } : null }));
   if (shape.kind === "brush") {
     const docLong = doc ? Math.max(doc.width, doc.height) : 1000;
     return (
@@ -322,9 +333,10 @@ function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
   const s = layer.style;
   const motion = s.motion && s.motion.kind !== "none" ? s.motion : null;
   const update = (label: string, patch: Partial<TextStyle>) =>
-    set(layer.id, label, (l) => {
+    // The words belong to this layer; its styling goes to every selected text layer.
+    ("text" in patch ? setOne : set)(layer.id, label, (l) => {
       if (l.kind !== "text") return l;
-      const style = { ...l.style, ...patch };
+      const style = mergePatch(s, patch, l.style);
       if (!style.motion) delete (style as { motion?: unknown }).motion;
       return { ...l, style };
     });
@@ -408,7 +420,7 @@ function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
 
 function ShapeSection({ layer }: { layer: Extract<Layer, { kind: "shape" }> }) {
   const s = layer.style;
-  const update = (label: string, patch: Partial<ShapeStyle>) => set(layer.id, label, (l) => (l.kind === "shape" ? { ...l, style: { ...l.style, ...patch } } : l));
+  const update = (label: string, patch: Partial<ShapeStyle>) => set(layer.id, label, (l) => (l.kind === "shape" ? { ...l, style: mergePatch(s, patch, l.style) } : l));
   return (
     <>
       <div className="subhead">Shape</div>
@@ -526,11 +538,11 @@ function EffectSection({ layer }: { layer: Extract<Layer, { kind: "effect" }> })
       <EffectParams
         effect={layer.effect}
         onParam={(key, label, value) =>
-          set(layer.id, label, (l) => (l.kind === "effect" ? { ...l, effect: { ...l.effect, params: { ...l.effect.params, [key]: value } } } : l))
+          set(layer.id, label, (l) => (l.kind === "effect" && l.effect.id === layer.effect.id ? { ...l, effect: { ...l.effect, params: { ...l.effect.params, [key]: value } } } : l))
         }
         onGestureStart={beginDocGesture}
         onGestureEnd={endDocGesture}
-        onReset={(fresh) => set(layer.id, "Reset effect", (l) => (l.kind === "effect" ? { ...l, effect: fresh } : l))}
+        onReset={(fresh) => set(layer.id, "Reset effect", (l) => (l.kind === "effect" && l.effect.id === layer.effect.id ? { ...l, effect: fresh } : l))}
         onChangeEffect={() => openEffectsBrowser({ mode: "replace", layerId: layer.id })}
         note="Applies to everything below it. Clip it (Ctrl+Alt+G) to affect only the layer beneath, add a mask to limit where, or change its blend mode and opacity above."
       />
@@ -624,7 +636,12 @@ export function PropertiesPanel() {
   const parent = locate(doc.layers, layer.id)?.parent;
   const collage = layer.kind === "group" && layer.collage ? layer : parent?.collage ? parent : null;
   return (
-    <Panel id="cmp-props" title={`Properties · ${layer.name}`}>
+    <Panel id="cmp-props" title={selection.length > 1 ? `Properties · ${layer.name} + ${selection.length - 1}` : `Properties · ${layer.name}`}>
+      {selection.length > 1 && (
+        <p className="faint multi-hint">
+          {selection.length} layers selected. Showing {layer.name}; a change applies to every selected layer it fits. Words, masks and photos stay with {layer.name}.
+        </p>
+      )}
       {layer.kind === "image" && <ImageSection layer={layer} />}
       {layer.kind === "gradient" && <GradientSection layer={layer} />}
       {layer.kind === "text" && <TextSection layer={layer} />}

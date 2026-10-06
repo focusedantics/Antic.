@@ -262,6 +262,16 @@ Per-layer content is cached by its inputs and evicted when unused.
 
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
 
+**Editing several layers.** Properties shows the last selected layer; its edits go
+through `set` (`features/composite/fields.tsx`), which applies them to every selected
+layer, and each edit checks the layer's kind, so whatever fits changes (text colour on
+text layers, fill on shapes, styles on all). Values built from the shown layer merge only
+their changed fields into each layer's own (`lib/merge.ts`): a shadow's new blur keeps
+each layer's colour, a star's points leave other shapes alone, turning a style on keeps a
+layer's own. Position moves the selection together; size, angle and flips apply to each;
+effect settings reach only the same effect. A layer's words, mask, collage and photo are
+its own (`setOne`).
+
 **Layer order.** `moveLayers` drops layers (kept in paint order) above, below or into
 another layer, and `arrangeLayers` brings to front / forward or sends backward / to back
 within each layer's group, moving several selected siblings as a block; both return the
