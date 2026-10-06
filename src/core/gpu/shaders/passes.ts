@@ -467,11 +467,12 @@ void main() {
   vec3 h = uCanvasToImage * vec3(px, 1.0);
   vec2 whole = h.xy / h.z;
   vec2 uv = (whole - uImageWindow.xy) / uImageWindow.zw;
-  // Slopes for the mip level, before any pixel leaves or picks its texture per pixel.
-  vec2 wx = dFdx(whole);
-  vec2 wy = dFdy(whole);
-  vec2 ux = dFdx(uv);
-  vec2 uy = dFdy(uv);
+  // Slopes for the mip level, exact from the mapping (no neighbouring pixels needed;
+  // see the composite place shader); screen y runs opposite to gl_FragCoord.y.
+  vec2 wx = (uCanvasToImage[0].xy - whole * uCanvasToImage[0].z) / h.z;
+  vec2 wy = -(uCanvasToImage[1].xy - whole * uCanvasToImage[1].z) / h.z;
+  vec2 ux = wx / uImageWindow.zw;
+  vec2 uy = wy / uImageWindow.zw;
   if (whole.x < 0.0 || whole.y < 0.0 || whole.x > 1.0 || whole.y > 1.0) { outColor = uBackground; return; }
   bool before = uSplit == 1 && px.x < uSplitX;
   bool inWindow = uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0;

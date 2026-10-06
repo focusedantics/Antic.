@@ -158,11 +158,15 @@ and one labelled step. Snapshots are named recipes stored per asset.
 The working space is **linear Rec.2020, RGBA16F**, scene-referred with headroom above
 1.0. Passes (fullscreen fragment shaders over render targets):
 
-A rule for every shader that samples a mipmapped texture: take the coordinate's slope
-(`dFdx`/`dFdy`) before any early `return` or per-pixel choice of texture, and sample with
-`textureGrad`. The mip level comes from neighbouring pixels in a 2 × 2 block; after some
-of them returned it is undefined, and some GPUs then read the smallest mip, which drew a
-line in the photo's average colour around layer boxes (photo frames showed it most).
+A rule for every shader that samples a mipmapped texture through a mapping: work out
+the coordinate's slope from the mapping itself and sample with `textureGrad`. For a
+projective map `h = M·(x, y, 1)`, `uv = h.xy / h.z`, the slope is
+`d(uv)/dx = (M[0].xy − uv·M[0].z) / h.z` (likewise y), exact for each pixel. `texture()`
+estimates it from neighbouring pixels in a 2 × 2 block, which next to a layer's box are
+pixels that returned early; some GPUs then read the smallest mip and drew a line in the
+layer's average colour around every layer's box. `place`, the composite display, layer
+mask lookups and the Develop viewer use the exact slope; the Develop geometry pass (lens
+distortion has no simple slope) takes `dFdx` before any pixel leaves.
 
 1. **Source** — upload once per photo, mipmapped: RAW (and 16-bit files) as linear
    Rec.2020 RGBA16F; 8-bit files stay as their own sRGB pixels in an `SRGB8_ALPHA8`

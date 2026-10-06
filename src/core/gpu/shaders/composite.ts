@@ -66,12 +66,13 @@ vec4 gradientAt(vec2 uv) {
 void main() {
   vec3 h = uToContent * vec3(gl_FragCoord.xy, 1.0);
   vec2 uv = h.xy / h.z;
-  // The mip level comes from how uv changes across neighbouring pixels: take that slope
-  // before any pixel leaves. texture() after the early return would read it from pixels
-  // that already returned (undefined in GLSL; some GPUs then pick the smallest mip, which
-  // drew a faint line in the photo's average colour around every layer's box).
-  vec2 gx = dFdx(uv);
-  vec2 gy = dFdy(uv);
+  // The mip level comes from how fast uv changes on screen. GPUs estimate that from
+  // neighbouring pixels (dFdx), which next to the box edge are pixels that left early:
+  // some GPUs then picked the smallest mip and drew a line in the layer's average colour
+  // around its box. The mapping gives the exact slope for this pixel alone instead:
+  // h = x·M[0] + y·M[1] + M[2], so d(uv)/dx = (M[0].xy − uv·M[0].z) / h.z (likewise y).
+  vec2 gx = (uToContent[0].xy - uv * uToContent[0].z) / h.z;
+  vec2 gy = (uToContent[1].xy - uv * uToContent[1].z) / h.z;
   if (h.z <= 0.0 || uv.x < uCrop.x || uv.y < uCrop.y || uv.x > uCrop.z || uv.y > uCrop.w) { outColor = vec4(0.0); return; }
   vec4 c;
   if (uKind == 0) c = textureGrad(uContent, uv, gx, gy);
@@ -207,7 +208,10 @@ void main() {
   if (uMaskOn == 1) {
     vec3 h = uToContent * vec3(gl_FragCoord.xy, 1.0);
     vec2 uv = h.xy / h.z;
-    float m = (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ? 0.0 : texture(uMask, uv).r;
+    // Exact slope from the mapping (see place): the lookup sits in a per-pixel branch.
+    vec2 gx = (uToContent[0].xy - uv * uToContent[0].z) / h.z;
+    vec2 gy = (uToContent[1].xy - uv * uToContent[1].z) / h.z;
+    float m = (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ? 0.0 : textureGrad(uMask, uv, gx, gy).r;
     if (uMaskInvert == 1) m = 1.0 - m;
     k *= 1.0 - uMaskDensity * (1.0 - m);
   }
@@ -234,9 +238,9 @@ void main() {
   vec2 px = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
   vec3 h = uScreenToDoc * vec3(px, 1.0);
   vec2 d = h.xy / h.z;
-  // Slope before the early return (see place).
-  vec2 gx = dFdx(d / uDocSize);
-  vec2 gy = dFdy(d / uDocSize);
+  // The exact slope from the mapping (see place); screen y runs opposite to gl_FragCoord.y.
+  vec2 gx = (uScreenToDoc[0].xy - d * uScreenToDoc[0].z) / h.z / uDocSize;
+  vec2 gy = -(uScreenToDoc[1].xy - d * uScreenToDoc[1].z) / h.z / uDocSize;
   if (d.x < 0.0 || d.y < 0.0 || d.x > uDocSize.x || d.y > uDocSize.y) { outColor = vec4(0.0); return; }
   vec4 c = textureGrad(uImage, d / uDocSize, gx, gy);
   vec2 cell = floor(px / 8.0);
@@ -258,7 +262,11 @@ void main() {
   float a = uFill;
   if (uMaskOn == 1) {
     vec3 h = uToContent * vec3(gl_FragCoord.xy, 1.0);
-    float m = texture(uMask, clamp(h.xy / h.z, 0.0, 1.0)).r;
+    vec2 uv = h.xy / h.z;
+    // Exact slope from the mapping (see place).
+    vec2 gx = (uToContent[0].xy - uv * uToContent[0].z) / h.z;
+    vec2 gy = (uToContent[1].xy - uv * uToContent[1].z) / h.z;
+    float m = textureGrad(uMask, clamp(uv, 0.0, 1.0), gx, gy).r;
     if (uMaskInvert == 1) m = 1.0 - m;
     a *= 1.0 - uMaskDensity * (1.0 - m);
   }
