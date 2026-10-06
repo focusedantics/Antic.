@@ -77,7 +77,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 ### Vector, text and logos
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
-| V1 | Pen tool, node editing | New: `path` layer kind (cubic Béziers), pen and node tool on the canvas | ⬜ |
+| V1 | Pen tool, node editing | New: `path` layer kind (cubic Béziers), pen and node tool on the canvas | ✅ |
 | V2 | Smart shapes: polygon, star, heart, arrow, speech bubble, line, burst, ring… | New: shape generators producing paths | ✅ |
 | V3 | Fill and stroke with colours or gradients, dashes, caps | New: path fill and stroke styles | ✅ |
 | V4 | Save vector shapes in folders | New: elements library (`designAssets`) | ⬜ |
@@ -90,12 +90,18 @@ paid or online feature. "Skip" means it is left out, with the reason.
 ### Drawing
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
-| D1 | Paint layers with brushes and colours | New: `paint` layer kind; strokes are data (resolution independent, "vector paint") | ⬜ |
-| D2 | Brush presets: round, soft, marker, pencil, spray, calligraphy, eraser | New | ⬜ |
+| D1 | Paint layers with brushes and colours | New: `paint` layer kind; strokes are data (resolution independent, "vector paint") | ✅ |
+| D2 | Brush presets: round, soft, marker, pencil, spray, calligraphy, eraser | New | ✅ |
 | D3 | Custom brush tips from images | New: a tip image kept as a design asset | ⬜ |
-| D4 | Predictive brush: smoothing, and hold to straighten into a line, circle or rectangle | New | ⬜ |
-| D5 | Colour fill (bucket) | New: fill operations replayed with the strokes | ⬜ |
+| D4 | Predictive brush: smoothing, and hold to straighten into a line, circle or rectangle | New (also triangles and polygons) | ✅ |
+| D5 | Colour fill (bucket) | New: fill operations replayed with the strokes | ✅ |
 | D6 | Mask any layer with brushes | Exists: layer masks | ✅ |
+
+### Elements and text panels
+| # | Feature | How | Status |
+| --- | --- | --- | --- |
+| E1 | Elements: badges, ribbons, price tags, stamps, speech bubbles, doodles, dividers, sparkles, confetti, tape, frames | New: original vector elements built as editable layer groups (`design/elements.ts`), previewed as SVG sketches | ✅ |
+| E2 | Text styles and text combinations (title + subtitle, quote, big number, event date, script + capitals, neon, sticker, highlight) | New | ✅ |
 
 ### Layers
 | # | Feature | How | Status |

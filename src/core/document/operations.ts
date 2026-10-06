@@ -4,7 +4,8 @@ import { sanitizeRecipe } from "@/core/develop/operations";
 import { effectById, newEffect, sanitizeEffect } from "@/core/effects/registry";
 import { ANIMATION_LIMITS, DEFAULT_ANIMATION } from "./animation";
 import { createId } from "@/lib/id";
-import { SMART_SHAPES, shapePaths, smartShape } from "./shapes";
+import { mapPaths, pathBounds, SMART_SHAPES, shapePaths, smartShape } from "./shapes";
+import { paintExtent } from "./paint";
 import { clamp, invert3, type Mat3, type Point } from "@/lib/math";
 import {
   BLEND_MODES,
@@ -17,7 +18,11 @@ import {
   type LayerCrop,
   type LayerFx,
   type LayerMask,
+  type BrushKind,
+  type PaintLayer,
+  type PaintOp,
   type PathLayer,
+  type PathNode,
   type PathStyle,
   type ShapeStyle,
   type SlotLayer,
@@ -179,6 +184,71 @@ export const layerPaths = (layer: PathLayer): SubPath[] =>
 
 /** Freezes a smart shape into nodes the pen can edit. */
 export const toEditablePath = (layer: PathLayer): PathLayer => (layer.shape ? { ...layer, shape: null, paths: layerPaths(layer) } : layer);
+
+/** An empty drawing over the whole canvas. */
+export const paintLayer = (doc: Pick<CompositeDocument, "width" | "height">, name = "Drawing"): PaintLayer => ({ ...base(name, canvasTransform(doc)), kind: "paint", ops: [] });
+
+/** Half the stroke: paths are drawn this far inside their box so the stroke fits. */
+export const pathInset = (layer: PathLayer) => (layer.style.stroke !== null && layer.style.strokeWidth > 0 ? layer.style.strokeWidth / 2 : 0);
+
+/** A path point (unit box) → canvas px, the way the compositor draws it. */
+export function pathPointToCanvas(layer: PathLayer, p: Point): Point {
+  const t = layer.transform;
+  const i = pathInset(layer);
+  const u = (i + p.x * Math.max(0, t.width - 2 * i)) / t.width;
+  const v = (i + p.y * Math.max(0, t.height - 2 * i)) / t.height;
+  return applyMat(contentToCanvas(t), { x: u, y: v });
+}
+
+/** Canvas px → a path point (unit box) of this layer. */
+export function canvasToPathPoint(layer: PathLayer, c: Point): Point {
+  const t = layer.transform;
+  const i = pathInset(layer);
+  const uv = applyMat(canvasToContent(t), c);
+  return { x: (uv.x * t.width - i) / Math.max(1e-6, t.width - 2 * i), y: (uv.y * t.height - i) / Math.max(1e-6, t.height - 2 * i) };
+}
+
+const applyMat = (m: Mat3, p: Point): Point => {
+  const w = m[6] * p.x + m[7] * p.y + m[8];
+  return { x: (m[0] * p.x + m[1] * p.y + m[2]) / w, y: (m[3] * p.x + m[4] * p.y + m[5]) / w };
+};
+
+/**
+ * Fits a drawn path's box to its nodes again after editing (points may have left the box
+ * or the drawing shrunk), keeping every point where it is on the canvas.
+ */
+export function refitPath(layer: PathLayer): PathLayer {
+  if (layer.shape || layer.transform.corners || !layer.paths.length) return layer;
+  const b = pathBounds(layer.paths);
+  const near = (a: number, c: number) => Math.abs(a - c) < 1e-4;
+  if (near(b.x, 0) && near(b.y, 0) && near(b.x + b.width, 1) && near(b.y + b.height, 1)) return layer;
+  const t = layer.transform;
+  const i = pathInset(layer);
+  const iw = Math.max(0, t.width - 2 * i);
+  const ih = Math.max(0, t.height - 2 * i);
+  // The bounds' centre as an offset from the box centre, in the box's own (unflipped) axes.
+  const cx = i + (b.x + b.width / 2) * iw - t.width / 2;
+  const cy = i + (b.y + b.height / 2) * ih - t.height / 2;
+  const fx = t.flipX ? -cx : cx;
+  const fy = t.flipY ? -cy : cy;
+  const rad = (t.rotation * Math.PI) / 180;
+  const x = t.x + fx * Math.cos(rad) - fy * Math.sin(rad);
+  const y = t.y + fx * Math.sin(rad) + fy * Math.cos(rad);
+  const paths = mapPaths(layer.paths, (p) => ({ x: b.width > 1e-9 ? (p.x - b.x) / b.width : 0.5, y: b.height > 1e-9 ? (p.y - b.y) / b.height : 0.5 }));
+  return { ...layer, paths, transform: { ...t, x, y, width: Math.max(1, b.width * iw + 2 * i), height: Math.max(1, b.height * ih + 2 * i) } };
+}
+
+/** A path layer from points in canvas px (the pen), its box fitted to them. */
+export function pathFromCanvas(doc: Pick<CompositeDocument, "width" | "height">, nodes: readonly PathNode[], closed: boolean, style: Partial<PathStyle>): PathLayer {
+  const base = pathLayer(doc, smartShape("rectangle"), style);
+  const layer: PathLayer = { ...base, name: closed ? "Shape" : "Path", shape: null, paths: [{ closed, nodes }], transform: { ...canvasTransform(doc), x: doc.width / 2, y: doc.height / 2 } };
+  // Start from a box equal to the canvas with no inset, then fit.
+  const inset = pathInset(layer);
+  const unit: PathLayer = { ...layer, paths: mapPaths(layer.paths, (p) => ({ x: p.x / doc.width, y: p.y / doc.height })), style: { ...layer.style, stroke: null } };
+  const fitted = refitPath({ ...unit, transform: { ...unit.transform, width: doc.width, height: doc.height } });
+  // Now grow the box by the stroke's inset on every side (the drawing keeps its place).
+  return { ...fitted, style: layer.style, transform: { ...fitted.transform, width: fitted.transform.width + 2 * inset, height: fitted.transform.height + 2 * inset } };
+}
 
 /** A photo frame. Without a box it is a centred square 60 % of the canvas's short side. */
 export function slotLayer(doc: Pick<CompositeDocument, "width" | "height">, frame: SmartShape = smartShape("rectangle"), box?: { x: number; y: number; width: number; height: number }): SlotLayer {
@@ -416,7 +486,13 @@ export function hitTest(layer: Layer, p: Point): boolean {
   const w = m[6] * p.x + m[7] * p.y + m[8];
   const u = (m[0] * p.x + m[1] * p.y + m[2]) / w;
   const v = (m[3] * p.x + m[4] * p.y + m[5]) / w;
-  return u >= layer.crop.left && u <= layer.crop.right && v >= layer.crop.top && v <= layer.crop.bottom;
+  if (u < layer.crop.left || u > layer.crop.right || v < layer.crop.top || v > layer.crop.bottom) return false;
+  // A drawing covers the canvas but is picked only where something is drawn.
+  if (layer.kind === "paint") {
+    const e = paintExtent(layer.ops);
+    return !!e && u >= e.x0 && u <= e.x1 && v >= e.y0 && v <= e.y1;
+  }
+  return true;
 }
 
 /** Translates a layer, including a perspective quad. */
@@ -566,6 +642,37 @@ function sanitizePathStyle(v: unknown): PathStyle {
   };
 }
 
+const brushKinds = new Set<BrushKind>(["round", "soft", "marker", "pencil", "spray", "calligraphy", "eraser"]);
+/** At most this many numbers of stroke points per layer (about 330 000 points). */
+const MAX_PAINT_NUMBERS = 1_000_000;
+function sanitizePaintOps(v: unknown): PaintOp[] {
+  let budget = MAX_PAINT_NUMBERS;
+  return (Array.isArray(v) ? v : []).slice(0, 20000).flatMap((raw): PaintOp[] => {
+    const o = obj(raw);
+    if (!o) return [];
+    if (o.type === "fill")
+      return [{ type: "fill", x: num(o.x, 0.5, -1, 2), y: num(o.y, 0.5, -1, 2), color: color(o.color, "#000000"), opacity: num(o.opacity, 1, 0, 1), tolerance: num(o.tolerance, 0.15, 0, 1) }];
+    if (o.type !== "stroke" || !Array.isArray(o.points)) return [];
+    const count = Math.min(Math.floor(o.points.length / 3) * 3, Math.max(0, budget - (budget % 3)));
+    const points: number[] = new Array(count);
+    for (let i = 0; i < count; i++) points[i] = num(o.points[i], 0, -10, 10);
+    budget -= count;
+    if (count < 3) return [];
+    return [
+      {
+        type: "stroke",
+        brush: brushKinds.has(o.brush as BrushKind) ? (o.brush as BrushKind) : "round",
+        color: color(o.color, "#000000"),
+        size: num(o.size, 0.01, 0.0001, 2),
+        opacity: num(o.opacity, 1, 0, 1),
+        hardness: num(o.hardness, 1, 0, 1),
+        points,
+        seed: Math.round(num(o.seed, 1, 0, 2 ** 31)),
+      },
+    ];
+  });
+}
+
 function sanitizeFx(v: unknown): LayerFx | undefined {
   const f = obj(v);
   if (!f) return undefined;
@@ -660,6 +767,8 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
       // A pen drawing with no nodes left draws nothing; keep it as an empty layer.
       return { ...common, kind: "path", shape, paths: shape ? [] : paths, style: sanitizePathStyle(l.style) };
     }
+    case "paint":
+      return { ...common, kind: "paint", ops: sanitizePaintOps(l.ops) };
     case "slot": {
       const f = obj(l.fit);
       return {

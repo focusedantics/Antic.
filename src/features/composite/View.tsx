@@ -1,5 +1,5 @@
 import { viewDpr } from "@/lib/device";
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { layout } from "@/app/layout";
 import { ui } from "@/app/state";
@@ -12,6 +12,8 @@ import { apply } from "@/core/develop/geometry";
 import { clamp, type Point } from "@/lib/math";
 import { brush } from "@/features/develop/masks/brush";
 import { addAssetsToComposite, fillSlot, importPhotosFromDevice } from "./actions";
+import { PaintOptions, PaintOverlay } from "./tools/PaintTool";
+import { NodesOverlay, PenOptions, PenOverlay } from "./tools/PenTool";
 import { useSweepSelect } from "@/components/sweep";
 import { sweepLayers } from "./LayersPanel";
 
@@ -182,6 +184,8 @@ export function CompositeView() {
     return { x: c.x - rect.left, y: c.y - rect.top };
   };
   const pxPerDoc = engine.compositeScale() / viewDpr();
+  const toDoc = (x: number, y: number) => engine.clientToDoc(x, y);
+  const toMove = useCallback(() => composite.setState({ tool: "move" }), []);
   const primary = doc && selection.length ? (locate(doc.layers, selection[selection.length - 1])?.layer ?? null) : null;
 
   // ─── Move / transform ──────────────────────────────────────────────────
@@ -387,6 +391,14 @@ export function CompositeView() {
   };
 
   const onCanvasClick = (e: React.MouseEvent) => {
+    // Double-click a drawn path or shape to edit its points.
+    if (e.detail === 2 && doc && tool === "move") {
+      const hit = layerAt(engine.clientToDoc(e.clientX, e.clientY));
+      if (hit?.kind === "path" && !hit.locked) {
+        composite.setState({ tool: "nodes", selection: [hit.id] });
+        return;
+      }
+    }
     const slot = frameTap.current;
     frameTap.current = null;
     if (!slot || !doc) return;
@@ -495,6 +507,24 @@ export function CompositeView() {
           <div className="ruler left" onPointerDown={dragGuide("x")} title="Drag right to add a vertical guide">
             {rulerTicks("y")}
           </div>
+        </>
+      )}
+      {doc && tool === "paint" && (
+        <>
+          <PaintOverlay toDoc={toDoc} pxPerDoc={pxPerDoc} />
+          <PaintOptions onDone={toMove} />
+        </>
+      )}
+      {doc && tool === "pen" && (
+        <>
+          <PenOverlay toDoc={toDoc} local={local} onDone={toMove} />
+          <PenOptions tool="pen" onDone={toMove} />
+        </>
+      )}
+      {doc && tool === "nodes" && (
+        <>
+          <NodesOverlay toDoc={toDoc} local={local} onDone={toMove} />
+          <PenOptions tool="nodes" onDone={toMove} />
         </>
       )}
       {doc && engine.compositeLoading && <div className="develop-status">Developing photos for the composition…</div>}

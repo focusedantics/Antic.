@@ -399,6 +399,30 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 .transform-svg .outline { fill: none; stroke: #1a73e8; stroke-width: 1.5; }
 .transform-svg .guide { stroke: #00c2ff; stroke-width: 1; }
 .transform-svg .snap { stroke: #ff3cac; stroke-width: 1; stroke-dasharray: 4 3; }
+/* Drawing tools: an overlay that takes the pointer, and their options above the canvas. */
+.tool-overlay { position: absolute; inset: 0; z-index: 2; touch-action: none; -webkit-user-select: none; user-select: none; }
+.tool-options {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 16px);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px; padding: 6px 8px; white-space: nowrap; width: max-content;
+  background: rgb(28 28 28 / 0.94); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 4px 18px #0008;
+}
+.tool-options > * { flex: none; }
+.tool-range { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); }
+.tool-range input { width: 84px; accent-color: var(--accent); }
+.tool-range output { min-width: 38px; font-variant-numeric: tabular-nums; }
+.tool-hint { color: var(--text-dim); font-size: 11px; cursor: help; }
+.tool-toast { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-weight: 600; pointer-events: none; }
+.transform-svg .pen-path, .transform-svg .node-outline { fill: none; stroke: #1a73e8; stroke-width: 1.5; }
+.transform-svg .node-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: copy; }
+.transform-svg .pen-preview { fill: none; stroke: #1a73e8; stroke-width: 1; stroke-dasharray: 4 3; }
+.transform-svg .pen-handle { stroke: #1a73e8; stroke-width: 1; }
+.transform-svg .pen-knob { fill: #fff; stroke: #1a73e8; stroke-width: 1.5; pointer-events: auto; cursor: move; }
+.transform-svg .pen-anchor { fill: #fff; stroke: #1a73e8; stroke-width: 1.5; pointer-events: auto; cursor: move; }
+.transform-svg .pen-anchor[data-picked], .transform-svg .pen-anchor[data-first="close"] { fill: #1a73e8; }
+.app[data-compact="true"] .tool-options { top: 6px; left: 6px; right: 6px; transform: none; max-width: none; width: auto; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+@media (pointer: coarse) {
+  .transform-svg .pen-anchor { stroke-width: 2; }
+}
 .ruler { position: absolute; background: #1b1b1b; z-index: 2; font-size: 9px; color: var(--text-faint); overflow: hidden; user-select: none; }
 .ruler.top { top: 0; left: 18px; right: 0; height: 18px; border-bottom: 1px solid var(--line); cursor: s-resize; }
 .ruler.left { top: 18px; left: 0; bottom: 0; width: 18px; border-right: 1px solid var(--line); cursor: e-resize; }

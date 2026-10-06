@@ -4,8 +4,9 @@ import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
 import { canvasToContent, layerPaths } from "@/core/document/operations";
 import { tracePaths, shapePaths } from "@/core/document/shapes";
+import { drawOps } from "@/core/document/paint";
 import { DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
-import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, LayerFx, PathLayer, ShapeLayer, SlotLayer, TextLayer } from "@/core/document/model";
+import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, LayerFx, PaintLayer, PaintOp, PathLayer, ShapeLayer, SlotLayer, TextLayer } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
 import { canvasGradient, drawText, fontShorthand } from "@/core/text/draw";
 import { ensureFont, fontLoads } from "@/core/text/fonts";
@@ -43,6 +44,11 @@ export type SourceProvider = (assetId: string) => GpuSource | null;
  */
 export class Compositor {
   private contents = new Map<string, Cached>();
+  /**
+   * Paint layers drawn so far, per layer: a canvas with every op but the newest (the one
+   * still being drawn), so a stroke in progress redraws only itself.
+   */
+  private paints = new Map<string, { width: number; height: number; ops: readonly PaintOp[]; base: OffscreenCanvas; out: OffscreenCanvas; scratch: OffscreenCanvas; used: number }>();
   private frame = 0;
   /** Seconds into the document's animation loop for the render in progress. */
   private time = 0;
@@ -169,6 +175,9 @@ export class Compositor {
         texture = this.slotContent(layer, scale);
         if (!texture) return null;
         break;
+      case "paint":
+        texture = this.paintContent(layer, scale);
+        break;
       case "gradient":
         kind = 1;
         Object.assign(uniforms, gradientUniforms(layer));
@@ -240,6 +249,7 @@ export class Compositor {
 
   /** Drops cached content no longer used by recent frames. */
   private evict() {
+    for (const [id, p] of this.paints) if (this.frame - p.used > 30) this.paints.delete(id);
     for (const [id, c] of this.contents) {
       if (this.frame - c.used > 30) {
         this.gpu.dispose(c.texture);
@@ -399,6 +409,38 @@ export class Compositor {
     });
   }
 
+  private paintContent(layer: PaintLayer, scale: number): Texture {
+    const size = this.contentSize(layer, scale);
+    const ops = layer.ops;
+    return this.cache(`${size.width}x${size.height}:${recipeKey(ops)}`, layer.id, () => {
+      let entry = this.paints.get(layer.id);
+      if (!entry || entry.width !== size.width || entry.height !== size.height) {
+        const make = () => new OffscreenCanvas(size.width, size.height);
+        entry = { width: size.width, height: size.height, ops: [], base: make(), out: make(), scratch: make(), used: this.frame };
+        this.paints.set(layer.id, entry);
+      }
+      entry.used = this.frame;
+      const base = entry.base.getContext("2d", { willReadFrequently: true })!;
+      const scratch = entry.scratch.getContext("2d")!;
+      // The base holds a prefix of the ops: keep it when the ops still start with it.
+      const committed = Math.max(0, ops.length - 1);
+      const prefix = entry.ops.length <= committed && entry.ops.every((op, i) => ops[i] === op);
+      if (!prefix) {
+        base.clearRect(0, 0, size.width, size.height);
+        entry.ops = [];
+      }
+      drawOps(base, scratch, ops.slice(entry.ops.length, committed), size.width, size.height);
+      entry.ops = ops.slice(0, committed);
+      const out = entry.out.getContext("2d", { willReadFrequently: true })!;
+      out.clearRect(0, 0, size.width, size.height);
+      out.drawImage(entry.base, 0, 0);
+      if (ops.length) drawOps(out, scratch, ops.slice(committed), size.width, size.height);
+      const texture = this.gpu.texture(size.width, size.height, "rgba8", entry.out, { mipmaps: true });
+      this.gpu.generateMipmaps(texture);
+      return texture;
+    });
+  }
+
   /** Layer mask coverage at the content's resolution (content uv space). */
   private layerMask(layer: Layer, content: Texture | null, scale: number): Texture {
     const size = layer.kind === "group" ? { width: 1024, height: 1024 } : this.contentSize(layer, scale, 2048);
@@ -478,6 +520,7 @@ export class Compositor {
   dispose() {
     for (const c of this.contents.values()) this.gpu.dispose(c.texture);
     this.contents.clear();
+    this.paints.clear();
     this.effects.dispose();
   }
 }

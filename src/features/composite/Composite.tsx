@@ -12,6 +12,7 @@ import { type DocumentRecord, getDocument } from "@/core/catalog/db";
 import { align, type Alignment, distribute, locate, moveTransform, nudgeLayer, ungroup, updateLayers } from "@/core/document/operations";
 import {
   composite,
+  type CompositeTool,
   compositeHistory,
   editDocument,
   flushDocument,
@@ -255,6 +256,30 @@ export function CanvasPanel() {
   );
 }
 
+/** Switches the canvas tool (pen, points, drawing), leaving any mask being painted. */
+export const setTool = (tool: CompositeTool) => composite.setState({ tool, maskLayerId: null });
+
+/** Pen, points and drawing tools in a segmented group (computers). */
+export function DrawingTools() {
+  const tool = useStore(composite, (s) => s.tool);
+  const doc = useStore(composite, (s) => s.doc);
+  const selection = useStore(composite, (s) => s.selection);
+  const selected = doc && selection.length ? locate(doc.layers, selection[selection.length - 1])?.layer : null;
+  return (
+    <>
+      <button type="button" aria-pressed={tool === "pen"} disabled={!doc} title="Pen: draw lines and shapes point by point (P)" onClick={() => setTool("pen")}>
+        Pen
+      </button>
+      <button type="button" aria-pressed={tool === "nodes"} disabled={selected?.kind !== "path"} title="Edit the selected path's points (A, or double-click the path)" onClick={() => setTool("nodes")}>
+        Points
+      </button>
+      <button type="button" aria-pressed={tool === "paint"} disabled={!doc} title="Draw with brushes and fill areas (Shift+B)" onClick={() => setTool("paint")}>
+        Draw
+      </button>
+    </>
+  );
+}
+
 /** A phone toolbar button: a large icon with its name for screen readers and as a tooltip. */
 function ToolIcon({ icon, label, onClick, pressed, disabled }: { icon: IconName; label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; pressed?: boolean; disabled?: boolean }) {
   return (
@@ -288,6 +313,8 @@ function Toolbar({ onExport }: { onExport: () => void }) {
       <div className="toolbar icon-toolbar" role="toolbar" aria-label="Composite tools">
         <ToolIcon icon="move" label="Move & transform" pressed={tool === "move"} onClick={() => composite.setState({ tool: "move", maskLayerId: null })} />
         <ToolIcon icon="brush" label="Paint the mask" pressed={tool === "mask"} disabled={!composite.getState().maskLayerId} onClick={() => composite.setState({ tool: "mask" })} />
+        <ToolIcon icon="pen" label="Pen (P)" pressed={tool === "pen"} disabled={!doc} onClick={() => setTool("pen")} />
+        <ToolIcon icon="draw" label="Draw (Shift+B)" pressed={tool === "paint"} disabled={!doc} onClick={() => setTool("paint")} />
         <ToolIcon
           icon="align"
           label="Align and distribute"
@@ -320,6 +347,7 @@ function Toolbar({ onExport }: { onExport: () => void }) {
         <button type="button" aria-pressed={tool === "mask"} disabled={!composite.getState().maskLayerId} title="Paint the selected layer's mask">
           Mask
         </button>
+        <DrawingTools />
       </div>
       <div className="segmented" role="group" aria-label="Align">
         {(["left", "center", "right", "top", "middle", "bottom"] as const).map((a) => (
@@ -431,6 +459,20 @@ export function compositeShortcuts(e: KeyboardEvent, openExport: () => void): bo
   }
   if (key === "v") {
     composite.setState({ tool: "move", maskLayerId: null });
+    return true;
+  }
+  if (key === "p" && !e.shiftKey) {
+    setTool("pen");
+    return true;
+  }
+  if (key === "b" && e.shiftKey) {
+    setTool("paint");
+    return true;
+  }
+  if (key === "a" && !e.shiftKey) {
+    const selected = selection.length ? locate(doc.layers, selection[selection.length - 1])?.layer : null;
+    if (selected?.kind !== "path") return false;
+    setTool("nodes");
     return true;
   }
   if (key === "e" && e.shiftKey) {

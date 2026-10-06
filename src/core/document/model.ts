@@ -256,13 +256,37 @@ export type PathLayer = LayerBase & { readonly kind: "path"; readonly shape: Sma
  * frame, transform, styles and mask.
  */
 export type SlotLayer = LayerBase & { readonly kind: "slot"; readonly frame: SmartShape; readonly assetId: string | null; readonly fit: SlotFit; readonly placeholder: string };
+/** Brushes for paint layers. */
+export type BrushKind = "round" | "soft" | "marker" | "pencil" | "spray" | "calligraphy" | "eraser";
+/**
+ * One brush stroke. `points` are x, y, pressure triples in the layer's unit box; `size`
+ * is the brush diameter as a share of the box width (so the drawing scales with the
+ * layer). `seed` makes textured brushes (pencil, spray) repeat exactly.
+ */
+export type PaintStroke = {
+  readonly type: "stroke";
+  readonly brush: BrushKind;
+  readonly color: string;
+  readonly size: number;
+  readonly opacity: number;
+  /** 0..1, soft brush only: how much of the radius is solid. */
+  readonly hardness: number;
+  readonly points: readonly number[];
+  readonly seed: number;
+};
+/** A bucket fill at a point of the layer (unit box), replayed in order with the strokes. */
+export type PaintFill = { readonly type: "fill"; readonly x: number; readonly y: number; readonly color: string; readonly opacity: number; /** 0..1 colour distance */ readonly tolerance: number };
+export type PaintOp = PaintStroke | PaintFill;
+/** A drawing: strokes and fills kept as data, drawn at whatever resolution is needed. */
+export type PaintLayer = LayerBase & { readonly kind: "paint"; readonly ops: readonly PaintOp[] };
+
 export type GroupLayer = LayerBase & {
   readonly kind: "group";
   readonly children: readonly Layer[];
   readonly expanded: boolean;
 };
 
-export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | PathLayer | SlotLayer | AdjustmentLayer | EffectLayer | GroupLayer;
+export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | PathLayer | SlotLayer | PaintLayer | AdjustmentLayer | EffectLayer | GroupLayer;
 export type LayerKind = Layer["kind"];
 
 export type Guide = { readonly id: string; readonly axis: "x" | "y"; readonly position: number };

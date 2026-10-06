@@ -10,6 +10,10 @@ import { ui } from "@/app/state";
 import { addLayer } from "@/features/composite/LayersPanel";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { addLibraryPhotos, addPhotosFromDevice } from "./actions";
+import { ELEMENT_GROUPS, ELEMENTS, type Element, type ElementGroup } from "./elements";
+import { insertElement } from "./insert";
+import { LayerSketch } from "./preview";
+import { useState } from "react";
 
 /** Text to start from, sized to the canvas (a fraction of its short side). */
 export const TEXT_STYLES: readonly { id: string; label: string; size: number; style: Partial<TextStyle> }[] = [
@@ -98,6 +102,54 @@ function Tile({ icon, label, onClick, disabled }: { icon: IconName; label: strin
   );
 }
 
+/** Element previews, built once (a square sketch canvas). */
+const sketches = new Map<string, React.ReactNode>();
+function ElementSketch({ element }: { element: Element }) {
+  let node = sketches.get(element.id);
+  if (!node) {
+    const doc = { width: 600, height: 600 };
+    node = <LayerSketch className="element-sketch" width={600} height={600} layers={[element.make(doc, "#e8e8e8", 0.92)]} />;
+    sketches.set(element.id, node);
+  }
+  return node;
+}
+
+export function addElement(element: Element) {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  void insertElement(element.make(doc, readableOn(doc.background)), `Add ${element.label.toLowerCase()}`);
+}
+
+function ElementGrid({ group }: { group: ElementGroup }) {
+  return (
+    <div className="element-grid">
+      {ELEMENTS.filter((e) => e.group === group).map((e) => (
+        <button key={e.id} type="button" className="element-tile" title={e.label} aria-label={`Add ${e.label.toLowerCase()}`} onClick={() => addElement(e)}>
+          <ElementSketch element={e} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Badges, doodles, decorations and photo frames (text combinations are with the text). */
+function ElementsPanel() {
+  const groups = ELEMENT_GROUPS.filter((g) => g !== "Text");
+  const [group, setGroup] = useState<ElementGroup>(groups[0]);
+  return (
+    <Panel id="design-elements" title="Elements">
+      <div className="chip-row" role="group" aria-label="Element groups">
+        {groups.map((g) => (
+          <button key={g} type="button" className="filter-chip" aria-pressed={group === g} onClick={() => setGroup(g)}>
+            {g}
+          </button>
+        ))}
+      </div>
+      <ElementGrid group={group} />
+    </Panel>
+  );
+}
+
 /** Design's left column: what can be added to the design. */
 export function MakePanel() {
   const selected = useStore(ui, (s) => s.selection.size);
@@ -132,7 +184,8 @@ export function MakePanel() {
           ))}
         </div>
       </Panel>
-      <Panel id="design-text" title="Text styles">
+      <ElementsPanel />
+      <Panel id="design-text" title="Text">
         <div className="text-styles">
           {TEXT_STYLES.map((t) => (
             <button key={t.id} type="button" className="text-style" onClick={() => addTextStyle(t.id)} style={{ fontFamily: t.style.font, fontWeight: t.style.weight, fontStyle: t.style.italic ? "italic" : undefined, color: t.style.color }}>
@@ -140,6 +193,8 @@ export function MakePanel() {
             </button>
           ))}
         </div>
+        <div className="subhead">Combinations</div>
+        <ElementGrid group="Text" />
       </Panel>
     </>
   );

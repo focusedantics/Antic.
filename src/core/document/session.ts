@@ -4,7 +4,8 @@ import { createHistory, type History } from "@/core/history/history";
 import type { CompositeDocument } from "./model";
 import { sanitizeDocument } from "./operations";
 
-export type CompositeTool = "move" | "mask";
+/** move: select and transform · mask: paint a layer mask · pen: draw a new path · nodes: edit a path · paint: brushes and fill. */
+export type CompositeTool = "move" | "mask" | "pen" | "nodes" | "paint";
 
 export type CompositeState = {
   readonly doc: CompositeDocument | null;

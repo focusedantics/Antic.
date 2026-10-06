@@ -238,7 +238,7 @@ A **document** (`core/document`) is a layer tree:
 Document
  ├── canvas (width, height, background)
  ├── assets referenced by id
- ├── layers: image (asset + recipe) · fill · gradient · text · shape · path · slot · adjustment · effect · group
+ ├── layers: image (asset + recipe) · fill · gradient · text · shape · path · slot · paint · adjustment · effect · group
  │     each: visibility, lock, opacity, fill opacity, blend mode, transform, crop,
  │           mask (vector/raster), clipping, name, styles (fx: shadow, glow, outline)
  └── history, snapshots
@@ -281,6 +281,25 @@ the steps' Minkowski sum fills the disc), all composited under the content in on
 (`layerStyle`). A styled layer is placed at full fill and the style pass applies fill
 opacity to the layer's own pixels only, so at 0 % fill only its styles show (as in
 Photoshop). Sizes are document pixels and scale with the view.
+
+**Paint layers** (`core/document/paint.ts`) keep brush strokes (x, y, pressure in the
+layer's unit box; brush size relative to the box width; a seed so textured brushes
+repeat) and bucket fills as ops, replayed in order with Canvas2D at the resolution
+needed. Each stroke is dabbed onto a scratch canvas, then laid down once at its opacity
+(markers multiply, the eraser cuts out); the bucket flood-fills the layer's own pixels
+and tucks a one-pixel ring under anti-aliased edges. The compositor keeps, per paint
+layer, a canvas with every op but the newest (`paints`): while a stroke is drawn, only
+that stroke is redrawn each frame. Drawings are hit-tested by what is drawn
+(`paintExtent`), not by their canvas-sized box.
+
+**Canvas tools** (`features/composite/tools`): Move, Mask, Pen, Points and Draw share
+`composite.tool`. The pen builds a path in canvas px and `pathFromCanvas` fits a box to
+it; Points edits nodes through `pathPointToCanvas`/`canvasToPathPoint` (the stroke
+inset included) and `refitPath` refits the box after each edit, keeping every point in
+place. Draw streamlines input (`streamline`), batches document updates per animation
+frame (one undoable step per stroke) and, when the pointer rests at the end of a stroke,
+replaces it with the shape it was meant to be (`recognize`: line, ellipse, rectangle,
+triangle, polygon). Tool settings live in `tools/state.ts` (remembered on the device).
 
 **Text** (`core/text/draw.ts`) adds letter case, underline, strike-through, a highlight box
 behind each line, a gradient fill (drawn `source-in` over the letters) and curved lines:

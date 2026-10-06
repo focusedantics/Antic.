@@ -30,7 +30,7 @@ import { ui } from "@/app/state";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { addAssetsToComposite } from "./actions";
 
-const kindIcon: Record<Layer["kind"], string> = { image: "▣", fill: "■", gradient: "◐", text: "T", shape: "◆", path: "⬟", slot: "▢", adjustment: "◑", effect: "✦", group: "▤" };
+const kindIcon: Record<Layer["kind"], string> = { image: "▣", fill: "■", gradient: "◐", text: "T", shape: "◆", path: "⬟", slot: "▢", paint: "✎", adjustment: "◑", effect: "✦", group: "▤" };
 
 export function addLayer(kind: "fill" | "gradient" | "text" | "rectangle" | "ellipse" | "adjustment" | "group") {
   const { doc, selection } = composite.getState();

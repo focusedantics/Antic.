@@ -13,7 +13,7 @@ import { openProject } from "@/core/document/project";
 import { align, type Alignment } from "@/core/document/operations";
 import { composite, compositeHistory, editDocument, flushDocument, isDesign } from "@/core/document/session";
 import { chooseFiles, pickerAccept } from "@/lib/files";
-import { CanvasPanel, compositeShortcuts } from "@/features/composite/Composite";
+import { CanvasPanel, compositeShortcuts, DrawingTools, setTool } from "@/features/composite/Composite";
 import { addLayer, LayersPanel } from "@/features/composite/LayersPanel";
 import { PropertiesPanel } from "@/features/composite/Properties";
 import { ExportDocumentDialog } from "@/features/composite/ExportDocument";
@@ -70,6 +70,7 @@ function DesignToolbar({ onExport }: { onExport: () => void }) {
   const showGuides = useStore(composite, (s) => s.showGuides);
   const playing = useStore(composite, (s) => s.playing);
   const view = useStore(composite, (s) => s.view);
+  const tool = useStore(composite, (s) => s.tool);
   const compact = useStore(layout, (s) => s.compact);
   const history = compositeHistory();
   const animated = !!doc && isAnimated(doc);
@@ -88,6 +89,8 @@ function DesignToolbar({ onExport }: { onExport: () => void }) {
         <ToolIcon icon="image" label="Add a photo" onClick={() => void addPhotosFromDevice()} />
         <ToolIcon icon="shapes" label="Add a shape" onClick={shapeMenu} />
         <ToolIcon icon="effects" label="Add an effect" onClick={() => openEffectsBrowser()} />
+        <ToolIcon icon="pen" label="Pen" pressed={tool === "pen"} onClick={() => setTool(tool === "pen" ? "move" : "pen")} />
+        <ToolIcon icon="draw" label="Draw" pressed={tool === "paint"} onClick={() => setTool(tool === "paint" ? "move" : "paint")} />
         <ToolIcon icon="align" label="Align" disabled={!selection.length} onClick={(e) => alignMenu(e, selection)} />
         <ToolIcon icon="magnet" label="Snap" pressed={snap} onClick={() => composite.setState({ snap: !snap })} />
         <ToolIcon icon="presets" label="Looks" onClick={() => openLooks({ kind: "composite" })} />
@@ -98,21 +101,27 @@ function DesignToolbar({ onExport }: { onExport: () => void }) {
     );
   return (
     <div className="toolbar design-toolbar" role="toolbar" aria-label="Design tools">
-      <button type="button" className="btn small" onClick={goHome} title="All designs (the open one stays saved)">
-        <Icon name="home" size={14} /> Designs
+      <button type="button" className="btn small" aria-label="Designs" onClick={goHome} title="All designs (the open one stays saved)">
+        <Icon name="home" size={14} /> <span className="tb-label">Designs</span>
       </button>
       <span className="toolbar-sep" aria-hidden="true" />
-      <button type="button" className="btn small" onClick={() => addTextStyle("heading")} title="Add text (T)">
-        <Icon name="text" size={14} /> Text
+      <div className="segmented" role="group" aria-label="Tool">
+        <button type="button" aria-pressed={tool === "move"} title="Select and move (V)" onClick={() => setTool("move")}>
+          Move
+        </button>
+        <DrawingTools />
+      </div>
+      <button type="button" className="btn small" aria-label="Text" onClick={() => addTextStyle("heading")} title="Add text (T)">
+        <Icon name="text" size={14} /> <span className="tb-label">Text</span>
       </button>
-      <button type="button" className="btn small" onClick={() => void addPhotosFromDevice()} title="Add a photo from this device">
-        <Icon name="image" size={14} /> Photo
+      <button type="button" className="btn small" aria-label="Photo" onClick={() => void addPhotosFromDevice()} title="Add a photo from this device">
+        <Icon name="image" size={14} /> <span className="tb-label">Photo</span>
       </button>
-      <button type="button" className="btn small" onClick={shapeMenu} title="Add a shape or a fill">
-        <Icon name="shapes" size={14} /> Shape
+      <button type="button" className="btn small" aria-label="Shape" onClick={shapeMenu} title="Add a shape or a fill">
+        <Icon name="shapes" size={14} /> <span className="tb-label">Shape</span>
       </button>
-      <button type="button" className="btn small" onClick={() => openEffectsBrowser()} title="Add an effect layer (Shift+E)">
-        <Icon name="effects" size={14} /> Effects
+      <button type="button" className="btn small" aria-label="Effects" onClick={() => openEffectsBrowser()} title="Add an effect layer (Shift+E)">
+        <Icon name="effects" size={14} /> <span className="tb-label">Effects</span>
       </button>
       <button type="button" className="btn small" onClick={() => openLooks({ kind: "composite" })} title="Save this design's effects as a look, or apply one">
         Looks…
