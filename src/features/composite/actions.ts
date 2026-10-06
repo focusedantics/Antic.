@@ -6,7 +6,11 @@ import { getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
 import type { CompositeDocument, Layer } from "@/core/document/model";
-import { createDocument, flatten, imageLayer, insertLayer } from "@/core/document/operations";
+import { createDocument, documentAssets, flatten, imageLayer, insertLayer, updateLayer } from "@/core/document/operations";
+import { chooseFiles, pickerAccept } from "@/lib/files";
+import { acceptAttribute } from "@/core/image/formats";
+import { fingerprint, importItems, itemsFromFileList } from "@/core/catalog/import";
+import { catalog } from "@/core/catalog/store";
 import { composite, editDocument, openDocument, setDocumentThumbnailer } from "@/core/document/session";
 import { docAnimation, isAnimated, loopFrames } from "@/core/document/animation";
 import { encodeGif, encodeLoopVideo } from "@/core/export/animated";
@@ -66,6 +70,61 @@ export async function addAssetsToComposite(ids: readonly string[], at?: { x: num
 }
 
 /**
+ * Picks photos on this device and imports them into the Library (where every photo
+ * lives; ones already there are reused). Returns their asset ids, in the order picked.
+ */
+export async function importPhotosFromDevice(multiple = true): Promise<string[]> {
+  const files = await chooseFiles({ multiple, accept: pickerAccept(acceptAttribute, { images: true }) });
+  if (!files.length) return [];
+  const prints = await Promise.all(files.map((f) => fingerprint(f)));
+  await importItems(itemsFromFileList(files));
+  const byPrint = new Map([...catalog.getState().assets.values()].map((a) => [a.fingerprint, a.id]));
+  return prints.map((p) => byPrint.get(p)).filter((id): id is string => !!id);
+}
+
+/** Puts a photo in a frame (replacing the one there), centred and unzoomed. */
+export function fillSlot(slotId: string, assetId: string) {
+  editDocument("Photo in frame", (d) => updateLayer(d, slotId, (l) => (l.kind === "slot" ? { ...l, assetId, fit: { zoom: 1, x: 0, y: 0 } } : l)));
+}
+
+/**
+ * Replaces a photo layer's photo, keeping its place, width, rotation, clipping,
+ * mask and styles; the height follows the new photo's proportions.
+ */
+export function replaceImage(layerId: string, assetId: string) {
+  const size = photoSize(assetId);
+  editDocument("Replace photo", (d) =>
+    updateLayer(d, layerId, (l) =>
+      l.kind === "image"
+        ? { ...l, assetId, develop: "asset", name: getAsset(assetId)?.fileName.replace(/\.[^.]+$/, "") ?? l.name, crop: { left: 0, top: 0, right: 1, bottom: 1 }, transform: { ...l.transform, corners: undefined, height: (l.transform.width * size.height) / size.width } }
+        : l,
+    ),
+  );
+}
+
+/**
+ * Places photos in a design: the selected empty frame first, then the other empty
+ * frames from the top of the layer list down; photos left over become photo layers.
+ */
+export async function placePhotos(ids: readonly string[]) {
+  const { doc, selection } = composite.getState();
+  if (!doc || !ids.length) return addAssetsToComposite(ids);
+  const empty = flatten(doc.layers)
+    .filter((l) => l.kind === "slot" && !l.assetId && !l.locked)
+    .reverse()
+    .map((l) => l.id);
+  const first = selection.at(-1);
+  const order = first && empty.includes(first) ? [first, ...empty.filter((id) => id !== first)] : empty;
+  const queue = [...ids];
+  for (const slot of order) {
+    const id = queue.shift();
+    if (!id) break;
+    fillSlot(slot, id);
+  }
+  if (queue.length) await addAssetsToComposite(queue);
+}
+
+/**
  * Starts a new composition from one photo (sized to it, the photo filling the
  * canvas) and opens the Effects browser on it.
  */
@@ -80,7 +139,7 @@ export async function startEffects(assetId: string) {
 }
 
 export function usedAssets(doc: CompositeDocument) {
-  return [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])))];
+  return documentAssets(doc.layers);
 }
 
 export type DocFormat = "png" | "jpeg" | "webp" | "gif" | "mp4";

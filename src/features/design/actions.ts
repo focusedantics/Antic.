@@ -1,14 +1,10 @@
 import { setWorkspace, toast, ui } from "@/app/state";
-import { chooseFiles, pickerAccept } from "@/lib/files";
-import { acceptAttribute } from "@/core/image/formats";
-import { fingerprint, importItems, itemsFromFileList } from "@/core/catalog/import";
-import { catalog } from "@/core/catalog/store";
 import { getDocument, putDocument } from "@/core/catalog/db";
 import { createDocument, sanitizeDocument } from "@/core/document/operations";
 import type { CompositeDocument } from "@/core/document/model";
 import { composite, openDocument, openStoredDocument, refreshDocumentList } from "@/core/document/session";
 import { createId } from "@/lib/id";
-import { addAssetsToComposite } from "@/features/composite/actions";
+import { importPhotosFromDevice, placePhotos } from "@/features/composite/actions";
 import { design } from "./state";
 
 /** Starts a blank design of `width × height` and opens the editor on it. */
@@ -55,23 +51,18 @@ export async function moveToDesign(doc: CompositeDocument) {
   await openDesign(doc.id);
 }
 
-/** Adds the photos selected in the Library to the open design. */
+/** Adds the photos selected in the Library to the open design (empty frames first). */
 export async function addLibraryPhotos() {
   const ids = [...ui.getState().selection];
   if (!ids.length) return toast("Select photos in the Library first, or add one from this device.", "error");
-  await addAssetsToComposite(ids);
+  await placePhotos(ids);
 }
 
 /**
  * Picks photos from this device, imports them into the Library (where every photo
- * lives) and adds them to the open design. Photos already in the Library are reused.
+ * lives) and places them in the open design (empty frames first).
  */
 export async function addPhotosFromDevice() {
-  const files = await chooseFiles({ multiple: true, accept: pickerAccept(acceptAttribute, { images: true }) });
-  if (!files.length) return;
-  const prints = await Promise.all(files.map((f) => fingerprint(f)));
-  await importItems(itemsFromFileList(files));
-  const byPrint = new Map([...catalog.getState().assets.values()].map((a) => [a.fingerprint, a.id]));
-  const ids = prints.map((p) => byPrint.get(p)).filter((id): id is string => !!id);
-  if (ids.length) await addAssetsToComposite(ids);
+  const ids = await importPhotosFromDevice();
+  if (ids.length) await placePhotos(ids);
 }

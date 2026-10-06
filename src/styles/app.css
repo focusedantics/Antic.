@@ -404,6 +404,7 @@ textarea.input { height: auto; padding: 5px 7px; resize: vertical; }
 .ruler.left { top: 18px; left: 0; bottom: 0; width: 18px; border-right: 1px solid var(--line); cursor: e-resize; }
 .stop-row { display: grid; grid-template-columns: 28px 1fr 52px 24px; gap: 6px; align-items: center; margin-bottom: 4px; }
 .gradient-preview { height: 18px; border-radius: 3px; border: 1px solid var(--line-strong); margin: 4px 0 8px; }
+.style-group { margin: 4px 0 8px; padding-left: 8px; border-left: 2px solid var(--line-strong); }
 .doc-card { display: flex; gap: 8px; align-items: center; width: 100%; padding: 4px; background: none; border: 0; border-radius: 4px; text-align: left; color: var(--text-dim); }
 .doc-card:hover { background: var(--panel-2); color: var(--text); }
 .doc-card[aria-current="true"] { background: var(--panel-3); color: var(--text); }

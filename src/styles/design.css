@@ -76,3 +76,13 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 .workspace.compact .make-grid { grid-template-columns: repeat(4, 1fr); }
 .workspace.compact .design-search { width: 100%; height: 36px; font-size: 16px; }
 .workspace.compact .filter-chip { height: 32px; }
+
+.shape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; }
+.shape-tile {
+  display: flex; align-items: center; justify-content: center; aspect-ratio: 1; min-height: 40px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text-dim);
+}
+.shape-tile:hover { background: var(--panel-3); color: var(--accent-strong); border-color: var(--line-strong); }
+.shape-tile.frame { color: #8d9199; }
+.shape-tile.frame:hover { color: var(--text); }
+.workspace.compact .shape-grid { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); }

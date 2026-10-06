@@ -2,7 +2,9 @@ import { useStore } from "@/app/hooks";
 import { Icon, type IconName } from "@/components/icons";
 import { Panel } from "@/components/Panel";
 import type { TextStyle } from "@/core/document/model";
-import { insertLayer, textLayer } from "@/core/document/operations";
+import type { Layer, SmartShapeKind } from "@/core/document/model";
+import { insertLayer, pathLayer, slotLayer, textLayer } from "@/core/document/operations";
+import { pathData, SMART_SHAPES, shapePaths, smartShape } from "@/core/document/shapes";
 import { composite, editDocument } from "@/core/document/session";
 import { ui } from "@/app/state";
 import { addLayer } from "@/features/composite/LayersPanel";
@@ -22,6 +24,46 @@ export const TEXT_STYLES: readonly { id: string; label: string; size: number; st
   { id: "neon", label: "Neon", size: 1 / 10, style: { text: "NEON", font: "Monoton, sans-serif", weight: 400, color: "#ff5cf0" } },
   { id: "retro", label: "Pixel", size: 1 / 18, style: { text: "PRESS START", font: "'Press Start 2P', monospace", weight: 400 } },
 ];
+
+/** Adds a layer above the selection and selects it. */
+function addToDesign(layer: Layer, label: string) {
+  const { doc, selection } = composite.getState();
+  if (!doc) return;
+  editDocument(label, (d) => insertLayer(d, layer, selection.at(-1)));
+  composite.setState({ selection: [layer.id], tool: "move" });
+}
+
+/** A palette of shape colours that read on light and dark designs. */
+const SHAPE_COLORS = ["#d9a441", "#e0457b", "#3d8bfd", "#2fbf71", "#8b5cf6", "#ff7a45"];
+let shapeCount = 0;
+
+export function addSmartShape(kind: SmartShapeKind) {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  const layer = pathLayer(doc, smartShape(kind), kind === "line" ? { stroke: readableOn(doc.background) } : { fill: SHAPE_COLORS[shapeCount++ % SHAPE_COLORS.length] });
+  addToDesign(layer, `Add ${layer.name.toLowerCase()}`);
+}
+
+export function addPhotoFrame(kind: SmartShapeKind = "rectangle") {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  addToDesign(slotLayer(doc, smartShape(kind)), "Add photo frame");
+}
+
+/** A shape drawn small, from the same generator the canvas uses. */
+export function ShapeGlyph({ kind, size = 28 }: { kind: SmartShapeKind; size?: number }) {
+  const shape = smartShape(kind);
+  const aspect = kind === "arrow" || kind === "double-arrow" || kind === "cloud" ? 1.6 : kind === "speech" ? 1.3 : 1;
+  const w = aspect >= 1 ? size : size * aspect;
+  const h = aspect >= 1 ? size / aspect : size;
+  const d = pathData(shapePaths(shape, aspect), w, h, 1.5);
+  const line = kind === "line";
+  return (
+    <svg width={size} height={size} viewBox={`${(w - size) / 2} ${(h - size) / 2} ${size} ${size}`} aria-hidden="true">
+      <path d={d} fill={line ? "none" : "currentColor"} stroke={line ? "currentColor" : "none"} strokeWidth={3} strokeLinecap="round" fillRule={kind === "ring" ? "evenodd" : "nonzero"} />
+    </svg>
+  );
+}
 
 /** Dark text on a light background, white on a dark one (transparent counts as light). */
 export function readableOn(background: string | null): string {
@@ -66,12 +108,28 @@ export function MakePanel() {
           <Tile icon="text" label="Text" onClick={() => addTextStyle("heading")} />
           <Tile icon="image" label="Photo from device" onClick={() => void addPhotosFromDevice()} />
           <Tile icon="folders" label={selected ? `Library (${selected})` : "Library photo"} onClick={() => void addLibraryPhotos()} />
-          <Tile icon="shapes" label="Rectangle" onClick={() => addLayer("rectangle")} />
-          <Tile icon="shapes" label="Ellipse" onClick={() => addLayer("ellipse")} />
+          <Tile icon="grid" label="Photo frame" onClick={() => addPhotoFrame()} />
           <Tile icon="color" label="Colour fill" onClick={() => addLayer("fill")} />
           <Tile icon="grade" label="Gradient" onClick={() => addLayer("gradient")} />
           <Tile icon="light" label="Adjustment" onClick={() => addLayer("adjustment")} />
           <Tile icon="effects" label="Effect…" onClick={() => openEffectsBrowser()} />
+        </div>
+      </Panel>
+      <Panel id="design-shapes" title="Shapes">
+        <div className="shape-grid">
+          {SMART_SHAPES.map((sh) => (
+            <button key={sh.kind} type="button" className="shape-tile" title={sh.label} aria-label={`Add ${sh.label.toLowerCase()}`} onClick={() => addSmartShape(sh.kind)}>
+              <ShapeGlyph kind={sh.kind} />
+            </button>
+          ))}
+        </div>
+        <div className="subhead">Photo frames</div>
+        <div className="shape-grid">
+          {(["rectangle", "ellipse", "heart", "star", "polygon", "cloud"] as const).map((k) => (
+            <button key={k} type="button" className="shape-tile frame" title={`${SMART_SHAPES.find((x) => x.kind === k)!.label} photo frame`} aria-label={`Add ${SMART_SHAPES.find((x) => x.kind === k)!.label.toLowerCase()} photo frame`} onClick={() => addPhotoFrame(k)}>
+              <ShapeGlyph kind={k} />
+            </button>
+          ))}
         </div>
       </Panel>
       <Panel id="design-text" title="Text styles">

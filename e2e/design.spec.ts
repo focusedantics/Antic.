@@ -106,3 +106,143 @@ test.describe("phone", () => {
     await expect(page.locator(".design-tile")).toHaveCount(1, { timeout: 5000 });
   });
 });
+
+/** Pixels of the canvas view matching `test`, from a screenshot. */
+async function count(page: Page, test: string): Promise<number> {
+  await page.waitForTimeout(700);
+  const png = (await page.locator(".composite-view").screenshot()).toString("base64");
+  return page.evaluate(
+    async ([data, fn]) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+      const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const g = c.getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      const d = g.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      const match = new Function("r", "g", "b", `return ${fn};`) as (r: number, g: number, b: number) => boolean;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (match(d[i], d[i + 1], d[i + 2])) n++;
+      return n;
+    },
+    [png, test] as const,
+  );
+}
+
+const jpeg = async (page: Page, color: string) => {
+  const b64 = await page.evaluate(async (fill) => {
+    const c = new OffscreenCanvas(1200, 800);
+    const g = c.getContext("2d")!;
+    g.fillStyle = fill;
+    g.fillRect(0, 0, 1200, 800);
+    const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.95 })).arrayBuffer());
+    let s = "";
+    for (const x of bytes) s += String.fromCharCode(x);
+    return btoa(s);
+  }, color);
+  return { name: "green.jpg", mimeType: "image/jpeg", buffer: Buffer.from(b64, "base64") };
+};
+
+test.describe("computer: shapes, styles, text and frames", () => {
+  test("smart shapes, layer styles, text upgrades and photo frames render and persist", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    const amber = "r > 190 && g > 140 && g < 190 && b < 100";
+
+    // A star in the first shape colour.
+    expect(await count(page, amber)).toBe(0);
+    await left.getByRole("button", { name: "Add star", exact: true }).click();
+    await expect(layerNames(page)).toHaveCount(1);
+    const starPixels = await count(page, amber);
+    expect(starPixels).toBeGreaterThan(500);
+    // More points: a different shape, same colour.
+    await right.getByRole("combobox", { name: "Shape" }).selectOption("heart");
+    await expect(layerNames(page).first()).toContainText("Heart");
+    expect(Math.abs((await count(page, amber)) - starPixels)).toBeGreaterThan(100);
+
+    // A blue outline around it, then a drop shadow under it.
+    const blue = "b > 200 && r < 60 && g < 60";
+    await right.getByRole("checkbox", { name: "Outline" }).check();
+    await right.getByLabel("Outline colour").fill("#0000ff");
+    expect(await count(page, blue)).toBeGreaterThan(200);
+    const grey = "r < 235 && r > 120 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6";
+    const before = await count(page, grey);
+    await right.getByRole("checkbox", { name: "Shadow" }).check();
+    expect(await count(page, grey)).toBeGreaterThan(before + 300);
+
+    // Fill opacity 0: only the outline and shadow stay.
+    const fill = right.getByRole("slider", { name: "Fill" }).first();
+    await fill.focus();
+    await page.keyboard.press("Home");
+    expect(await count(page, amber)).toBeLessThan(20);
+    expect(await count(page, blue)).toBeGreaterThan(200);
+
+    // Text with a gradient fill (red → orange) and a highlight box.
+    await left.getByRole("button", { name: "Subheading", exact: true }).click();
+    await expect(layerNames(page)).toHaveCount(2);
+    const red = "r > 200 && g < 120 && b < 130";
+    expect(await count(page, red)).toBe(0);
+    await right.getByRole("checkbox", { name: "Gradient fill" }).check();
+    expect(await count(page, red)).toBeGreaterThan(30);
+    await right.getByRole("checkbox", { name: "Highlight" }).check();
+    const black = "r < 30 && g < 30 && b < 30";
+    expect(await count(page, black)).toBeGreaterThan(1000);
+    // Curving grows the box so the arc fits.
+    const height = Number(await right.getByLabel("H", { exact: true }).inputValue());
+    const curve = right.getByRole("slider", { name: "Curve" });
+    await curve.focus();
+    await page.keyboard.press("End");
+    expect(Number(await right.getByLabel("H", { exact: true }).inputValue())).toBeGreaterThan(height);
+
+    // A photo frame: placeholder, then filled from the device.
+    const placeholder = "Math.abs(r - 201) < 6 && Math.abs(g - 204) < 6 && Math.abs(b - 209) < 6";
+    await left.getByRole("button", { name: "Photo frame", exact: true }).click();
+    await expect(layerNames(page)).toHaveCount(3);
+    expect(await count(page, placeholder)).toBeGreaterThan(2000);
+    await right.getByRole("button", { name: "Add photo…" }).click();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("menuitem", { name: "From this device…" }).click()]);
+    await chooser.setFiles(await jpeg(page, "#1fa83a"));
+    await expect(right.getByRole("button", { name: "Replace photo…" })).toBeVisible({ timeout: 30_000 });
+    const green = "g > 140 && r < 80 && b < 100";
+    await expect.poll(() => count(page, green), { timeout: 20_000 }).toBeGreaterThan(2000);
+    expect(await count(page, placeholder)).toBeLessThan(50);
+    // Still three layers: the photo went into the frame.
+    await expect(layerNames(page)).toHaveCount(3);
+
+    // All of it survives a reload and looks the same.
+    const saved = { green: await count(page, green), red: await count(page, red), black: await count(page, black), grey: await count(page, grey) };
+    await page.waitForTimeout(1200);
+    await page.reload();
+    await go(page, "Design");
+    await page.locator(".design-tile").first().getByRole("button", { name: /^Open/ }).click();
+    await expect(layerNames(page)).toHaveCount(3);
+    await expect.poll(() => count(page, green), { timeout: 20_000 }).toBeGreaterThan(saved.green * 0.97);
+    for (const [name, test] of [["red", red], ["black", black], ["grey", grey]] as const) {
+      const now = await count(page, test);
+      expect(Math.abs(now - saved[name]), name).toBeLessThanOrEqual(Math.max(20, saved[name] * 0.03));
+    }
+  });
+});
+
+test.describe("phone: shapes", () => {
+  test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+  test("shapes and frames are in the Add sheet; a shape's properties fit the screen", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).tap();
+    const dock = page.getByRole("navigation", { name: "Panels" });
+    await dock.getByRole("button", { name: "Add" }).tap();
+    const sheet = page.getByTestId("sheet");
+    await sheet.getByRole("button", { name: "Add heart", exact: true }).tap();
+    await sheet.getByRole("button", { name: "Add ellipse photo frame" }).tap();
+    await dock.getByRole("button", { name: "Layers" }).tap();
+    await expect(sheet.getByRole("listbox", { name: "Layers" }).getByRole("option")).toHaveCount(2);
+    await sheet.getByRole("listbox", { name: "Layers" }).getByRole("option").filter({ hasText: "Heart" }).tap();
+    await expect(sheet.getByRole("combobox", { name: "Shape" })).toBeVisible();
+    await expect(sheet.getByRole("checkbox", { name: "Shadow" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+});

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ANIMATION, docAnimation, hasAnimatedLayers, isAnimated, loopFrames } from "@/core/document/animation";
 import type { Layer } from "@/core/document/model";
 import { createDocument, effectLayer, groupLayer, sanitizeAnimation, sanitizeDocument, textLayer } from "@/core/document/operations";
-import { drawText } from "@/core/text/draw";
+import { curveSag, drawText } from "@/core/text/draw";
 import { FONTS, fontLabel } from "@/core/text/fonts";
 import { EFFECTS } from "@/core/effects/registry";
 import { buildPalette, gifDelay, GifWriter, indexPixels, PaletteMatcher } from "@/core/export/gif";
@@ -95,6 +95,53 @@ describe("animated text", () => {
     calls.length = 0;
     drawText(ctx, { ...style, motion: { kind: "wave", speed: 1, amount: 1 } }, 200, 100, 0.25, 3);
     expect(new Set(calls.map((c) => Math.round(c.y))).size).toBeGreaterThan(1);
+  });
+
+  it("bends curved text along an arc: outer letters lower and turned outwards", () => {
+    const calls: { ch: string; y: number; angle: number }[] = [];
+    let ty = 0;
+    let angle = 0;
+    const ctx = {
+      font: "",
+      fillStyle: "",
+      textAlign: "left",
+      textBaseline: "middle",
+      globalAlpha: 1,
+      shadowBlur: 0,
+      measureText: (t: string) => ({ width: t.length * 10 }),
+      fillText: (ch: string, _x: number, y: number) => calls.push({ ch, y: y + ty, angle }),
+      fillRect: () => {},
+      save: () => {},
+      restore: () => {
+        ty = 0;
+        angle = 0;
+      },
+      translate: (_x: number, y: number) => {
+        ty += y;
+      },
+      rotate: (a: number) => {
+        angle += a;
+      },
+      scale: () => {},
+    } as unknown as OffscreenCanvasRenderingContext2D;
+    const style = { ...(text as Extract<Layer, { kind: "text" }>).style, text: "abcde", curve: 1 };
+    drawText(ctx, style, 200, 100);
+    expect(calls.map((c) => c.ch).join("")).toBe("abcde");
+    const [a, , c, , e] = calls;
+    // Bulging up: the middle letter is highest, the ends lower and tilted away from it.
+    expect(c.y).toBeLessThan(a.y);
+    expect(a.y).toBeCloseTo(e.y, 6);
+    expect(a.angle).toBeLessThan(0);
+    expect(e.angle).toBeGreaterThan(0);
+    expect(c.angle).toBeCloseTo(0, 6);
+    // In a box as tall as the arc plus a line (what the Curve control sizes it to), every letter fits.
+    calls.length = 0;
+    const h = curveSag(1, 50) + style.size * 1.3;
+    drawText(ctx, style, 200, h);
+    for (const l of calls) {
+      expect(l.y - style.size / 2).toBeGreaterThanOrEqual(0);
+      expect(l.y + style.size / 2).toBeLessThanOrEqual(h);
+    }
   });
 
   it("lists every bundled font once with a readable label", () => {

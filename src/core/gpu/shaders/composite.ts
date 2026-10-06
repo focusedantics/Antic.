@@ -250,3 +250,78 @@ void main() {
   }
   outColor = c * a;
 }`;
+
+/**
+ * A photo frame's content: the photo covering the frame, zoomed and panned (uMap: the
+ * photo's centre in frame uv and its size in frame widths/heights), cut to the frame's
+ * shape (uShape alpha). Straight alpha, like other layer content.
+ */
+export const slotFill = `${header}
+uniform sampler2D uPhoto;
+uniform sampler2D uShape;
+uniform vec4 uMap;
+void main() {
+  vec2 uv = (vUv - uMap.xy) / uMap.zw + 0.5;
+  vec4 c = texture(uPhoto, clamp(uv, 0.0, 1.0));
+  outColor = vec4(c.rgb, c.a * texture(uShape, vUv).a);
+}`;
+
+/**
+ * One step of an outline's dilation: the most coverage within uRadius texels, sampled
+ * at the centre and on a ring of 12. Steps of halving radii add up to the full width
+ * (their Minkowski sum fills the disc). uChannel 3 reads the input's alpha, 0 its red.
+ */
+export const dilate = `${header}
+uniform sampler2D uInput;
+uniform vec2 uTexel;
+uniform float uRadius;
+uniform int uChannel;
+float cov(vec2 uv) { vec4 c = texture(uInput, uv); return uChannel == 3 ? c.a : c.r; }
+void main() {
+  float m = cov(vUv);
+  for (int i = 0; i < 12; i++) {
+    float a = float(i) * 0.5235987756;
+    m = max(m, cov(vUv + vec2(cos(a), sin(a)) * uRadius * uTexel));
+  }
+  outColor = vec4(m, m, m, 1.0);
+}`;
+
+/**
+ * Layer styles under the layer's own pixels (premultiplied): drop shadow, outer glow and
+ * outline, in that order from the bottom. uFill fades the layer's pixels but not its styles
+ * (so a layer at 0 % fill shows only its outline or shadow, as in Photoshop).
+ */
+export const layerStyle = `${header}
+uniform sampler2D uContent;
+uniform sampler2D uShadow;
+uniform sampler2D uGlow;
+uniform sampler2D uOutline;
+uniform float uFill;
+uniform int uShadowOn;
+uniform vec4 uShadowColor;     // rgb straight, a = opacity
+uniform vec2 uShadowOffset;    // uv
+uniform float uShadowSpread;
+uniform int uGlowOn;
+uniform vec4 uGlowColor;
+uniform float uGlowSpread;
+uniform int uOutlineOn;
+uniform vec4 uOutlineColor;
+float spreadOut(float a, float s) { return clamp(a / max(1.0 - s, 0.02), 0.0, 1.0); }
+vec4 over(vec4 top, vec4 under) { return top + under * (1.0 - top.a); }
+void main() {
+  vec4 c = texture(uContent, vUv) * uFill;
+  vec4 acc = vec4(0.0);
+  if (uShadowOn == 1) {
+    float a = spreadOut(texture(uShadow, vUv - uShadowOffset).a, uShadowSpread) * uShadowColor.a;
+    acc = vec4(uShadowColor.rgb * a, a);
+  }
+  if (uGlowOn == 1) {
+    float a = spreadOut(texture(uGlow, vUv).a, uGlowSpread) * uGlowColor.a;
+    acc = over(vec4(uGlowColor.rgb * a, a), acc);
+  }
+  if (uOutlineOn == 1) {
+    float a = texture(uOutline, vUv).r * uOutlineColor.a;
+    acc = over(vec4(uOutlineColor.rgb * a, a), acc);
+  }
+  outColor = over(c, acc);
+}`;

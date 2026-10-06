@@ -238,9 +238,9 @@ A **document** (`core/document`) is a layer tree:
 Document
  ├── canvas (width, height, background)
  ├── assets referenced by id
- ├── layers: image (asset + recipe) · fill · gradient · text · shape · adjustment · effect · group
+ ├── layers: image (asset + recipe) · fill · gradient · text · shape · path · slot · adjustment · effect · group
  │     each: visibility, lock, opacity, fill opacity, blend mode, transform, crop,
- │           mask (vector/raster), clipping, name
+ │           mask (vector/raster), clipping, name, styles (fx: shadow, glow, outline)
  └── history, snapshots
 ```
 
@@ -255,6 +255,37 @@ layers convert the backdrop to linear Rec.2020 and reuse the develop tone/color 
 Per-layer content is cached by its inputs and evicted when unused.
 
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
+
+**Vector paths and smart shapes** (`core/document/shapes.ts`). A `path` layer holds cubic
+Bézier subpaths in its unit box (so resizing scales the drawing while strokes keep their
+width), or a `SmartShape` (`kind`, `points`, `ratio`, `round`) whose paths are generated
+for the box's current proportions, so rounded corners stay round on any box
+(`shapePaths`; `toEditablePath` freezes one into nodes). The compositor rasterizes them
+with Canvas2D like text (`drawPath`: fill, then a stroke inset by half its width so it
+stays in the box; colours or gradients, dashes, caps, joins, even-odd). The same
+generator draws the Add panel's previews as SVG (`pathData`). Drawings are keyed by
+their paths array's identity (immutable), not serialized every frame.
+
+**Photo frames** (`slot` layers) are a frame shape plus an optional asset and a `fit`
+(zoom ≥ 1 over cover, pan −1..1 within the room left). `slotContent` develops the photo
+at the size it shows at (`developed`, shared with image layers), then `slotFill` maps it
+into a frame-sized texture cut to the frame's shape; empty frames render a placeholder.
+Every photo reference goes through `layerAsset` / `documentAssets`, so frames load,
+export, save in `.focused` projects (remapped like image layers) and appear in looks as
+empty frames.
+
+**Layer styles** (`fx`) are made on the GPU from a layer's placed, canvas-sized content,
+after its clipped layers: drop shadow and glow are `pipeline.blur` of it (offset, spread
+by rescaling alpha), the outline a dilation in halving steps (`dilate`, 12 taps on a ring;
+the steps' Minkowski sum fills the disc), all composited under the content in one pass
+(`layerStyle`). A styled layer is placed at full fill and the style pass applies fill
+opacity to the layer's own pixels only, so at 0 % fill only its styles show (as in
+Photoshop). Sizes are document pixels and scale with the view.
+
+**Text** (`core/text/draw.ts`) adds letter case, underline, strike-through, a highlight box
+behind each line, a gradient fill (drawn `source-in` over the letters) and curved lines:
+letters laid out one by one on an arc of radius `width / (|curve|·π)`, centred in the box
+by half the arc's rise; the Curve control grows the box to fit (`curveSag`).
 
 ## Design
 

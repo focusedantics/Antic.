@@ -2,11 +2,12 @@ import { device } from "@/lib/device";
 import { recipeFor } from "@/core/develop/session";
 import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
-import { canvasToContent } from "@/core/document/operations";
+import { canvasToContent, layerPaths } from "@/core/document/operations";
+import { tracePaths, shapePaths } from "@/core/document/shapes";
 import { DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
-import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, ShapeLayer, TextLayer } from "@/core/document/model";
+import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, LayerFx, PathLayer, ShapeLayer, SlotLayer, TextLayer } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
-import { drawText, fontShorthand } from "@/core/text/draw";
+import { canvasGradient, drawText, fontShorthand } from "@/core/text/draw";
 import { ensureFont, fontLoads } from "@/core/text/fonts";
 import { BLEND_MODES } from "@/core/document/model";
 import { type Mat3, mul3, toGlMat3 } from "@/lib/math";
@@ -92,7 +93,8 @@ export class Compositor {
         current = this.effect(current, layer, scale, doc, false);
         continue;
       }
-      let content = this.layerContent(layer, current.width, current.height, scale, doc);
+      const styled = hasFx(layer.fx);
+      let content = this.layerContent(layer, current.width, current.height, scale, doc, styled);
       if (!content) continue;
       for (const c of clipped) {
         if (!c.visible) continue;
@@ -108,6 +110,7 @@ export class Compositor {
         if (!cc) continue;
         content = this.blend(content, cc, c, true);
       }
+      if (styled) content = this.styles(content, layer, scale);
       current = this.blend(current, content, layer, false);
     }
     return current;
@@ -144,7 +147,7 @@ export class Compositor {
   }
 
   /** One layer rendered into a canvas-sized premultiplied target, or null while loading. */
-  private layerContent(layer: Layer, width: number, height: number, scale: number, doc: CompositeDocument): Target | null {
+  private layerContent(layer: Layer, width: number, height: number, scale: number, doc: CompositeDocument, fullFill = false): Target | null {
     const toContent = this.toContent(layer, scale);
     let texture: Texture | null = null;
     let kind = 0;
@@ -159,7 +162,12 @@ export class Compositor {
         texture = this.rasterContent(layer, scale);
         break;
       case "shape":
+      case "path":
         texture = this.rasterContent(layer, scale);
+        break;
+      case "slot":
+        texture = this.slotContent(layer, scale);
+        if (!texture) return null;
         break;
       case "gradient":
         kind = 1;
@@ -208,7 +216,8 @@ export class Compositor {
           uMaskOn: mask ? 1 : 0,
           uMaskInvert: layer.mask?.invert ? 1 : 0,
           uMaskDensity: layer.mask?.density ?? 1,
-          uFill: SPECIAL.has(layer.blend) ? 1 : layer.fillOpacity,
+          // Styled layers take their fill opacity in the style pass (styles don't fade with it).
+          uFill: SPECIAL.has(layer.blend) || fullFill ? 1 : layer.fillOpacity,
           ...uniforms,
         },
       });
@@ -249,10 +258,15 @@ export class Compositor {
     if (!source || !recipe) return null;
     const full = outputSize(source.size, recipe.geometry);
     const want = this.contentSize(layer, scale, Math.min(4096, Math.max(full.width, full.height)));
+    return this.developed(layer.id, source, recipe, want);
+  }
+
+  /** A photo developed with `recipe` at `want` pixels, display-encoded, cached under `id`. */
+  private developed(id: string, source: GpuSource, recipe: DevelopRecipe, want: { width: number; height: number }): Texture {
     // Recipes are immutable: their identity names their content (serialising one every frame cost
     // milliseconds with long brush strokes).
     const key = `${source.id}:${recipeKey(recipe)}:${want.width}x${want.height}:${source.base.width}`;
-    return this.cache(key, layer.id, () => {
+    return this.cache(key, id, () => {
       const developed = this.pipeline.render(source, recipe, { width: want.width, height: want.height, masks: (input, ctx) => this.masks.stage(input, ctx, null, "offscreen") });
       // Display-encoded and clipped to 0–1: phones keep it in 8 bits (half the memory), as a JPEG would.
       const out = this.gpu.target(want.width, want.height, device.lite ? "rgba8" : "rgba16f", { mipmaps: true });
@@ -263,9 +277,103 @@ export class Compositor {
     });
   }
 
-  private rasterContent(layer: TextLayer | ShapeLayer, scale: number): Texture {
+  /**
+   * A photo frame: its photo covering the frame shape (zoomed and panned), or a
+   * placeholder while it is empty. Null while the photo loads.
+   */
+  private slotContent(layer: SlotLayer, scale: number): Texture | null {
+    const size = this.contentSize(layer, scale);
+    const frameKey = `${JSON.stringify(layer.frame)}:${layer.transform.width}x${layer.transform.height}:${size.width}x${size.height}`;
+    const shape = this.cache(`${frameKey}:${layer.assetId ? "mask" : `ph${layer.placeholder}`}`, `${layer.id}:frame`, () => {
+      const canvas = new OffscreenCanvas(size.width, size.height);
+      const ctx = canvas.getContext("2d")!;
+      ctx.scale(size.width / layer.transform.width, size.height / layer.transform.height);
+      drawSlotFrame(ctx, layer, layer.transform.width, layer.transform.height, !layer.assetId);
+      const texture = this.gpu.texture(size.width, size.height, "rgba8", canvas, { mipmaps: true });
+      this.gpu.generateMipmaps(texture);
+      return texture;
+    });
+    if (!layer.assetId) return shape;
+    const source = this.sources(layer.assetId);
+    const recipe = recipeFor(layer.assetId);
+    if (!source || !recipe) return null;
+    const full = outputSize(source.size, recipe.geometry);
+    // The photo covers the frame, times the zoom; it is developed at the size it shows at.
+    const boxW = layer.transform.width * scale;
+    const boxH = layer.transform.height * scale;
+    const cover = Math.max(boxW / full.width, boxH / full.height) * layer.fit.zoom;
+    const quantize = (v: number) => Math.max(8, Math.min(4096, Math.max(full.width, full.height), Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, v)) * 4) / 4))));
+    const want = { width: quantize(full.width * cover), height: quantize(full.height * cover) };
+    const photo = this.developed(`${layer.id}:photo`, source, recipe, want);
+    // Photo size in frame widths/heights, and its centre (pan within the room left).
+    const pw = (full.width * cover) / boxW;
+    const ph = (full.height * cover) / boxH;
+    const map = [0.5 + (layer.fit.x * (pw - 1)) / 2, 0.5 + (layer.fit.y * (ph - 1)) / 2, pw, ph];
+    const key = `${frameKey}:${layer.assetId}:${recipeKey(recipe)}:${map.map((v) => v.toFixed(5)).join(",")}:${want.width}`;
+    return this.cache(key, `${layer.id}:fill`, () => {
+      const out = this.gpu.target(size.width, size.height, device.lite ? "rgba8" : "rgba16f", { mipmaps: true });
+      this.gpu.pass("slot-fill", C.slotFill, { target: out, textures: { uPhoto: photo, uShape: shape }, uniforms: { uMap: map } });
+      this.gpu.generateMipmaps(out);
+      return out;
+    });
+  }
+
+  /**
+   * Shadow, glow and outline under a layer's placed content (canvas-sized, premultiplied),
+   * made from its alpha. Sizes are document pixels, so they scale with the view.
+   */
+  private styles(content: Target, layer: Layer, scale: number): Target {
+    const fx = layer.fx!;
+    const { width, height } = content;
+    const blurred = (blur: number) => (blur * scale >= 0.5 ? this.pipeline.blur(content, (blur * scale) / 2) : null);
+    const shadow = fx.shadow && fx.shadow.opacity > 0 ? blurred(fx.shadow.blur) : null;
+    const glow = fx.glow && fx.glow.opacity > 0 ? blurred(fx.glow.blur) : null;
+    let outline: Target | null = null;
+    if (fx.outline && fx.outline.opacity > 0 && fx.outline.width * scale >= 0.25) {
+      // Halving radii that add up to the width; the first step reads the layer's alpha.
+      let remaining = fx.outline.width * scale;
+      let input: Texture = content;
+      while (remaining > 0.25) {
+        const r = remaining > 1.5 ? Math.ceil(remaining / 2) : remaining;
+        remaining -= r;
+        const next = this.pipeline.acquire(width, height);
+        this.gpu.pass("dilate", C.dilate, { target: next, textures: { uInput: input }, uniforms: { uTexel: [1 / width, 1 / height], uRadius: r, uChannel: input === content ? 3 : 0 } });
+        if (outline) this.pipeline.release(outline);
+        outline = next;
+        input = next;
+      }
+    }
+    const rad = ((fx.shadow?.angle ?? 90) * Math.PI) / 180;
+    const distance = (fx.shadow?.distance ?? 0) * scale;
+    const rgba = (hex: string, a: number) => [...hexToRgb(hex), a];
+    const out = this.pipeline.acquire(width, height);
+    this.gpu.pass("layer-style", C.layerStyle, {
+      target: out,
+      textures: { uContent: content, uShadow: shadow ?? content, uGlow: glow ?? content, uOutline: outline ?? content },
+      uniforms: {
+        // Groups have no fill opacity (as before styles existed).
+        uFill: SPECIAL.has(layer.blend) || layer.kind === "group" ? 1 : layer.fillOpacity,
+        uShadowOn: fx.shadow && fx.shadow.opacity > 0 ? 1 : 0,
+        uShadowColor: rgba(fx.shadow?.color ?? "#000000", fx.shadow?.opacity ?? 0),
+        uShadowOffset: [(Math.cos(rad) * distance) / width, (Math.sin(rad) * distance) / height],
+        uShadowSpread: fx.shadow?.spread ?? 0,
+        uGlowOn: fx.glow && fx.glow.opacity > 0 ? 1 : 0,
+        uGlowColor: rgba(fx.glow?.color ?? "#ffffff", fx.glow?.opacity ?? 0),
+        uGlowSpread: fx.glow?.spread ?? 0,
+        uOutlineOn: outline ? 1 : 0,
+        uOutlineColor: rgba(fx.outline?.color ?? "#ffffff", fx.outline?.opacity ?? 0),
+      },
+    });
+    for (const t of [shadow, glow, outline]) if (t) this.pipeline.release(t);
+    this.pipeline.release(content);
+    return out;
+  }
+
+  private rasterContent(layer: TextLayer | ShapeLayer | PathLayer, scale: number): Texture {
     const size = this.contentSize(layer, scale);
     let key = `${JSON.stringify(layer.style)}:${layer.transform.width}x${layer.transform.height}:${size.width}x${size.height}`;
+    // Paths are immutable: a drawing's identity names it (it can have thousands of nodes).
+    if (layer.kind === "path") key += layer.shape ? `:${JSON.stringify(layer.shape)}` : `:p${recipeKey(layer.paths)}`;
     let phase = 0;
     if (layer.kind === "text") {
       // Redraw once a font finishes loading, and every frame while the text moves.
@@ -283,6 +391,7 @@ export class Compositor {
       const sy = size.height / layer.transform.height;
       ctx.scale(sx, sy);
       if (layer.kind === "text") drawText(ctx, layer.style, layer.transform.width, layer.transform.height, phase, this.loop);
+      else if (layer.kind === "path") drawPath(ctx, layer, layer.transform.width, layer.transform.height);
       else drawShape(ctx, layer, layer.transform.width, layer.transform.height);
       const texture = this.gpu.texture(size.width, size.height, "rgba8", canvas, { mipmaps: true });
       this.gpu.generateMipmaps(texture);
@@ -394,6 +503,64 @@ function gradientUniforms(layer: GradientLayer) {
     uStopOffsets: offsets,
     uStopColors: colors,
   };
+}
+
+const hasFx = (fx: LayerFx | undefined): fx is LayerFx => !!fx && ((fx.shadow?.opacity ?? 0) > 0 || (fx.glow?.opacity ?? 0) > 0 || ((fx.outline?.opacity ?? 0) > 0 && (fx.outline?.width ?? 0) > 0));
+
+/** A path layer's fill, then its stroke (kept inside the box: the drawing is inset by half the stroke). */
+export function drawPath(ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D, layer: PathLayer, w: number, h: number) {
+  const s = layer.style;
+  const stroked = s.stroke !== null && s.strokeWidth > 0;
+  const path = new Path2D();
+  tracePaths(path, layerPaths(layer), w, h, stroked ? s.strokeWidth / 2 : 0);
+  ctx.save();
+  if (s.fill !== null && s.fillOpacity > 0) {
+    ctx.globalAlpha = s.fillOpacity;
+    ctx.fillStyle = s.fillGradient ? canvasGradient(ctx, s.fillGradient, w, h) : s.fill;
+    ctx.fill(path, s.fillRule);
+  }
+  if (stroked && s.strokeOpacity > 0) {
+    ctx.globalAlpha = s.strokeOpacity;
+    ctx.lineWidth = s.strokeWidth;
+    ctx.lineCap = s.cap;
+    ctx.lineJoin = s.join;
+    ctx.setLineDash(s.dash.map((d) => d * s.strokeWidth));
+    ctx.strokeStyle = s.strokeGradient ? canvasGradient(ctx, s.strokeGradient, w, h) : s.stroke!;
+    ctx.stroke(path);
+  }
+  ctx.restore();
+}
+
+/** A frame's shape: filled white (the photo's alpha), or as the empty placeholder with a photo sign. */
+function drawSlotFrame(ctx: OffscreenCanvasRenderingContext2D, layer: SlotLayer, w: number, h: number, placeholder: boolean) {
+  const path = new Path2D();
+  tracePaths(path, shapePaths(layer.frame, w / Math.max(1e-6, h)), w, h);
+  ctx.fillStyle = placeholder ? layer.placeholder : "#ffffff";
+  ctx.fill(path);
+  if (!placeholder) return;
+  // A small landscape sign in the middle: a sun and two hills.
+  const s = Math.min(w, h) * 0.22;
+  const n = parseInt(layer.placeholder.slice(1), 16);
+  const lum = 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  ctx.save();
+  ctx.clip(path);
+  ctx.translate(w / 2, h / 2);
+  ctx.fillStyle = lum > 128 ? "rgb(0 0 0 / 0.28)" : "rgb(255 255 255 / 0.35)";
+  ctx.beginPath();
+  ctx.arc(s * 0.28, -s * 0.22, s * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.5, s * 0.32);
+  ctx.lineTo(-s * 0.16, -s * 0.08);
+  ctx.lineTo(s * 0.08, s * 0.16);
+  ctx.lineTo(s * 0.22, s * 0.04);
+  ctx.lineTo(s * 0.5, s * 0.32);
+  ctx.closePath();
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, s * 0.05);
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.strokeRect(-s * 0.62, -s * 0.5, s * 1.24, s * 0.98);
+  ctx.restore();
 }
 
 function drawShape(ctx: OffscreenCanvasRenderingContext2D, layer: ShapeLayer, w: number, h: number) {

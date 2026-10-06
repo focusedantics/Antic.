@@ -18,7 +18,7 @@ import { effectById } from "@/core/effects/registry";
 import { EffectRunner } from "@/core/effects/runtime";
 import type { EffectInstance } from "@/core/effects/types";
 import { docAnimation, isAnimated } from "@/core/document/animation";
-import { flatten } from "@/core/document/operations";
+import { documentAssets, flatten, layerAsset } from "@/core/document/operations";
 import { fontLoads, loadFonts } from "@/core/text/fonts";
 import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
@@ -232,7 +232,7 @@ export class DevelopEngine {
 
   private inComposition(): Set<AssetId> {
     const doc = composite.getState().doc;
-    return new Set(doc ? flatten(doc.layers).flatMap((l) => (l.kind === "image" ? [l.assetId] : [])) : []);
+    return new Set(doc ? documentAssets(doc.layers) : []);
   }
 
   attach(container: HTMLElement) {
@@ -840,7 +840,10 @@ export class DevelopEngine {
     if (!doc) return true;
     const scale = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));
     const assets = catalog.getState().assets;
-    const revisions = flatten(doc.layers).map((l) => (l.kind === "image" ? `${l.assetId}:${assets.get(l.assetId)?.developRevision}:${this.sources.get(l.assetId)?.quality}` : ""));
+    const revisions = flatten(doc.layers).map((l) => {
+      const id = layerAsset(l);
+      return id ? `${id}:${assets.get(id)?.developRevision}:${this.sources.get(id)?.quality}` : "";
+    });
     const time = this.viewTime(doc);
     const key = [doc, scale, revisions.join("|"), this.sources.size, time];
     if (!this.compositeResult || !sameKey(this.compositeResult.key, key)) {
@@ -945,7 +948,7 @@ export class DevelopEngine {
 
   private async renderPreviews(generation: number, doc: CompositeDocument, longSide: number, effects: readonly EffectInstance[], onPreview: (index: number, url: string) => void) {
     // Previews need the photos: wait (up to a minute) for every image layer to decode.
-    const ids = [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" && l.visible ? [l.assetId] : [])))];
+    const ids = documentAssets(doc.layers, true);
     for (let i = 0; i < 600 && ids.some((id) => !this.hasSource(id)); i++) {
       if (generation !== this.previewGeneration) return;
       for (const id of ids) this.ensureSource(id);

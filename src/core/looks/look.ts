@@ -43,6 +43,8 @@ export function lookFromRecipe(recipe: DevelopRecipe, groups: readonly RecipeGro
 function withoutPhotos(layers: readonly Layer[]): Layer[] {
   return layers.flatMap((l): Layer[] => {
     if (l.kind === "image") return [];
+    // Frames stay, empty: a look carries the layout, not the photos.
+    if (l.kind === "slot") return [{ ...l, assetId: null, fit: { zoom: 1, x: 0, y: 0 } }];
     if (l.kind === "group") {
       const children = withoutPhotos(l.children);
       return children.length ? [{ ...l, children }] : [];
@@ -116,6 +118,8 @@ export function fitLayers(look: NonNullable<Look["layers"]>, width: number, heig
         return { ...base, transform, mask, style: { ...base.style, size: base.style.size * u } };
       case "shape":
         return { ...base, transform, mask, style: { ...base.style, strokeWidth: base.style.strokeWidth * u, radius: base.style.radius * u } };
+      case "path":
+        return { ...base, transform, mask, style: { ...base.style, strokeWidth: base.style.strokeWidth * u } };
       case "group":
         return { ...base, transform, mask, children: base.children.map(fit) };
       default:

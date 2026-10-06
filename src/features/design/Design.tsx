@@ -22,7 +22,8 @@ import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/Effec
 import { openLooks } from "@/features/looks/LooksDialog";
 import { addPhotosFromDevice, moveToDesign, startFrom } from "./actions";
 import { DesignHome } from "./Home";
-import { addTextStyle, MakePanel } from "./MakePanel";
+import { addPhotoFrame, addSmartShape, addTextStyle, MakePanel } from "./MakePanel";
+import { SMART_SHAPES } from "@/core/document/shapes";
 import { design } from "./state";
 import "@/styles/design.css";
 
@@ -43,9 +44,9 @@ function ToolIcon({ icon, label, onClick, pressed, disabled }: { icon: IconName;
 function shapeMenu(e: React.MouseEvent<HTMLElement>) {
   const r = e.currentTarget.getBoundingClientRect();
   openMenu(r.left, r.bottom + 4, [
-    { label: "Rectangle", onSelect: () => addLayer("rectangle") },
-    { label: "Ellipse", onSelect: () => addLayer("ellipse") },
+    ...SMART_SHAPES.map((s) => ({ label: s.label, onSelect: () => addSmartShape(s.kind) })),
     "separator",
+    { label: "Photo frame", onSelect: () => addPhotoFrame() },
     { label: "Colour fill", onSelect: () => addLayer("fill") },
     { label: "Gradient", onSelect: () => addLayer("gradient") },
   ]);

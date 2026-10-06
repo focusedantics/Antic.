@@ -125,7 +125,7 @@ export async function applyLookToComposition(look: Look, options: { develop: boo
   if (!doc) return;
   if (options.layers && look.layers) editDocument(`Look: ${look.name}`, (d) => ({ ...d, layers: [...d.layers, ...fitLayers(look.layers!, d.width, d.height)] }));
   if (options.develop && look.develop) {
-    const photos = [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" && l.develop === "asset" ? [l.assetId] : [])))];
+    const photos = [...new Set(flatten(doc.layers).flatMap((l) => (l.kind === "image" && l.develop === "asset" ? [l.assetId] : l.kind === "slot" && l.assetId ? [l.assetId] : [])))];
     for (const [i, id] of photos.entries()) {
       progress(i, photos.length, `Applying develop settings to ${getAsset(id)?.fileName ?? "photo"}`);
       await applyDevelop(id, look, options.redetect);

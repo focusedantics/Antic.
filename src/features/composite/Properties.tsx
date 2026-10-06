@@ -9,40 +9,18 @@ import { basicRanges } from "@/core/develop/params";
 import { defaultShape as defaultMaskShape, newComponent, setCutout, shapeLabels } from "@/core/develop/masks";
 import type { Basic, MaskComponent } from "@/core/develop/recipe";
 import { ANIMATION_LIMITS, DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
-import type { DocAnimation, Gradient, GradientStop, Layer, ShapeStyle, TextMotionKind, TextStyle, Transform } from "@/core/document/model";
+import type { DocAnimation, Layer, ShapeStyle, TextMotionKind, TextStyle, Transform } from "@/core/document/model";
 import { FONT_GROUPS, FONTS, fontLabel } from "@/core/text/fonts";
 import { effectById } from "@/core/effects/registry";
-import { emptyMask, fitTransform, locate, TEXT_MOTIONS, updateLayer } from "@/core/document/operations";
+import { emptyMask, fitTransform, locate, TEXT_MOTIONS } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
+import { GradientEditor, Num, set } from "./fields";
+import { PathSection, ReplacePhoto, SlotSection, StylesSection, TextExtras } from "./StyleSections";
 import { EffectParams } from "@/features/effects/EffectParams";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { brush } from "@/features/develop/masks/brush";
 
-const set = (id: string, label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayer(d, id, change));
-
-function Num({ label, value, onCommit, step = 1, suffix }: { label: string; value: number; onCommit: (v: number) => void; step?: number; suffix?: string }) {
-  return (
-    <label className="field" style={{ minWidth: 0 }}>
-      <span>{label}</span>
-      <input
-        className="input num"
-        type="number"
-        step={step}
-        value={Math.round(value / step) * step}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-        onChange={(e) => {
-          const v = Number(e.target.value);
-          if (Number.isFinite(v)) onCommit(v);
-        }}
-        aria-label={`${label}${suffix ? ` (${suffix})` : ""}`}
-      />
-    </label>
-  );
-}
 
 function TransformSection({ layer }: { layer: Layer }) {
   const t = layer.transform;
@@ -282,65 +260,8 @@ function MaskToolControls({ layer, component }: { layer: Layer; component: MaskC
   return null;
 }
 
-function stopsCss(g: Gradient) {
-  const stops = g.stops.map((s) => {
-    const r = parseInt(s.color.slice(1, 3), 16);
-    const gg = parseInt(s.color.slice(3, 5), 16);
-    const b = parseInt(s.color.slice(5, 7), 16);
-    return `rgba(${r},${gg},${b},${s.opacity}) ${Math.round(s.offset * 100)}%`;
-  });
-  return `linear-gradient(90deg, ${stops.join(", ")}), conic-gradient(#555 25%, #333 0 50%, #555 0 75%, #333 0) 0 0 / 10px 10px`;
-}
-
 function GradientSection({ layer }: { layer: Extract<Layer, { kind: "gradient" }> }) {
-  const g = layer.gradient;
-  const update = (label: string, patch: Partial<Gradient>) => set(layer.id, label, (l) => (l.kind === "gradient" ? { ...l, gradient: { ...l.gradient, ...patch } } : l));
-  const setStop = (i: number, patch: Partial<GradientStop>) => update("Gradient stop", { stops: g.stops.map((s, j) => (j === i ? { ...s, ...patch } : s)).sort((a, b) => a.offset - b.offset) });
-  return (
-    <>
-      <div className="subhead">Gradient</div>
-      <div className="segmented" style={{ marginBottom: 6 }}>
-        <button type="button" aria-pressed={g.type === "linear"} onClick={() => update("Linear gradient", { type: "linear" })}>
-          Linear
-        </button>
-        <button type="button" aria-pressed={g.type === "radial"} onClick={() => update("Radial gradient", { type: "radial" })}>
-          Radial
-        </button>
-      </div>
-      <div className="gradient-preview" style={{ background: stopsCss(g) }} />
-      {g.stops.map((s, i) => (
-        <div className="stop-row" key={i}>
-          <input type="color" value={s.color} aria-label={`Stop ${i + 1} color`} onChange={(e) => setStop(i, { color: e.target.value })} />
-          <input type="range" min={0} max={100} value={Math.round(s.offset * 100)} aria-label={`Stop ${i + 1} position`} onChange={(e) => setStop(i, { offset: Number(e.target.value) / 100 })} />
-          <input className="input num" type="number" min={0} max={100} value={Math.round(s.opacity * 100)} aria-label={`Stop ${i + 1} opacity %`} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setStop(i, { opacity: Math.max(0, Math.min(100, Number(e.target.value))) / 100 })} />
-          <button type="button" className="btn ghost small" disabled={g.stops.length <= 2} aria-label={`Remove stop ${i + 1}`} onClick={() => update("Remove stop", { stops: g.stops.filter((_, j) => j !== i) })}>
-            ✕
-          </button>
-        </div>
-      ))}
-      <button
-        type="button"
-        className="btn small"
-        disabled={g.stops.length >= 16}
-        onClick={() => {
-          const a = g.stops[0];
-          const b = g.stops[g.stops.length - 1];
-          update("Add stop", { stops: [...g.stops, { offset: (a.offset + b.offset) / 2, color: a.color, opacity: (a.opacity + b.opacity) / 2 }].sort((x, y) => x.offset - y.offset) });
-        }}
-      >
-        + Stop
-      </button>
-      {g.type === "linear" && (
-        <Slider label="Angle" value={g.angle} min={-180} max={180} defaultValue={90} format={(v) => `${v}°`} onGestureStart={() => beginDocGesture("Gradient angle")} onGestureEnd={endDocGesture} onChange={(v) => update("Gradient angle", { angle: v })} />
-      )}
-      <Slider label="Scale" value={Math.round(g.scale * 100)} min={10} max={300} defaultValue={100} format={(v) => `${v}%`} onGestureStart={() => beginDocGesture("Gradient scale")} onGestureEnd={endDocGesture} onChange={(v) => update("Gradient scale", { scale: v / 100 })} />
-      <Slider label="Offset X" value={Math.round(g.offsetX * 100)} min={-100} max={100} defaultValue={0} onGestureStart={() => beginDocGesture("Gradient position")} onGestureEnd={endDocGesture} onChange={(v) => update("Gradient position", { offsetX: v / 100 })} />
-      <Slider label="Offset Y" value={Math.round(g.offsetY * 100)} min={-100} max={100} defaultValue={0} onGestureStart={() => beginDocGesture("Gradient position")} onGestureEnd={endDocGesture} onChange={(v) => update("Gradient position", { offsetY: v / 100 })} />
-      <label className="check">
-        <input type="checkbox" checked={g.reverse} onChange={(e) => update("Reverse gradient", { reverse: e.target.checked })} /> Reverse
-      </label>
-    </>
-  );
+  return <GradientEditor gradient={layer.gradient} onChange={(label, patch) => set(layer.id, label, (l) => (l.kind === "gradient" ? { ...l, gradient: { ...l.gradient, ...patch } } : l))} />;
 }
 
 function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
@@ -607,6 +528,7 @@ function ImageSection({ layer }: { layer: Extract<Layer, { kind: "image" }> }) {
         >
           Open in Develop
         </button>
+        <ReplacePhoto layerId={layer.id} />
         <button
           type="button"
           className="btn small"
@@ -660,7 +582,10 @@ export function PropertiesPanel() {
       {layer.kind === "image" && <ImageSection layer={layer} />}
       {layer.kind === "gradient" && <GradientSection layer={layer} />}
       {layer.kind === "text" && <TextSection layer={layer} />}
+      {layer.kind === "text" && <TextExtras layer={layer} />}
       {layer.kind === "shape" && <ShapeSection layer={layer} />}
+      {layer.kind === "path" && <PathSection layer={layer} />}
+      {layer.kind === "slot" && <SlotSection layer={layer} />}
       {layer.kind === "adjustment" && <AdjustmentSection layer={layer} />}
       {layer.kind === "effect" && <EffectSection layer={layer} />}
       {layer.kind === "fill" && (
@@ -668,6 +593,7 @@ export function PropertiesPanel() {
           Color <input type="color" value={layer.color} aria-label="Fill color" onChange={(e) => set(layer.id, "Fill color", (l) => (l.kind === "fill" ? { ...l, color: e.target.value } : l))} />
         </div>
       )}
+      {layer.kind !== "adjustment" && layer.kind !== "effect" && <StylesSection layer={layer} />}
       {hasTransform && <TransformSection layer={layer} />}
       {hasTransform && <CropSection layer={layer} />}
       <MaskSection layer={layer} />

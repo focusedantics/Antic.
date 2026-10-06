@@ -56,7 +56,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | --- | --- | --- | --- |
 | T1 | Size presets: Instagram post / portrait / story, TikTok, Facebook post and cover, X post and header, YouTube thumbnail and banner, LinkedIn, Pinterest pin, phone and desktop wallpaper, contact poster, profile picture, logo, flyer (Letter, A4, A5), poster, business card, invitation, postcard, presentation, custom | New: `design/presets.ts`, cards drawn to scale | ✅ |
 | T2 | Template gallery: categories, tags, search, one tap to start | New: original templates written as code (`design/templates/`) | ⬜ |
-| T3 | Templates with photo slots ("tap to add your photo"), replace photo | New: `slot` layer kind; replacing keeps transform, clip and mask | ⬜ |
+| T3 | Templates with photo slots ("tap to add your photo"), replace photo | New: `slot` layer kind (frame shape, zoom and pan); replacing keeps transform, clip, mask and styles; photo layers get "Replace photo" too | ✅ |
 | T4 | Save a design as my template, in folders | New: `designAssets` store | ⬜ |
 | T5 | Collages: grid layouts with photo slots, spacing and corner radius | New: collage templates and "Collage from selected photos" | ⬜ |
 | T6 | Stock photos in templates | Skip: licensed stock costs money and needs a server. Templates use slots and the user's own photos | — |
@@ -67,7 +67,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | P1 | Effects and filters | Exists: effects browser, Looks; New: quick filter strip on image layers (develop presets) | ⬜ |
 | P2 | Background remover | Exists (local AI) | ✅ |
 | P3 | Transform, perspective | Exists (corners) | ✅ |
-| P4 | Shadows: drop shadow, glow, outline on any layer | New: layer styles, rendered on the GPU from the layer's alpha | ⬜ |
+| P4 | Shadows: drop shadow, glow, outline on any layer | New: layer styles, rendered on the GPU from the layer's alpha | ✅ |
 | P5 | Extract an element from a photo and keep it for later | New: cut-out → PNG in the Library → saved element | ⬜ |
 | P6 | Curves, Color Balance, Selective Color, Tint on adjustment layers | Partly exists (the develop engine has them); New: their controls on adjustment layers, plus a tint | ⬜ |
 | P7 | Brightness, contrast, grain, vibrance, shadows/highlights | Exists (adjustment layers, grain) | ✅ |
@@ -78,12 +78,12 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
 | V1 | Pen tool, node editing | New: `path` layer kind (cubic Béziers), pen and node tool on the canvas | ⬜ |
-| V2 | Smart shapes: polygon, star, heart, arrow, speech bubble, line, burst, ring… | New: shape generators producing paths | ⬜ |
-| V3 | Fill and stroke with colours or gradients, dashes, caps | New: path fill and stroke styles | ⬜ |
+| V2 | Smart shapes: polygon, star, heart, arrow, speech bubble, line, burst, ring… | New: shape generators producing paths | ✅ |
+| V3 | Fill and stroke with colours or gradients, dashes, caps | New: path fill and stroke styles | ✅ |
 | V4 | Save vector shapes in folders | New: elements library (`designAssets`) | ⬜ |
 | V5 | SVG import and export | New: SVG subset parser (path, rect, circle, ellipse, line, polyline, polygon, transforms) and an SVG writer | ⬜ |
-| V6 | Curved text | New: text arc (bend) | ⬜ |
-| V7 | Text fill gradient, outline, case, underline | New: text style fields | ⬜ |
+| V6 | Curved text | New: text arc (bend) | ✅ |
+| V7 | Text fill gradient, outline, case, underline | New: text style fields (outline is the Outline layer style); plus a highlight box | ✅ |
 | V8 | Custom fonts | New: import TTF/OTF/WOFF files (kept locally, FontFace); Workaround for paid font libraries: bundled OFL fonts | ⬜ |
 | V9 | Text knockout (photo inside letters) | Exists: clipping. New: one-tap "Photo inside text" | ⬜ |
 

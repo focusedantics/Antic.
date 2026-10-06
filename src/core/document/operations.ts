@@ -4,6 +4,7 @@ import { sanitizeRecipe } from "@/core/develop/operations";
 import { effectById, newEffect, sanitizeEffect } from "@/core/effects/registry";
 import { ANIMATION_LIMITS, DEFAULT_ANIMATION } from "./animation";
 import { createId } from "@/lib/id";
+import { SMART_SHAPES, shapePaths, smartShape } from "./shapes";
 import { clamp, invert3, type Mat3, type Point } from "@/lib/math";
 import {
   BLEND_MODES,
@@ -14,8 +15,15 @@ import {
   type GroupLayer,
   type Layer,
   type LayerCrop,
+  type LayerFx,
   type LayerMask,
+  type PathLayer,
+  type PathStyle,
   type ShapeStyle,
+  type SlotLayer,
+  type SmartShape,
+  type SmartShapeKind,
+  type SubPath,
   type TextMotionKind,
   type TextStyle,
   type Transform,
@@ -131,6 +139,66 @@ export const adjustmentLayer = (doc: CompositeDocument): Layer => ({
   kind: "adjustment",
   adjustment: { basic: defaultBasic, toneCurve: defaultToneCurve, colorMixer: defaultColorMixer, colorGrading: defaultColorGrading, profile: "color" },
 });
+
+export const defaultPathStyle: PathStyle = {
+  fill: "#d9a441",
+  fillOpacity: 1,
+  stroke: null,
+  strokeOpacity: 1,
+  strokeWidth: 0,
+  dash: [],
+  cap: "round",
+  join: "round",
+  fillRule: "nonzero",
+};
+
+/** Box proportions (width / height) a shape starts with. */
+const SHAPE_ASPECT: Partial<Record<SmartShapeKind, number>> = { arrow: 1.7, "double-arrow": 2, chevron: 0.8, speech: 1.3, cloud: 1.5, crescent: 0.75, teardrop: 0.8, line: 1 };
+
+/** A smart shape (star, heart, arrow…) centred on the canvas. */
+export function pathLayer(doc: Pick<CompositeDocument, "width" | "height">, shape: SmartShape, style: Partial<PathStyle> = {}): PathLayer {
+  const size = Math.min(doc.width, doc.height) * 0.4;
+  const aspect = SHAPE_ASPECT[shape.kind] ?? 1;
+  const line = shape.kind === "line";
+  const strokeWidth = line ? Math.max(2, Math.round(Math.min(doc.width, doc.height) * 0.012)) : 0;
+  const width = line ? size * 1.5 : aspect >= 1 ? size * aspect : size;
+  const height = line ? strokeWidth * 2 : aspect >= 1 ? size : size / aspect;
+  const label = SMART_SHAPES.find((s) => s.kind === shape.kind)?.label ?? "Shape";
+  return {
+    ...base(label, { ...canvasTransform(doc), width, height }),
+    kind: "path",
+    shape,
+    paths: [],
+    style: { ...defaultPathStyle, ...(line ? { fill: null, stroke: "#111111", strokeWidth } : {}), ...style },
+  };
+}
+
+/** The paths a path layer draws, in its unit box. */
+export const layerPaths = (layer: PathLayer): SubPath[] =>
+  layer.shape ? shapePaths(layer.shape, layer.transform.width / Math.max(1e-6, layer.transform.height)) : (layer.paths as SubPath[]);
+
+/** Freezes a smart shape into nodes the pen can edit. */
+export const toEditablePath = (layer: PathLayer): PathLayer => (layer.shape ? { ...layer, shape: null, paths: layerPaths(layer) } : layer);
+
+/** A photo frame. Without a box it is a centred square 60 % of the canvas's short side. */
+export function slotLayer(doc: Pick<CompositeDocument, "width" | "height">, frame: SmartShape = smartShape("rectangle"), box?: { x: number; y: number; width: number; height: number }): SlotLayer {
+  const size = Math.min(doc.width, doc.height) * 0.6;
+  const t = box ? { ...canvasTransform(doc), ...box } : { ...canvasTransform(doc), width: size, height: size };
+  return { ...base("Photo frame", t), kind: "slot", frame, assetId: null, fit: { zoom: 1, x: 0, y: 0 }, placeholder: "#c9ccd1" };
+}
+
+/** The photo a layer shows (image layers and filled frames). */
+export const layerAsset = (l: Layer): string | null => (l.kind === "image" ? l.assetId : l.kind === "slot" ? l.assetId : null);
+
+/** Every photo a layer tree shows, once each. */
+export const documentAssets = (layers: readonly Layer[], visibleOnly = false): string[] => [
+  ...new Set(
+    flatten(layers)
+      .filter((l) => !visibleOnly || l.visible)
+      .map(layerAsset)
+      .filter((id): id is string => !!id),
+  ),
+];
 
 export function effectLayer(doc: CompositeDocument, effectId: string): Layer | null {
   const effect = newEffect(effectId);
@@ -431,6 +499,89 @@ function sanitizeTransform(v: unknown, doc: { width: number; height: number }): 
   };
 }
 
+function sanitizeGradient(v: unknown): Gradient {
+  const g = obj(v);
+  const stops = (Array.isArray(g?.stops) ? g.stops : [])
+    .map((s) => obj(s))
+    .filter((s): s is Record<string, unknown> => !!s)
+    .map((s) => ({ offset: num(s.offset, 0, 0, 1), color: color(s.color, "#000000"), opacity: num(s.opacity, 1, 0, 1) }))
+    .sort((a, b) => a.offset - b.offset)
+    .slice(0, 16);
+  return {
+    type: g?.type === "radial" ? "radial" : "linear",
+    angle: num(g?.angle, 90, -360, 360),
+    scale: num(g?.scale, 1, 0.05, 5),
+    offsetX: num(g?.offsetX, 0, -2, 2),
+    offsetY: num(g?.offsetY, 0, -2, 2),
+    reverse: g?.reverse === true,
+    stops: stops.length >= 2 ? stops : defaultGradient.stops,
+  };
+}
+
+const shapeKinds = new Set(SMART_SHAPES.map((s) => s.kind));
+function sanitizeSmartShape(v: unknown, fallback: SmartShapeKind = "rectangle"): SmartShape {
+  const s = obj(v);
+  const kind = shapeKinds.has(s?.kind as SmartShapeKind) ? (s!.kind as SmartShapeKind) : fallback;
+  const d = smartShape(kind);
+  return { kind, points: Math.round(num(s?.points, d.points, 2, 48)), ratio: num(s?.ratio, d.ratio, 0, 1), round: num(s?.round, d.round, 0, 1) };
+}
+
+/** At most this many path nodes per layer (a pen drawing is far smaller). */
+const MAX_NODES = 20000;
+function sanitizePaths(v: unknown): SubPath[] {
+  let budget = MAX_NODES;
+  const pt = (p: unknown) => {
+    const o = obj(p);
+    return o ? { x: num(o.x, 0, -100, 100), y: num(o.y, 0, -100, 100) } : undefined;
+  };
+  return (Array.isArray(v) ? v : []).slice(0, 1000).flatMap((sub): SubPath[] => {
+    const o = obj(sub);
+    const nodes = (Array.isArray(o?.nodes) ? o.nodes : []).slice(0, Math.max(0, budget)).flatMap((n) => {
+      const p = pt(n);
+      if (!p) return [];
+      const i = pt(obj(n)?.in);
+      const out = pt(obj(n)?.out);
+      return [{ ...p, ...(i ? { in: i } : {}), ...(out ? { out } : {}) }];
+    });
+    budget -= nodes.length;
+    return nodes.length ? [{ closed: o?.closed === true, nodes }] : [];
+  });
+}
+
+function sanitizePathStyle(v: unknown): PathStyle {
+  const s = obj(v);
+  const nullableColor = (c: unknown, fallback: string | null) => (c === null ? null : typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c) ? c : fallback);
+  return {
+    fill: nullableColor(s?.fill, defaultPathStyle.fill),
+    fillOpacity: num(s?.fillOpacity, 1, 0, 1),
+    ...(obj(s?.fillGradient) ? { fillGradient: sanitizeGradient(s?.fillGradient) } : {}),
+    stroke: nullableColor(s?.stroke, null),
+    strokeOpacity: num(s?.strokeOpacity, 1, 0, 1),
+    ...(obj(s?.strokeGradient) ? { strokeGradient: sanitizeGradient(s?.strokeGradient) } : {}),
+    strokeWidth: num(s?.strokeWidth, 0, 0, 2000),
+    dash: (Array.isArray(s?.dash) ? s.dash : []).slice(0, 8).map((d) => num(d, 1, 0.01, 100)),
+    cap: s?.cap === "butt" || s?.cap === "square" ? s.cap : "round",
+    join: s?.join === "miter" || s?.join === "bevel" ? s.join : "round",
+    fillRule: s?.fillRule === "evenodd" ? "evenodd" : "nonzero",
+  };
+}
+
+function sanitizeFx(v: unknown): LayerFx | undefined {
+  const f = obj(v);
+  if (!f) return undefined;
+  const sh = obj(f.shadow);
+  const gl = obj(f.glow);
+  const ol = obj(f.outline);
+  const fx: LayerFx = {
+    ...(sh
+      ? { shadow: { color: color(sh.color, "#000000"), opacity: num(sh.opacity, 0.5, 0, 1), angle: num(sh.angle, 90, -360, 360), distance: num(sh.distance, 10, 0, 5000), blur: num(sh.blur, 20, 0, 2000), spread: num(sh.spread, 0, 0, 1) } }
+      : {}),
+    ...(gl ? { glow: { color: color(gl.color, "#ffffff"), opacity: num(gl.opacity, 0.8, 0, 1), blur: num(gl.blur, 20, 0, 2000), spread: num(gl.spread, 0, 0, 1) } } : {}),
+    ...(ol ? { outline: { color: color(ol.color, "#ffffff"), opacity: num(ol.opacity, 1, 0, 1), width: num(ol.width, 8, 0, 1000) } } : {}),
+  };
+  return Object.keys(fx).length ? fx : undefined;
+}
+
 function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth = 0): Layer | null {
   const l = obj(v);
   if (!l || depth > 32) return null;
@@ -458,34 +609,15 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
           components: sanitizeRecipe({ masks: [{ components: mask.components }] }, { raw: false }).masks[0]?.components ?? [],
         }
       : null,
+    ...(sanitizeFx(l.fx) ? { fx: sanitizeFx(l.fx) } : {}),
   };
   switch (l.kind) {
     case "image":
       return { ...common, kind: "image", assetId: str(l.assetId, "", 64), develop: l.develop === "asset" || !obj(l.develop) ? "asset" : sanitizeRecipe(l.develop, { raw: false }) };
     case "fill":
       return { ...common, kind: "fill", color: color(l.color, "#000000") };
-    case "gradient": {
-      const g = obj(l.gradient);
-      const stops = (Array.isArray(g?.stops) ? g.stops : [])
-        .map((s) => obj(s))
-        .filter((s): s is Record<string, unknown> => !!s)
-        .map((s) => ({ offset: num(s.offset, 0, 0, 1), color: color(s.color, "#000000"), opacity: num(s.opacity, 1, 0, 1) }))
-        .sort((a, b) => a.offset - b.offset)
-        .slice(0, 16);
-      return {
-        ...common,
-        kind: "gradient",
-        gradient: {
-          type: g?.type === "radial" ? "radial" : "linear",
-          angle: num(g?.angle, 90, -360, 360),
-          scale: num(g?.scale, 1, 0.05, 5),
-          offsetX: num(g?.offsetX, 0, -2, 2),
-          offsetY: num(g?.offsetY, 0, -2, 2),
-          reverse: g?.reverse === true,
-          stops: stops.length >= 2 ? stops : defaultGradient.stops,
-        },
-      };
-    }
+    case "gradient":
+      return { ...common, kind: "gradient", gradient: sanitizeGradient(l.gradient) };
     case "text": {
       const s = obj(l.style);
       return {
@@ -504,7 +636,39 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
           ...(obj(s?.motion) && TEXT_MOTIONS.some((m) => m.id === obj(s?.motion)?.kind) && obj(s?.motion)?.kind !== "none"
             ? { motion: { kind: obj(s?.motion)!.kind as TextMotionKind, speed: Math.round(num(obj(s?.motion)!.speed, 1, 1, 4)), amount: num(obj(s?.motion)!.amount, 0.5, 0, 1) } }
             : {}),
+          ...(num(s?.curve, 0, -1, 1) !== 0 ? { curve: num(s?.curve, 0, -1, 1) } : {}),
+          ...(obj(s?.gradient) ? { gradient: sanitizeGradient(s?.gradient) } : {}),
+          ...(s?.textCase === "upper" || s?.textCase === "lower" || s?.textCase === "title" ? { textCase: s.textCase } : {}),
+          ...(s?.underline === true ? { underline: true } : {}),
+          ...(s?.strike === true ? { strike: true } : {}),
+          ...(obj(s?.highlight)
+            ? {
+                highlight: {
+                  color: color(obj(s?.highlight)!.color, "#000000"),
+                  opacity: num(obj(s?.highlight)!.opacity, 1, 0, 1),
+                  padding: num(obj(s?.highlight)!.padding, 0.2, 0, 2),
+                  radius: num(obj(s?.highlight)!.radius, 0.15, 0, 2),
+                },
+              }
+            : {}),
         },
+      };
+    }
+    case "path": {
+      const shape = l.shape === null || l.shape === undefined ? null : sanitizeSmartShape(l.shape);
+      const paths = sanitizePaths(l.paths);
+      // A pen drawing with no nodes left draws nothing; keep it as an empty layer.
+      return { ...common, kind: "path", shape, paths: shape ? [] : paths, style: sanitizePathStyle(l.style) };
+    }
+    case "slot": {
+      const f = obj(l.fit);
+      return {
+        ...common,
+        kind: "slot",
+        frame: sanitizeSmartShape(l.frame),
+        assetId: typeof l.assetId === "string" && l.assetId ? l.assetId.slice(0, 64) : null,
+        fit: { zoom: num(f?.zoom, 1, 1, 20), x: num(f?.x, 0, -1, 1), y: num(f?.y, 0, -1, 1) },
+        placeholder: color(l.placeholder, "#c9ccd1"),
       };
     }
     case "shape": {

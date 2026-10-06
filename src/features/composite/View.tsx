@@ -11,7 +11,7 @@ import { developEngine } from "@/core/gpu/develop-engine";
 import { apply } from "@/core/develop/geometry";
 import { clamp, type Point } from "@/lib/math";
 import { brush } from "@/features/develop/masks/brush";
-import { addAssetsToComposite } from "./actions";
+import { addAssetsToComposite, fillSlot, importPhotosFromDevice } from "./actions";
 import { useSweepSelect } from "@/components/sweep";
 import { sweepLayers } from "./LayersPanel";
 
@@ -204,13 +204,26 @@ export function CompositeView() {
     window.addEventListener("pointerup", up);
   };
 
+  /** Topmost visible layer under a canvas point (groups are selected through their children). */
+  const layerAt = (p: { x: number; y: number }) =>
+    doc
+      ? flatten(doc.layers)
+          .filter((l) => l.visible && l.kind !== "group" && l.kind !== "adjustment" && l.kind !== "effect" && l.kind !== "fill")
+          .reverse()
+          .find((l) => hitTest(l, p))
+      : undefined;
+  // An empty photo frame tapped while already selected asks for its photo (on the click, so
+  // the file picker opens from a user gesture, which phones require).
+  const frameTap = useRef<string | null>(null);
+
   const onCanvasDown = (e: ReactPointerEvent) => {
+    frameTap.current = null;
     if (e.button !== 0 || !doc) return;
     const p = engine.clientToDoc(e.clientX, e.clientY);
     if (tool === "mask" && maskLayerId) return paintMask(e);
-    // Topmost visible, unlocked layer under the pointer (groups are selected through their children).
-    const candidates = flatten(doc.layers).filter((l) => l.visible && l.kind !== "group" && l.kind !== "adjustment" && l.kind !== "effect" && l.kind !== "fill");
-    const hit = [...candidates].reverse().find((l) => hitTest(l, p));
+    const hit = layerAt(p);
+    const before = composite.getState().selection;
+    if (hit?.kind === "slot" && !hit.assetId && !hit.locked && before.length === 1 && before[0] === hit.id) frameTap.current = hit.id;
     if (!hit) {
       composite.setState({ selection: [] });
       return;
@@ -373,12 +386,25 @@ export function CompositeView() {
     window.addEventListener("pointerup", up);
   };
 
+  const onCanvasClick = (e: React.MouseEvent) => {
+    const slot = frameTap.current;
+    frameTap.current = null;
+    if (!slot || !doc) return;
+    // Only a tap: not the end of a drag.
+    const hit = layerAt(engine.clientToDoc(e.clientX, e.clientY));
+    if (hit?.id !== slot) return;
+    void importPhotosFromDevice(false).then(([id]) => id && fillSlot(slot, id));
+  };
+
   const onDrop = (e: React.DragEvent) => {
     const id = e.dataTransfer.getData("application/x-focused-assets");
     if (!id) return;
     e.preventDefault();
     e.stopPropagation();
     const at = engine.clientToDoc(e.clientX, e.clientY);
+    // Dropped on a photo frame: the photo fills it.
+    const target = layerAt(at);
+    if (target?.kind === "slot" && !target.locked) return fillSlot(target.id, id);
     const selected = ui.getState().selection;
     void addAssetsToComposite(selected.has(id) ? [...selected] : [id], at);
   };
@@ -441,6 +467,7 @@ export function CompositeView() {
         className="transform-layer"
         style={{ cursor: tool === "mask" && maskComponent?.shape.kind === "brush" ? "none" : "default" }}
         onPointerDown={onCanvasDown}
+        onClick={onCanvasClick}
         onPointerMove={(e) => setCursor({ x: e.clientX, y: e.clientY })}
         onPointerLeave={() => setCursor(null)}
       >

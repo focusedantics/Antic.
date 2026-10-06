@@ -117,6 +117,9 @@ export type TextMotion = {
   readonly amount: number;
 };
 
+/** Text highlight: a box behind each line. */
+export type TextHighlight = { readonly color: string; readonly opacity: number; /** × size */ readonly padding: number; /** × size */ readonly radius: number };
+
 export type TextStyle = {
   readonly text: string;
   readonly font: string;
@@ -130,6 +133,14 @@ export type TextStyle = {
   readonly letterSpacing: number;
   /** Absent = still text. */
   readonly motion?: TextMotion;
+  /** -1..1: bends the lines along an arc (1 = a half circle, bulging up; negative bends down). */
+  readonly curve?: number;
+  /** Replaces `color` with a gradient across the text box. */
+  readonly gradient?: Gradient;
+  readonly textCase?: "upper" | "lower" | "title";
+  readonly underline?: boolean;
+  readonly strike?: boolean;
+  readonly highlight?: TextHighlight;
 };
 
 export type ShapeStyle = {
@@ -140,6 +151,69 @@ export type ShapeStyle = {
   readonly strokeWidth: number;
   readonly radius: number;
 };
+
+/**
+ * Vector paths. Coordinates are in the layer's unit box (0..1 across its width and
+ * height), so resizing the layer scales the drawing; strokes keep their width. A node's
+ * `in`/`out` are its Bézier handles (absent: a sharp corner).
+ */
+export type PathNode = { readonly x: number; readonly y: number; readonly in?: Point; readonly out?: Point };
+export type SubPath = { readonly closed: boolean; readonly nodes: readonly PathNode[] };
+
+export type SmartShapeKind =
+  | "rectangle"
+  | "ellipse"
+  | "polygon"
+  | "star"
+  | "burst"
+  | "heart"
+  | "arrow"
+  | "double-arrow"
+  | "chevron"
+  | "speech"
+  | "ring"
+  | "cross"
+  | "crescent"
+  | "teardrop"
+  | "cloud"
+  | "line";
+/**
+ * A shape drawn from a few numbers (it stays editable as such until it is converted
+ * to nodes). `points`: corners of a polygon, points of a star or burst. `ratio`: inner
+ * radius of a star or ring, shaft of an arrow, tail of a bubble, bar of a cross,
+ * bite of a crescent (0..1). `round`: corner rounding (0..1).
+ */
+export type SmartShape = { readonly kind: SmartShapeKind; readonly points: number; readonly ratio: number; readonly round: number };
+
+export type PathStyle = {
+  /** null: no fill. */
+  readonly fill: string | null;
+  readonly fillOpacity: number;
+  readonly fillGradient?: Gradient;
+  /** null: no stroke. */
+  readonly stroke: string | null;
+  readonly strokeOpacity: number;
+  readonly strokeGradient?: Gradient;
+  /** Canvas pixels. */
+  readonly strokeWidth: number;
+  /** Dash and gap lengths in stroke widths; empty for a solid line. */
+  readonly dash: readonly number[];
+  readonly cap: "butt" | "round" | "square";
+  readonly join: "miter" | "round" | "bevel";
+  readonly fillRule: "nonzero" | "evenodd";
+};
+
+/**
+ * Layer styles, drawn from the layer's own shape (its alpha) on the GPU, so they work
+ * on photos, cut-outs, text, shapes and groups alike. Sizes are canvas pixels.
+ */
+export type ShadowStyle = { readonly color: string; readonly opacity: number; /** degrees; 90 = straight down */ readonly angle: number; readonly distance: number; readonly blur: number; /** 0..1 */ readonly spread: number };
+export type GlowStyle = { readonly color: string; readonly opacity: number; readonly blur: number; readonly spread: number };
+export type OutlineStyle = { readonly color: string; readonly opacity: number; readonly width: number };
+export type LayerFx = { readonly shadow?: ShadowStyle; readonly glow?: GlowStyle; readonly outline?: OutlineStyle };
+
+/** How a slot's photo sits in its frame: `zoom` ≥ 1 over "cover", `x`/`y` -1..1 pan within the room left. */
+export type SlotFit = { readonly zoom: number; readonly x: number; readonly y: number };
 
 /** A develop-style adjustment applied to everything below it (within its group or clip). */
 export type Adjustment = Pick<DevelopRecipe, "basic" | "toneCurve" | "colorMixer" | "colorGrading" | "profile">;
@@ -157,6 +231,8 @@ type LayerBase = {
   readonly transform: Transform;
   readonly crop: LayerCrop;
   readonly mask: LayerMask | null;
+  /** Shadow, glow and outline (absent: none). */
+  readonly fx?: LayerFx;
 };
 
 export type ImageLayer = LayerBase & {
@@ -172,13 +248,21 @@ export type ShapeLayer = LayerBase & { readonly kind: "shape"; readonly style: S
 export type AdjustmentLayer = LayerBase & { readonly kind: "adjustment"; readonly adjustment: Adjustment };
 /** A stylization effect (ASCII, halftone, glass…) applied to everything below it, like an adjustment. */
 export type EffectLayer = LayerBase & { readonly kind: "effect"; readonly effect: EffectInstance };
+/** A vector drawing: a smart shape, or nodes from the pen (`shape` null). */
+export type PathLayer = LayerBase & { readonly kind: "path"; readonly shape: SmartShape | null; readonly paths: readonly SubPath[]; readonly style: PathStyle };
+/**
+ * A photo frame ("tap to add your photo"): the photo fills `frame` (cover), zoomed and
+ * panned by `fit`; without a photo it shows a placeholder. Replacing the photo keeps the
+ * frame, transform, styles and mask.
+ */
+export type SlotLayer = LayerBase & { readonly kind: "slot"; readonly frame: SmartShape; readonly assetId: string | null; readonly fit: SlotFit; readonly placeholder: string };
 export type GroupLayer = LayerBase & {
   readonly kind: "group";
   readonly children: readonly Layer[];
   readonly expanded: boolean;
 };
 
-export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | AdjustmentLayer | EffectLayer | GroupLayer;
+export type Layer = ImageLayer | FillLayer | GradientLayer | TextLayer | ShapeLayer | PathLayer | SlotLayer | AdjustmentLayer | EffectLayer | GroupLayer;
 export type LayerKind = Layer["kind"];
 
 export type Guide = { readonly id: string; readonly axis: "x" | "y"; readonly position: number };

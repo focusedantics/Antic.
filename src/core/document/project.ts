@@ -9,7 +9,7 @@ import type { DevelopRecipe } from "@/core/develop/recipe";
 import { recipeFor } from "@/core/develop/session";
 import { createId } from "@/lib/id";
 import type { CompositeDocument, Layer } from "./model";
-import { flatten, sanitizeDocument } from "./operations";
+import { documentAssets, flatten, sanitizeDocument } from "./operations";
 
 /**
  * `.focused` project files: a ZIP with
@@ -49,7 +49,7 @@ const rasterIds = (recipe: DevelopRecipe | null, layers: readonly Layer[]) => {
 export async function saveProject(doc: CompositeDocument, options: { includeOriginals: boolean }): Promise<Blob> {
   const files: Record<string, Uint8Array> = {};
   const layers = flatten(doc.layers);
-  const assetIds = [...new Set(layers.flatMap((l) => (l.kind === "image" ? [l.assetId] : [])))];
+  const assetIds = documentAssets(layers);
   const assets: ProjectAsset[] = [];
   const rasters = new Set<string>(rasterIds(null, layers));
   for (const id of assetIds) {
@@ -128,6 +128,8 @@ export async function openProject(file: Blob): Promise<OpenedProject> {
   const recipes = new Map((json.assets ?? []).map((a) => [a.id, a.recipe]));
   const remap = (layer: Layer): Layer | null => {
     if (layer.kind === "group") return { ...layer, children: layer.children.map(remap).filter((l): l is Layer => !!l) };
+    // A frame keeps its place without its photo when the photo is missing.
+    if (layer.kind === "slot") return layer.assetId ? { ...layer, assetId: idMap.get(layer.assetId) ?? null } : layer;
     if (layer.kind !== "image") return layer;
     const local = idMap.get(layer.assetId);
     if (!local) return null;
