@@ -360,11 +360,64 @@ export function moveLayer(doc: CompositeDocument, id: string, parentId: string |
   return updateLayer(without, parentId, (g) => ({ ...(g as GroupLayer), children: place((g as GroupLayer).children) }));
 }
 
-/** Moves a layer one step up (+1) or down (-1) within its parent. */
-export function nudgeLayer(doc: CompositeDocument, id: string, delta: number): CompositeDocument {
-  const loc = locate(doc.layers, id);
-  if (!loc) return doc;
-  return moveLayer(doc, id, loc.parent?.id ?? null, loc.index + delta);
+/** The layer tree's order as a string, to tell whether a rearrangement changed anything. */
+const orderOf = (layers: readonly Layer[]): string => layers.map((l) => (l.kind === "group" ? `${l.id}(${orderOf(l.children)})` : l.id)).join(",");
+
+/** The layers `ids` names, in paint order, leaving out any inside a group that moves with them. */
+function movingLayers(layers: readonly Layer[], ids: ReadonlySet<string>, out: Layer[] = []): Layer[] {
+  for (const l of layers) {
+    if (ids.has(l.id)) out.push(l);
+    else if (l.kind === "group") movingLayers(l.children, ids, out);
+  }
+  return out;
+}
+
+export type DropPlace = "above" | "below" | "into";
+
+/**
+ * Moves layers (keeping their paint order) next to `anchorId`: just above or below it
+ * in its parent, or "into" it, on top of a group's children. A layer can't move next
+ * to itself and a group can't move into itself; the document is returned unchanged then.
+ */
+export function moveLayers(doc: CompositeDocument, ids: readonly string[], anchorId: string, place: DropPlace): CompositeDocument {
+  const moving = movingLayers(doc.layers, new Set(ids));
+  const anchor = locate(doc.layers, anchorId);
+  if (!moving.length || !anchor || (place === "into" && anchor.layer.kind !== "group")) return doc;
+  if (moving.some((m) => m.id === anchorId || (m.kind === "group" && locate(m.children, anchorId)))) return doc;
+  const without = removeLayers(doc, moving.map((m) => m.id));
+  const at = locate(without.layers, anchorId)!;
+  const parentId = place === "into" ? anchorId : (at.parent?.id ?? null);
+  const index = place === "into" ? (at.layer as GroupLayer).children.length : place === "above" ? at.index + 1 : at.index;
+  const put = (list: readonly Layer[]) => [...list.slice(0, index), ...moving, ...list.slice(index)];
+  const next = parentId ? updateLayer(without, parentId, (g) => ({ ...(g as GroupLayer), children: put((g as GroupLayer).children) })) : { ...without, layers: put(without.layers) };
+  return orderOf(next.layers) === orderOf(doc.layers) ? doc : next;
+}
+
+export type Arrange = "front" | "forward" | "backward" | "back";
+
+/**
+ * Bring to front / forward, send backward / to back, within each layer's own group.
+ * Several selected siblings move as a block and keep their order. Returns `doc` itself
+ * when nothing would move (already at the top, say), so callers can disable the command.
+ */
+export function arrangeLayers(doc: CompositeDocument, ids: readonly string[], how: Arrange): CompositeDocument {
+  const set = new Set(ids);
+  const arrange = (list: readonly Layer[]): Layer[] => {
+    let out = [...list];
+    if (out.some((l) => set.has(l.id))) {
+      if (how === "front") out = [...out.filter((l) => !set.has(l.id)), ...out.filter((l) => set.has(l.id))];
+      else if (how === "back") out = [...out.filter((l) => set.has(l.id)), ...out.filter((l) => !set.has(l.id))];
+      else if (how === "forward") {
+        for (let i = out.length - 2; i >= 0; i--) if (set.has(out[i].id) && !set.has(out[i + 1].id)) [out[i], out[i + 1]] = [out[i + 1], out[i]];
+      } else {
+        for (let i = 1; i < out.length; i++) if (set.has(out[i].id) && !set.has(out[i - 1].id)) [out[i - 1], out[i]] = [out[i], out[i - 1]];
+      }
+    }
+    // Inside groups that stay put; a selected group moves with its children as they are.
+    return out.map((l) => (l.kind === "group" && !set.has(l.id) ? { ...l, children: arrange(l.children) } : l));
+  };
+  const layers = arrange(doc.layers);
+  return orderOf(layers) === orderOf(doc.layers) ? doc : { ...doc, layers };
 }
 
 export function duplicateLayer(doc: CompositeDocument, id: string): { doc: CompositeDocument; id: string | null } {

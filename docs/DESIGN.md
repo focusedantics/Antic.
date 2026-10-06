@@ -110,6 +110,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | L2 | Merge layers | New: flatten the selection into one image (a PNG in the Library) | ⬜ |
 | L3 | Import layers from another design or template | New | ⬜ |
 | L4 | Lock | Exists | ✅ |
+| L5 | Reorder layers on computers and phones | New: pointer drag with a grip (touch, mouse, pen) and into groups, Bring to Front / Forward, Send Backward / to Back in the layer menu and select bar, Ctrl+[ ] shortcuts, ↑/↓ on the grip | ✅ |
 
 ### Colours and folders
 | # | Feature | How | Status |

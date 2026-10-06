@@ -28,6 +28,12 @@ export function ColorField({ label, value, onChange, onGestureStart, onGestureEn
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value);
   const anchor = useRef<HTMLButtonElement>(null);
+  /**
+   * What is being typed, with the handler it belongs to. Clicking another layer selects
+   * it before this field loses focus, and the field then already shows (and would save
+   * to) the new layer: the draft must still go to the layer it was typed for.
+   */
+  const draft = useRef<{ text: string; commit: (hex: string) => void; applied: string } | null>(null);
   useEffect(() => setText(value), [value]);
   return (
     <span className="color-field">
@@ -45,16 +51,24 @@ export function ColorField({ label, value, onChange, onGestureStart, onGestureEn
           }}
           onChange={(e) => {
             setText(e.target.value);
+            const d = (draft.current ??= { text: e.target.value, commit: onChange, applied: value });
+            d.text = e.target.value;
             const hex = normalizeHex(e.target.value);
-            if (hex && e.target.value.replace("#", "").length === 6) onChange(hex);
+            if (hex && e.target.value.replace("#", "").length === 6) {
+              d.commit(hex);
+              d.applied = hex;
+            }
           }}
           onBlur={() => {
-            const hex = normalizeHex(text);
-            if (hex) {
-              if (hex !== value) onChange(hex);
+            const d = draft.current;
+            draft.current = null;
+            const hex = d ? normalizeHex(d.text) : null;
+            if (d && hex) {
+              if (hex !== d.applied) d.commit(hex);
               pushRecent(hex);
             }
-            setText(hex ?? value);
+            // Show the field's current colour: a new selection's, or the typed one once it is saved (the effect above).
+            setText(value);
           }}
         />
       )}

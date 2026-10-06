@@ -256,6 +256,18 @@ Per-layer content is cached by its inputs and evicted when unused.
 
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
 
+**Layer order.** `moveLayers` drops layers (kept in paint order) above, below or into
+another layer, and `arrangeLayers` brings to front / forward or sends backward / to back
+within each layer's group, moving several selected siblings as a block; both return the
+same document when nothing would move, so menus disable those commands and history
+records nothing. The Layers panel drags rows with pointer events
+(`features/composite/layer-drag.ts`), not HTML drag and drop, so a finger works as well
+as a mouse: a row's ⠿ grip drags at once (it has `touch-action: none`, and the sweep
+selector ignores it), a mouse press on the row drags after 4 px, a copy of the row follows
+the pointer, the row under it shows the drop line, the list scrolls after a short rest at
+its edge, and Escape cancels. On the keyboard the grip moves its layer with ↑/↓, and
+Ctrl+[ / ] (with Shift: to back / front) arrange the selection.
+
 **Vector paths and smart shapes** (`core/document/shapes.ts`). A `path` layer holds cubic
 Bézier subpaths in its unit box (so resizing scales the drawing while strokes keep their
 width), or a `SmartShape` (`kind`, `points`, `ratio`, `round`) whose paths are generated

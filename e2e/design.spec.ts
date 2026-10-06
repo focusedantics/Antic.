@@ -786,3 +786,185 @@ test.describe("computer: blur", () => {
     expect(lens.col).toBeGreaterThan(30);
   });
 });
+
+/** Layer names as listed, top first (children of open groups included). */
+const order = (page: Page) => page.locator(".layer-list .layer-row .name").allTextContents();
+const row = (page: Page, name: string) => page.locator(".layer-list .layer-row").filter({ has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
+
+/** A mouse drag from the middle of one box to a point, in small steps (the drag starts after a few pixels). */
+async function mouseDrag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, finish: "up" | "escape" = "up") {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x, from.y + 6, { steps: 2 });
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.waitForTimeout(80);
+  if (finish === "escape") await page.keyboard.press("Escape");
+  await page.mouse.up();
+}
+const mid = async (l: ReturnType<Page["locator"]>) => {
+  const b = (await l.boundingBox())!;
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2, top: b.y, bottom: b.y + b.height };
+};
+
+test.describe("computer: reordering layers", () => {
+  test("a colour typed for one layer is saved to that layer when another is clicked", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    await left.getByRole("button", { name: "Add rectangle", exact: true }).click();
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#ff0000");
+    await left.getByRole("button", { name: "Add ellipse", exact: true }).click();
+    // A short code is only saved when the field is left: here, by clicking the other layer.
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#0f0");
+    await row(page, "Rectangle").locator(".name").click();
+    await expect(right.getByRole("textbox", { name: "Fill colour" })).toHaveValue("#ff0000");
+    await row(page, "Ellipse").locator(".name").click();
+    await expect(right.getByRole("textbox", { name: "Fill colour" })).toHaveValue("#00ff00");
+  });
+
+  test("drag rows, drop into a group, arrange from the menu, shortcuts and the grip; the render follows", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    // A red square under a blue circle of the same size: the circle hides most of it.
+    await left.getByRole("button", { name: "Add rectangle", exact: true }).click();
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#ff0000");
+    await left.getByRole("button", { name: "Add ellipse", exact: true }).click();
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#0000ff");
+    expect(await order(page)).toEqual(["Ellipse", "Rectangle"]);
+    const red = "r > 200 && g < 60 && b < 60";
+    const blue = "r < 60 && g < 60 && b > 200";
+    const before = { red: await count(page, red), blue: await count(page, blue) };
+    expect(before.blue).toBeGreaterThan(before.red);
+
+    // Drag the square's row above the circle's: the square now covers the circle.
+    const square = await mid(row(page, "Rectangle"));
+    const circle = await mid(row(page, "Ellipse"));
+    await mouseDrag(page, square, { x: circle.x, y: circle.top + 3 });
+    expect(await order(page)).toEqual(["Rectangle", "Ellipse"]);
+    expect(await count(page, blue)).toBeLessThan(50);
+    expect(await count(page, red)).toBeGreaterThan(before.red + before.blue / 2);
+    // One undo step puts it back; Escape cancels a drag.
+    await page.keyboard.press("Control+z");
+    expect(await order(page)).toEqual(["Ellipse", "Rectangle"]);
+    const s2 = await mid(row(page, "Rectangle"));
+    const c2 = await mid(row(page, "Ellipse"));
+    await mouseDrag(page, s2, { x: c2.x, y: c2.top + 3 }, "escape");
+    expect(await order(page)).toEqual(["Ellipse", "Rectangle"]);
+
+    // Arrange from the layer menu, which knows what can't move. (New layers go above the selected one.)
+    await left.getByRole("button", { name: "Add star", exact: true }).click();
+    expect(await order(page)).toEqual(["Ellipse", "Star", "Rectangle"]);
+    await row(page, "Rectangle").click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Bring to Front/ }).click();
+    expect(await order(page)).toEqual(["Rectangle", "Ellipse", "Star"]);
+    await row(page, "Rectangle").click({ button: "right" });
+    await expect(page.getByRole("menuitem", { name: /^Bring to Front/ })).toBeDisabled();
+    await expect(page.getByRole("menuitem", { name: /^Bring Forward/ })).toBeDisabled();
+    await page.getByRole("menuitem", { name: /^Send Backward/ }).click();
+    expect(await order(page)).toEqual(["Ellipse", "Rectangle", "Star"]);
+
+    // Shortcuts: Ctrl+Shift+[ to the back, Ctrl+] forward.
+    await row(page, "Ellipse").locator(".name").click();
+    await page.keyboard.press("Control+Shift+BracketLeft");
+    expect(await order(page)).toEqual(["Rectangle", "Star", "Ellipse"]);
+    await page.keyboard.press("Control+BracketRight");
+    expect(await order(page)).toEqual(["Rectangle", "Ellipse", "Star"]);
+
+    // The grip moves a step with the arrow keys.
+    await page.getByRole("button", { name: "Reorder Rectangle" }).focus();
+    await page.keyboard.press("ArrowDown");
+    expect(await order(page)).toEqual(["Ellipse", "Rectangle", "Star"]);
+
+    // Several selected layers drag together, keeping their order.
+    await row(page, "Ellipse").locator(".name").click();
+    await row(page, "Rectangle").locator(".name").click({ modifiers: ["Control"] });
+    const pair = await mid(row(page, "Ellipse"));
+    const bottom = await mid(row(page, "Star"));
+    await mouseDrag(page, pair, { x: bottom.x, y: bottom.bottom - 3 });
+    expect(await order(page)).toEqual(["Star", "Ellipse", "Rectangle"]);
+    // Both stay selected.
+    await expect(page.locator(".layer-list .layer-row[aria-selected='true']")).toHaveCount(2);
+
+    // Group the star and the circle, then drop the square onto the group: it goes inside.
+    await row(page, "Star").locator(".name").click();
+    await row(page, "Ellipse").locator(".name").click({ modifiers: ["Control"] });
+    await page.keyboard.press("Control+g");
+    const group = page.locator(".layer-list .layer-row[data-kind='group']");
+    await expect(group).toHaveCount(1);
+    const groupName = (await group.locator(".name").textContent())!;
+    // New groups open; closed, the middle of the row means "into".
+    expect(await order(page)).toEqual([groupName, "Star", "Ellipse", "Rectangle"]);
+    await group.getByRole("button", { name: "Collapse group" }).click();
+    expect(await order(page)).toEqual([groupName, "Rectangle"]);
+    const g = await mid(group);
+    await mouseDrag(page, await mid(row(page, "Rectangle")), { x: g.x, y: g.y });
+    expect(await order(page)).toEqual([groupName]);
+    await group.getByRole("button", { name: "Expand group" }).click();
+    // Dropped in, it sits on top of the group's layers.
+    expect(await order(page)).toEqual([groupName, "Rectangle", "Star", "Ellipse"]);
+    await expect(row(page, "Rectangle")).toHaveAttribute("data-depth", "1");
+
+    // And out again with the grip, below everything.
+    const grip = await mid(page.getByRole("button", { name: "Reorder Rectangle" }));
+    const last = await mid(row(page, "Ellipse"));
+    await mouseDrag(page, grip, { x: last.x, y: last.bottom + 30 });
+    expect(await order(page)).toEqual([groupName, "Star", "Ellipse", "Rectangle"]);
+    await expect(row(page, "Rectangle")).toHaveAttribute("data-depth", "0");
+
+  });
+});
+
+test.describe("phone: reordering layers", () => {
+  test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+  test("a finger drags a layer by its grip; the menu arranges; the list doesn't scroll away", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).tap();
+    const dock = page.getByRole("navigation", { name: "Panels" });
+    const sheet = page.getByTestId("sheet");
+    await dock.getByRole("button", { name: "Add" }).tap();
+    for (const n of ["rectangle", "ellipse", "star"]) await sheet.getByRole("button", { name: `Add ${n}`, exact: true }).tap();
+    await dock.getByRole("button", { name: "Layers" }).tap();
+    expect(await order(page)).toEqual(["Star", "Ellipse", "Rectangle"]);
+    // The grip is big enough for a finger.
+    const gripBox = (await sheet.getByRole("button", { name: "Reorder Rectangle" }).boundingBox())!;
+    expect(gripBox.width).toBeGreaterThanOrEqual(30);
+    expect(gripBox.height).toBeGreaterThanOrEqual(30);
+
+    // Real touch input: press the Rectangle's grip and drag it above the Star.
+    const cdp = await page.context().newCDPSession(page);
+    const from = { x: gripBox.x + gripBox.width / 2, y: gripBox.y + gripBox.height / 2 };
+    const star = (await row(page, "Star").boundingBox())!;
+    const to = { x: from.x, y: star.y + 4 };
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+    for (let i = 1; i <= 12; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from.x, y: from.y + ((to.y - from.y) * i) / 12 }] });
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(60);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    expect(await order(page)).toEqual(["Rectangle", "Star", "Ellipse"]);
+    // Not select mode: a drag on the grip only reorders.
+    await expect(page.getByRole("navigation", { name: "Selection" })).toHaveCount(0);
+
+    // Long-press a row for select mode; its actions include Arrange.
+    const ellipse = await mid(row(page, "Ellipse"));
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: ellipse.x, y: ellipse.y }] });
+    await page.waitForTimeout(700);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const bar = page.getByRole("navigation", { name: "Selection" });
+    await expect(bar).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Reorder Ellipse" })).toBeHidden();
+    await bar.getByRole("button", { name: "Actions" }).tap();
+    await page.getByRole("menuitem", { name: /^Bring to Front/ }).tap();
+    expect(await order(page)).toEqual(["Ellipse", "Rectangle", "Star"]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+});

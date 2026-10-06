@@ -10,7 +10,7 @@ import { toast, ui } from "@/app/state";
 import { Dialog, openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
 import { type DocumentRecord, getDocument } from "@/core/catalog/db";
-import { align, type Alignment, distribute, locate, moveTransform, nudgeLayer, ungroup, updateLayers } from "@/core/document/operations";
+import { align, type Alignment, distribute, locate, moveTransform, ungroup, updateLayers } from "@/core/document/operations";
 import {
   composite,
   type CompositeTool,
@@ -26,7 +26,7 @@ import {
 import { openProject, saveProject } from "@/core/document/project";
 import { isAnimated } from "@/core/document/animation";
 import { newDocument } from "./actions";
-import { addLayerMenu, deleteSelected, duplicateSelected, groupSelected, LayersPanel } from "./LayersPanel";
+import { addLayerMenu, arrangeSelected, deleteSelected, duplicateSelected, groupSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
 import { DocColor } from "./fields";
 import { ColorField } from "@/features/color/ColorField";
@@ -448,8 +448,10 @@ export function compositeShortcuts(e: KeyboardEvent, openExport: () => void): bo
     groupSelected();
     return true;
   }
-  if (mod && (key === "]" || key === "[")) {
-    for (const id of selection) editDocument("Arrange", (d) => nudgeLayer(d, id, key === "]" ? 1 : -1));
+  // Arrange: Ctrl+] / Ctrl+[ one step, with Shift to the front / back (by key position: Shift+] types "}").
+  if (mod && (e.code === "BracketRight" || e.code === "BracketLeft" || key === "]" || key === "[")) {
+    const up = e.code === "BracketRight" || key === "]";
+    arrangeSelected(e.shiftKey ? (up ? "front" : "back") : up ? "forward" : "backward");
     return true;
   }
   if (mod && e.shiftKey && key === "e") {

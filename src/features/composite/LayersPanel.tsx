@@ -9,6 +9,8 @@ import { SelectButton } from "@/app/SelectBar";
 import { BLEND_MODES, type BlendMode, type Layer } from "@/core/document/model";
 import {
   adjustmentLayer,
+  type Arrange,
+  arrangeLayers,
   duplicateLayer,
   emptyMask,
   flatten,
@@ -17,7 +19,6 @@ import {
   groupLayers,
   insertLayer,
   locate,
-  moveLayer,
   removeLayers,
   shapeLayer,
   textLayer,
@@ -26,9 +27,11 @@ import {
   updateLayers,
 } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
+import { layout } from "@/app/layout";
 import { ui } from "@/app/state";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { addAssetsToComposite } from "./actions";
+import { startLayerDrag } from "./layer-drag";
 
 const kindIcon: Record<Layer["kind"], string> = { image: "▣", fill: "■", gradient: "◐", text: "T", shape: "◆", path: "⬟", slot: "▢", paint: "✎", adjustment: "◑", effect: "✦", group: "▤" };
 
@@ -116,6 +119,27 @@ export function groupSelected() {
   if (id) composite.setState({ selection: [id] });
 }
 
+const ARRANGE: readonly { how: Arrange; label: string; history: string; shortcut: string }[] = [
+  { how: "front", label: "Bring to Front", history: "Bring to front", shortcut: "Ctrl+Shift+]" },
+  { how: "forward", label: "Bring Forward", history: "Bring forward", shortcut: "Ctrl+]" },
+  { how: "backward", label: "Send Backward", history: "Send backward", shortcut: "Ctrl+[" },
+  { how: "back", label: "Send to Back", history: "Send to back", shortcut: "Ctrl+Shift+[" },
+];
+
+/** Moves the selected layers within their groups (one undo step); false when nothing could move. */
+export function arrangeSelected(how: Arrange, ids = composite.getState().selection): boolean {
+  const doc = composite.getState().doc;
+  if (!doc || !ids.length || arrangeLayers(doc, ids, how) === doc) return false;
+  editDocument(ARRANGE.find((a) => a.how === how)!.history, (d) => arrangeLayers(d, ids, how));
+  return true;
+}
+
+/** Arrange commands for the menus, each disabled when it would change nothing. */
+function arrangeItems() {
+  const { doc, selection } = composite.getState();
+  return ARRANGE.map((a) => ({ label: a.label, shortcut: a.shortcut, disabled: !doc || arrangeLayers(doc, selection, a.how) === doc, onSelect: () => arrangeSelected(a.how) }));
+}
+
 /** The layer menu. With several layers selected (Ctrl-click or a right-click sweep) it leads with batch actions. */
 export function layerMenu(layer: Layer, x: number, y: number) {
   const n = composite.getState().selection.length;
@@ -124,6 +148,8 @@ export function layerMenu(layer: Layer, x: number, y: number) {
       { label: `Duplicate ${n} layers`, shortcut: "Ctrl+J", onSelect: duplicateSelected },
       { label: `Group ${n} layers`, shortcut: "Ctrl+G", onSelect: groupSelected },
       "separator",
+      ...arrangeItems(),
+      "separator",
       { label: `Delete ${n} layers`, shortcut: "Del", danger: true, onSelect: deleteSelected },
     ]);
   openMenu(x, y, [
@@ -131,6 +157,8 @@ export function layerMenu(layer: Layer, x: number, y: number) {
     { label: layer.clip ? "Release Clipping Mask" : "Create Clipping Mask", shortcut: "Ctrl+Alt+G", onSelect: () => editDocument("Clipping mask", (d) => updateLayer(d, layer.id, (l) => ({ ...l, clip: !l.clip }))) },
     { label: layer.mask ? "Delete Layer Mask" : "Add Layer Mask", onSelect: () => editDocument(layer.mask ? "Delete mask" : "Add mask", (d) => updateLayer(d, layer.id, (l) => ({ ...l, mask: l.mask ? null : emptyMask() }))) },
     ...(layer.kind === "group" ? [{ label: "Ungroup", shortcut: "Ctrl+Shift+G", onSelect: () => editDocument("Ungroup", (d) => ungroup(d, layer.id)) }] : []),
+    "separator",
+    ...arrangeItems(),
     "separator",
     { label: "Delete", shortcut: "Del", danger: true, onSelect: deleteSelected },
   ]);
@@ -143,30 +171,26 @@ function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
     const { selection } = composite.getState();
     if (e.button === 2) return; // right button: the menu or a sweep decides
     if (e.metaKey || e.ctrlKey) composite.setState({ selection: selection.includes(layer.id) ? selection.filter((id) => id !== layer.id) : [...selection, layer.id] });
-    else composite.setState({ selection: [layer.id] });
+    // Pressing one of several selected layers keeps them all, so they can be dragged together; a click narrows it.
+    else if (!(selection.length > 1 && selection.includes(layer.id))) composite.setState({ selection: [layer.id] });
   };
+  const narrow = (e: React.MouseEvent) => {
+    const { selection } = composite.getState();
+    if (!e.metaKey && !e.ctrlKey && selection.length > 1 && selection.includes(layer.id)) composite.setState({ selection: [layer.id] });
+  };
+  // Photos dragged in from the filmstrip land above this layer (HTML drag and drop, from another panel).
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(null);
-    const dragged = e.dataTransfer.getData("application/x-focused-layer");
     const assets = e.dataTransfer.getData("application/x-focused-assets");
-    if (assets) {
-      composite.setState({ selection: [layer.id] });
-      void addAssetsToComposite(ui.getState().selection.size ? [...ui.getState().selection] : [assets]);
-      return;
-    }
-    if (!dragged || dragged === layer.id) return;
-    editDocument("Move layer", (d) => {
-      const target = locate(d.layers, layer.id);
-      if (!target) return d;
-      if (over === "into" && layer.kind === "group") return moveLayer(d, dragged, layer.id, layer.children.length);
-      const parentId = target.parent?.id ?? null;
-      // The list is shown top-first; "above" in the list means a higher index.
-      const draggedLoc = locate(d.layers, dragged);
-      const sameParentBelow = draggedLoc && (draggedLoc.parent?.id ?? null) === parentId && draggedLoc.index < target.index;
-      const index = over === "above" ? target.index + 1 : target.index;
-      return moveLayer(d, dragged, parentId, sameParentBelow ? index - 1 : index);
-    });
+    if (!assets) return;
+    composite.setState({ selection: [layer.id] });
+    void addAssetsToComposite(ui.getState().selection.size ? [...ui.getState().selection] : [assets]);
+  };
+  /** The layers a drag from this row moves: the selection when this row is in it, else this layer. */
+  const dragged = () => {
+    const { selection } = composite.getState();
+    return selection.includes(layer.id) ? selection : [layer.id];
   };
   return (
     <>
@@ -176,28 +200,53 @@ function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
         role="option"
         aria-selected={selected}
         data-drop={over ?? undefined}
+        data-kind={layer.kind}
+        data-expanded={layer.kind === "group" ? layer.expanded : undefined}
+        data-depth={depth}
         style={{ paddingLeft: 6 + depth * 14 }}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("application/x-focused-layer", layer.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes("application/x-focused-layer") && !e.dataTransfer.types.includes("application/x-focused-assets")) return;
+          if (!e.dataTransfer.types.includes("application/x-focused-assets")) return;
           e.preventDefault();
-          const r = e.currentTarget.getBoundingClientRect();
-          const y = (e.clientY - r.top) / r.height;
-          setOver(layer.kind === "group" && y > 0.3 && y < 0.7 ? "into" : y < 0.5 ? "above" : "below");
+          setOver("above");
         }}
         onDragLeave={() => setOver(null)}
         onDrop={onDrop}
         onMouseDown={select}
+        onClick={narrow}
+        onPointerDown={(e) => {
+          // A mouse press on the row drags it once it moves; fingers use the grip (a touch on the row scrolls).
+          if (e.pointerType !== "mouse" || e.button !== 0 || e.ctrlKey || e.metaKey || (e.target as Element).closest("button")) return;
+          startLayerDrag(e.nativeEvent, e.currentTarget, dragged(), false);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           if (!composite.getState().selection.includes(layer.id)) composite.setState({ selection: [layer.id] });
           layerMenu(layer, e.clientX, e.clientY);
         }}
       >
+        <button
+          type="button"
+          className="layer-grip"
+          aria-label={`Reorder ${layer.name}`}
+          title="Drag to reorder (or press ↑ ↓)"
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const ids = dragged();
+            if (!composite.getState().selection.includes(layer.id)) composite.setState({ selection: [layer.id] });
+            startLayerDrag(e.nativeEvent, e.currentTarget.closest<HTMLElement>(".layer-row")!, ids, true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            e.preventDefault();
+            e.stopPropagation();
+            arrangeSelected(e.key === "ArrowUp" ? "forward" : "backward", dragged());
+          }}
+        >
+          <span aria-hidden>⠿</span>
+        </button>
         <button
           type="button"
           className="btn ghost small icon"
@@ -273,7 +322,14 @@ export const layerScope: SelectScope = {
 
 function LayerList({ layers }: { layers: readonly Layer[] }) {
   const ref = useRef<HTMLDivElement>(null);
-  useSweepSelect(ref, { ...sweepLayers, hits: (box) => domHits(ref.current, box), scroller: () => ref.current?.closest<HTMLElement>(".side") ?? null, scope: layerScope });
+  useSweepSelect(ref, {
+    ...sweepLayers,
+    hits: (box) => domHits(ref.current, box),
+    scroller: () => ref.current?.closest<HTMLElement>(".side") ?? null,
+    scope: layerScope,
+    // The grip reorders; a press there is never a selection sweep.
+    accept: (target) => !target.closest(".layer-grip"),
+  });
   return (
     <div ref={ref} className="layer-list" role="listbox" aria-label="Layers" aria-multiselectable>
       {layers.length === 0 && <p className="faint">Drag photos from the filmstrip onto the canvas, or add a layer.</p>}
@@ -287,6 +343,7 @@ function LayerList({ layers }: { layers: readonly Layer[] }) {
 export function LayersPanel() {
   const doc = useStore(composite, (s) => s.doc);
   const selection = useStore(composite, (s) => s.selection);
+  const compact = useStore(layout, (s) => s.compact);
   if (!doc) return null;
   const primary = selection.length ? locate(doc.layers, selection[selection.length - 1])?.layer : null;
   const setAll = (label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayers(d, selection, change));
@@ -331,7 +388,7 @@ export function LayersPanel() {
             onGestureEnd={endDocGesture}
             onChange={(v) => setAll("Opacity", (l) => ({ ...l, opacity: v / 100 }))}
           />
-          {primary.kind !== "adjustment" && primary.kind !== "effect" && primary.kind !== "group" && (
+          {primary.kind !== "adjustment" && primary.kind !== "effect" && primary.kind !== "group" ? (
             <Slider
               label="Fill"
               value={Math.round(primary.fillOpacity * 100)}
@@ -343,12 +400,17 @@ export function LayersPanel() {
               onGestureEnd={endDocGesture}
               onChange={(v) => setAll("Fill opacity", (l) => ({ ...l, fillOpacity: v / 100 }))}
             />
+          ) : (
+            // Keeps the list from jumping when the selection moves between layers with and without a fill.
+            <div className="slider fill-spacer" aria-hidden />
           )}
         </div>
       )}
       <LayerList layers={doc.layers} />
       <p className="faint" style={{ fontSize: 10, marginTop: 6 }}>
-        Right-click a layer for clipping masks, layer masks and grouping; right-click and hold, then drag, to select several. Drag to reorder.
+        {compact
+          ? "Drag a layer by its ⠿ grip to reorder; drop it on a group to put it inside. Press and hold a layer to select several, then Actions to arrange, clip or group them."
+          : "Drag a layer (or its ⠿ grip) to reorder; drop on a group to put it inside. Right-click a layer to arrange, clip, mask or group; right-click and hold, then drag, to select several."}
       </p>
     </Panel>
   );
