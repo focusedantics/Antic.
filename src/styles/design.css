@@ -145,7 +145,7 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 
 /* Carousels */
 .slides-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--panel); }
-.slides-bar .slides { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.slides-bar .slides { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .slide-item { position: relative; display: inline-flex; }
 .slide-chip {
   flex: none; min-width: 34px; height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line-strong);
@@ -153,6 +153,10 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 }
 .slide-chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: #3a3222; }
 .slide-chip.add { color: var(--accent-strong); font-size: 16px; }
+/* The add buttons follow the slides; the space after them pushes › and Preview to the end. */
+.slide-adds { display: flex; gap: 4px; flex: none; margin-right: auto; }
+.slide-chip.from-template { display: inline-flex; align-items: center; gap: 5px; width: auto; padding: 0 9px; font-size: 12px; }
+:root[data-compact="true"] .slide-add-label { display: none; }
 .slide-more { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-size: 10px; line-height: 14px; }
 .transform-svg .slide-guide line { stroke: #ffffff; stroke-opacity: 0.75; stroke-dasharray: 6 5; stroke-width: 1; mix-blend-mode: difference; }
 .transform-svg .slide-guide text { fill: var(--text-dim); font-size: 11px; font-weight: 600; }

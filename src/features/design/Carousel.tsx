@@ -2,13 +2,17 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "@/app/hooks";
 import { toast } from "@/app/state";
-import { openMenu } from "@/components/Menu";
+import { Dialog, openMenu } from "@/components/Menu";
 import { Icon } from "@/components/icons";
-import { duplicateSlide, insertSlides, makeCarousel, MAX_SLIDES, moveSlide, removeSlide, slideCount, slideWidth } from "@/core/document/carousel";
+import { designAssets, loadDesignAssets } from "@/core/design/assets";
+import { duplicateSlide, insertSlides, insertSlidesWith, makeCarousel, MAX_SLIDES, moveSlide, removeSlide, slideCount, slideWidth } from "@/core/document/carousel";
 import { composite, editDocument } from "@/core/document/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { createId } from "@/lib/id";
 import { viewDpr } from "@/lib/device";
+import { TemplatePreview } from "./Gallery";
+import { sizeLabel } from "./presets";
+import { myTemplatePages, myTemplatesForSlides, type SlidePages, templatePages, templatesForSlides } from "./slide-templates";
 
 /** Which slide the view shows (its centre), or null when the whole carousel is in view. */
 export function currentSlide(): number | null {
@@ -107,6 +111,103 @@ export function addSlide(after?: number) {
   requestAnimationFrame(() => focusSlide(Math.min(at, slideCount(composite.getState().doc!) - 1)));
 }
 
+/** Adds a template's pages as new slides after slide `after` (at the end when undefined), then shows the first. */
+async function addTemplateSlides(make: () => Promise<SlidePages | null>, after?: number) {
+  const pages = await make();
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  if (!pages) return toast("This template could not be read.", "error");
+  const n = slideCount(doc);
+  if (n + pages.count > MAX_SLIDES) return toast(`A carousel has at most ${MAX_SLIDES} slides.`, "error");
+  const at = after === undefined ? n : Math.min(n, after + 1);
+  editDocument(pages.count > 1 ? `Add ${pages.count} slides from “${pages.name}”` : `Add a slide from “${pages.name}”`, (d) => insertSlidesWith(d, at, pages.count, pages.layers));
+  requestAnimationFrame(() => focusSlide(at));
+}
+
+/** "4:5" for 1080 × 1350. */
+function ratioLabel(width: number, height: number) {
+  const w = Math.round(width);
+  const h = Math.round(height);
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const g = gcd(w, h) || 1;
+  return w / g <= 32 && h / g <= 32 ? `${w / g}:${h / g}` : sizeLabel(w, h);
+}
+
+/**
+ * Templates whose slides have this design's slide shape, to add as new slides (a carousel
+ * template adds all of its slides). The slide bar's + still adds a blank slide.
+ */
+function SlideTemplates({ after, onClose }: { after?: number; onClose: () => void }) {
+  const doc = useStore(composite, (s) => s.doc);
+  const items = useStore(designAssets, (s) => s.items);
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    void loadDesignAssets();
+  }, []);
+  if (!doc) return null;
+  const built = templatesForSlides(doc);
+  const mine = myTemplatesForSlides(doc, items);
+  const sw = slideWidth(doc);
+  const pick = async (id: string, make: () => Promise<SlidePages | null>) => {
+    setBusy(id);
+    try {
+      await addTemplateSlides(make, after);
+      onClose();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const where = after === undefined ? "at the end" : `after slide ${after + 1}`;
+  return (
+    <Dialog wide title="Add slides from a template" onClose={onClose}>
+      <p className="dim" style={{ marginTop: 0 }}>
+        Templates with {ratioLabel(sw, doc.height)} slides like this design’s ({sizeLabel(Math.round(sw), doc.height)}), added {where} at its size. The + button still adds a blank slide.
+      </p>
+      {mine.length > 0 && (
+        <>
+          <div className="subhead">My templates</div>
+          <div className="template-grid slide-template-grid">
+            {mine.map((a) => (
+              <MyTemplateSlideCard key={a.id} name={a.name} thumb={a.thumb} busy={busy === a.id} disabled={!!busy} onPick={() => pick(a.id, () => myTemplatePages(doc, a))} />
+            ))}
+          </div>
+          <div className="subhead">Templates</div>
+        </>
+      )}
+      <div className="template-grid slide-template-grid">
+        {built.map((t) => (
+          <button key={t.id} type="button" className="template-card" aria-busy={busy === t.id} disabled={!!busy} onClick={() => pick(t.id, () => templatePages(doc, t))}>
+            <span className="template-thumb" style={{ aspectRatio: `${t.width} / ${t.height}` }}>
+              <TemplatePreview t={t} />
+            </span>
+            <span className="template-name">
+              {t.name}
+              {(t.slides ?? 1) > 1 && <span className="faint"> · {t.slides} slides</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+      {!built.length && !mine.length && <p className="faint">No template has {ratioLabel(sw, doc.height)} slides yet. Save one of your designs of this shape as a template to use it here.</p>}
+    </Dialog>
+  );
+}
+
+function MyTemplateSlideCard({ name, thumb, busy, disabled, onPick }: { name: string; thumb?: Blob; busy: boolean; disabled: boolean; onPick: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!thumb) return;
+    const u = URL.createObjectURL(thumb);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [thumb]);
+  return (
+    <button type="button" className="template-card mine" aria-busy={busy} disabled={disabled} onClick={onPick}>
+      <span className="template-thumb">{url ? <img src={url} alt="" /> : <Icon name="design" size={28} />}</span>
+      <span className="template-name">{name}</span>
+    </button>
+  );
+}
+
 export function slideMenu(x: number, y: number, index: number) {
   const doc = composite.getState().doc;
   if (!doc) return;
@@ -139,6 +240,7 @@ export function slideMenu(x: number, y: number, index: number) {
 export function SlidesBar({ onPreview }: { onPreview: () => void }) {
   const doc = useStore(composite, (s) => s.doc);
   useStore(composite, (s) => s.view);
+  const [picking, setPicking] = useState<{ after?: number } | null>(null);
   const current = currentSlide();
   if (!doc) return null;
   const n = slideCount(doc);
@@ -165,10 +267,25 @@ export function SlidesBar({ onPreview }: { onPreview: () => void }) {
             )}
           </span>
         ))}
-        <button type="button" className="slide-chip add" title={doc.carousel ? "Add a slide at the end" : "Make this a carousel: add a second slide"} aria-label="Add slide" onClick={() => addSlide(current ?? undefined)}>
+      </div>
+      {/* Outside the scrolling slide list, so both stay in reach on a phone. */}
+      <div className="slide-adds">
+        <button type="button" className="slide-chip add" title={doc.carousel ? "Add a blank slide" : "Make this a carousel: add a blank second slide"} aria-label="Add slide" onClick={() => addSlide(current ?? undefined)}>
           +
         </button>
+        <button
+          type="button"
+          className="slide-chip add from-template"
+          title="Add slides from a template with this slide shape"
+          aria-label="Add slides from a template"
+          disabled={slideCount(doc) >= MAX_SLIDES}
+          onClick={() => setPicking({ after: current ?? undefined })}
+        >
+          <Icon name="presets" size={14} />
+          <span className="slide-add-label">Template</span>
+        </button>
       </div>
+      {picking && <SlideTemplates after={picking.after} onClose={() => setPicking(null)} />}
       <button type="button" className="btn small ghost" aria-label="Next slide" disabled={current !== null && current >= n - 1} onClick={() => focusSlide(current === null ? 0 : current + 1)}>
         ›
       </button>

@@ -78,6 +78,30 @@ export function insertSlides(doc: CompositeDocument, at: number, count = 1): Com
   return withWidth(doc, n + add, remap(doc.layers, doc.width, newWidth, doc.height, (x) => (x >= edge ? add * sw : 0)));
 }
 
+/** A layer moved sideways by `dx` (a group with its children and collage area). */
+export function shiftLayer(l: Layer, dx: number): Layer {
+  return l.kind === "group"
+    ? { ...l, transform: moveTransform(l.transform, dx, 0), children: l.children.map((c) => shiftLayer(c, dx)), ...(l.collage ? { collage: { ...l.collage, area: { ...l.collage.area, x: l.collage.area.x + dx } } } : {}) }
+    : { ...l, transform: moveTransform(l.transform, dx, 0) };
+}
+
+/**
+ * Adds `count` slides before slide `at` holding `layers`, which are laid out for a canvas
+ * `count` slides wide at this design's slide size (a template's pages). A single design
+ * becomes a carousel. The new layers go above the design's own, but under canvas-wide
+ * adjustments and effects at the top, so those still reach the new slides.
+ */
+export function insertSlidesWith(doc: CompositeDocument, at: number, count: number, layers: readonly Layer[]): CompositeDocument {
+  const n = slideCount(doc);
+  if (count < 1 || n + count > MAX_SLIDES) return doc;
+  const where = Math.max(0, Math.min(n, at));
+  const widened = insertSlides(doc, where, count);
+  const placed = layers.map((l) => shiftLayer(l, where * slideWidth(doc)));
+  let i = widened.layers.length;
+  while (i > 0 && (widened.layers[i - 1].kind === "adjustment" || widened.layers[i - 1].kind === "effect")) i--;
+  return { ...widened, layers: [...widened.layers.slice(0, i), ...placed, ...widened.layers.slice(i)] };
+}
+
 /** Removes slide `index`: layers centred on it go, the slides after it move left. */
 export function removeSlide(doc: CompositeDocument, index: number): CompositeDocument {
   const n = slideCount(doc);
@@ -138,11 +162,6 @@ export function makeCarousel(doc: CompositeDocument, slides: number): CompositeD
  */
 export function sliceDocument(doc: CompositeDocument, from: number, count = 1): CompositeDocument {
   const sw = slideWidth(doc);
-  const dx = -from * sw;
-  const shift = (l: Layer): Layer =>
-    l.kind === "group"
-      ? { ...l, transform: moveTransform(l.transform, dx, 0), children: l.children.map(shift), ...(l.collage ? { collage: { ...l.collage, area: { ...l.collage.area, x: l.collage.area.x + dx } } } : {}) }
-      : { ...l, transform: moveTransform(l.transform, dx, 0) };
   const { carousel: _c, ...rest } = doc;
-  return { ...rest, width: Math.round(sw * count), layers: doc.layers.map(shift), ...(count >= 2 ? { carousel: { slides: count } } : {}) };
+  return { ...rest, width: Math.round(sw * count), layers: doc.layers.map((l) => shiftLayer(l, -from * sw)), ...(count >= 2 ? { carousel: { slides: count } } : {}) };
 }

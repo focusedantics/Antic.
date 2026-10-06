@@ -667,7 +667,7 @@ test.describe("computer: carousels", () => {
     expect([w.width, w.height, w.first, w.last]).toEqual([3240, 1350, 880, 1279]);
 
     // Add a slide: four slides, the canvas a slide wider.
-    await bar.getByRole("button", { name: "Add slide" }).click();
+    await bar.getByRole("button", { name: "Add slide", exact: true }).click();
     await expect(bar.getByRole("button", { name: /^Slide \d$/ })).toHaveCount(4);
     const left = page.locator("aside.side.left");
     await left.getByRole("button", { name: "Canvas", exact: true }).click();
@@ -1146,5 +1146,77 @@ test.describe("computer: editing several layers at once", () => {
     expect((await docLayers(page)).find((l) => l.kind === "path")!.style.color).toBeUndefined();
     await right.getByRole("textbox", { name: "Text", exact: true }).fill("Changed");
     await expect.poll(async () => (await docLayers(page)).filter((l) => l.kind === "text").map((l) => l.style.text).sort()).toEqual(["Changed", "First"]);
+  });
+});
+
+test.describe("computer: slides from templates", () => {
+  test("the template button adds slides of the same shape after the current one; + still adds a blank slide", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).click();
+    await page.getByRole("button", { name: /^Carousel 4:5, 3 slides/ }).click();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    await bar.getByRole("button", { name: "Slide 1", exact: true }).click();
+
+    // The picker shows 4:5 templates only (no square or story ones).
+    await bar.getByRole("button", { name: "Add slides from a template" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add slides from a template" });
+    await expect(dialog).toContainText("4:5");
+    await expect(dialog).toContainText("after slide 1");
+    await expect(dialog.locator(".template-card", { hasText: "Yes / but (edit vs. as shot)" })).toBeVisible();
+    await expect(dialog.locator(".template-card", { hasText: "Five tips" })).toContainText("5 slides");
+    await expect(dialog.locator(".template-card", { hasText: "Quote card" })).toHaveCount(0);
+
+    // One page: a new slide 2 holding the template, scaled to the slide.
+    await dialog.locator(".template-card", { hasText: "Yes / but (edit vs. as shot)" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: /^Slide \d+$/ })).toHaveCount(4);
+    await expect(bar.getByRole("button", { name: "Slide 2", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const frames = (await docLayers(page)).filter((l) => l.kind === "slot");
+    expect(frames).toHaveLength(2);
+    for (const f of frames) {
+      expect(f.transform.x).toBeGreaterThan(1080);
+      expect(f.transform.x).toBeLessThan(2160);
+      expect(f.transform.width).toBe(1040);
+    }
+    // Its background is a rectangle behind slide 2 only.
+    const back = (await docLayers(page)).find((l) => l.name.endsWith("background"))!;
+    expect([back.transform.x, back.transform.width]).toEqual([1620, 1080]);
+
+    // A carousel template adds all of its slides; one undo takes them away again.
+    await bar.getByRole("button", { name: "Add slides from a template" }).click();
+    await page.getByRole("dialog", { name: "Add slides from a template" }).locator(".template-card", { hasText: "Five tips" }).click();
+    await expect(bar.getByRole("button", { name: /^Slide \d+$/ })).toHaveCount(9);
+    await page.keyboard.press("Control+z");
+    await expect(bar.getByRole("button", { name: /^Slide \d+$/ })).toHaveCount(4);
+
+    // + still adds a blank slide.
+    const before = (await docLayers(page)).length;
+    await bar.getByRole("button", { name: "Add slide", exact: true }).click();
+    await expect(bar.getByRole("button", { name: /^Slide \d+$/ })).toHaveCount(5);
+    expect((await docLayers(page)).length).toBe(before);
+  });
+});
+
+test.describe("phone: slides from templates", () => {
+  test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+  test("the template button and its picker fit the phone", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("button", { name: /^Instagram portrait/ }).tap();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    const button = bar.getByRole("button", { name: "Add slides from a template" });
+    await expect(button).toBeVisible();
+    await button.tap();
+    const dialog = page.getByRole("dialog", { name: "Add slides from a template" });
+    const box = (await dialog.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    // A single design becomes a two-slide carousel.
+    await dialog.locator(".template-card", { hasText: "Yes / but (edit vs. as shot)" }).tap();
+    await expect(bar.getByRole("button", { name: /^Slide \d+$/ })).toHaveCount(2);
   });
 });

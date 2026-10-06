@@ -403,7 +403,14 @@ order, chosen slides, or the whole strip; names end "1 of 5"). The editor
 (`features/design/Carousel.tsx`) adds the slide bar, a 260 ms glide to a slide (instant
 with reduced motion), swiping on empty canvas, Alt+←/→, and a preview that renders the
 strip once and scroll-snaps it inside a phone-sized frame. Composite's canvas size field
-edits the slide width. Export file names go through `fileSafe` (`core/export/destination.ts`),
+edits the slide width. Slides can also come from templates: the slide bar's Template button
+(`features/design/slide-templates.ts`) lists built-in and saved templates whose slide shape
+matches within 1 %, builds the chosen one at the design's slide size (a carousel template
+gives all its slides), turns its background into a rectangle behind its own slides (and a
+saved template's solid fills likewise; its adjustments and effects go in a group with it),
+and `insertSlidesWith` adds the slides after the current one in one undoable step, above
+the design's layers but under canvas-wide adjustments and effects at the top. The + button
+still adds a blank slide. Export file names go through `fileSafe` (`core/export/destination.ts`),
 so “Carousel 4:5” saves as “Carousel 4-5” everywhere.
 
 Switching documents saves the one being replaced (`openDocument` flushes the pending

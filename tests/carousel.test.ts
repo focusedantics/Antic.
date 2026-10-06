@@ -93,3 +93,41 @@ describe("carousels", () => {
     expect(pair.carousel).toEqual({ slides: 2 });
   });
 });
+
+describe("slides from templates", () => {
+  it("adds a template's pages as new slides after one, shifted into place, under top effects", async () => {
+    const { insertSlidesWith } = await import("@/core/document/carousel");
+    const { effectLayer } = await import("@/core/document/operations");
+    const d0 = three();
+    const fx = effectLayer(d0, "blur")!;
+    const d = { ...d0, layers: [...d0.layers, fx] };
+    // Two pages laid out for a 2160 × 1350 canvas.
+    const page = { width: 2160, height: 1350 };
+    const left = at(page as CompositeDocument, 540, "page-a");
+    const right = at(page as CompositeDocument, 1620, "page-b");
+    const out = insertSlidesWith(d, 2, 2, [left, right]);
+    expect(slideCount(out)).toBe(5);
+    expect(out.width).toBe(5400);
+    // Inserted after slide 2 (index 2): the pages land on slides 3 and 4; slide 3's text moves on.
+    expect(xs(out)).toMatchObject({ one: 500, two: 1500, three: 2700 + 2160, "page-a": 2160 + 540, "page-b": 2160 + 1620 });
+    // Above the design's layers, under the canvas-wide effect at the top.
+    expect(out.layers.map((l) => l.name).slice(-3)).toEqual(["page-a", "page-b", fx.name]);
+    // A single design becomes a carousel; too many slides change nothing.
+    const single = createDocument(1080, 1350, "s", "#ffffff", "design");
+    expect(slideCount(insertSlidesWith(single, 1, 1, [at(single, 540, "p")]))).toBe(2);
+    expect(insertSlidesWith({ ...d, carousel: { slides: 20 }, width: 21600 }, 0, 1, [left])).toEqual({ ...d, carousel: { slides: 20 }, width: 21600 });
+  });
+
+  it("offers only templates with the same slide shape, carousels included", async () => {
+    const { templatesForSlides } = await import("@/features/design/slide-templates");
+    const portrait = { width: 3240, height: 1350, carousel: { slides: 3 } };
+    const ids = templatesForSlides(portrait).map((t) => t.id);
+    expect(ids).toContain("post-yes-but");
+    expect(ids).toContain("carousel-tips"); // 5 slides of 4:5 fit (3 + 5 ≤ 20)
+    expect(ids).not.toContain("post-quote"); // square
+    expect(ids).not.toContain("story-weekend"); // 9:16
+    const full = { width: 1080 * 19, height: 1350, carousel: { slides: 19 } };
+    expect(templatesForSlides(full).map((t) => t.id)).not.toContain("carousel-tips"); // would pass 20 slides
+    expect(templatesForSlides({ width: 1080, height: 1080 }).map((t) => t.id)).toContain("post-quote");
+  });
+});

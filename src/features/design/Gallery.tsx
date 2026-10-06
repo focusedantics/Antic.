@@ -12,7 +12,7 @@ import { matchesTemplate, type Template, TEMPLATE_CATEGORIES, type TemplateCateg
 
 /** Template previews, drawn once each. */
 const previews = new Map<string, React.ReactNode>();
-function TemplatePreview({ t }: { t: Template }) {
+export function TemplatePreview({ t }: { t: Template }) {
   let node = previews.get(t.id);
   if (!node) {
     node = <LayerSketch className="template-sketch" width={t.width} height={t.height} background={t.background ?? "#ffffff"} layers={t.build({ width: t.width, height: t.height })} />;
