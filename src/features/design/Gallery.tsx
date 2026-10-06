@@ -28,7 +28,7 @@ function TemplateCard({ t }: { t: Template }) {
       type="button"
       className="template-card"
       aria-busy={busy}
-      title={`${t.name}, ${sizeLabel(t.width, t.height)}`}
+      title={`${t.name}, ${sizeLabel(t.width / (t.slides ?? 1), t.height, t.slides)}`}
       onClick={async () => {
         setBusy(true);
         try {

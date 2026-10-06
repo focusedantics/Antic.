@@ -858,6 +858,7 @@ export function sanitizeDocument(v: unknown): CompositeDocument {
       .map((g) => ({ id: str(g.id, createId("guide"), 64), axis: g.axis === "y" ? ("y" as const) : ("x" as const), position: num(g.position, 0) })),
     ...(obj(d?.animation) ? { animation: sanitizeAnimation(d?.animation) } : {}),
     ...(d?.purpose === "design" ? { purpose: "design" as const } : {}),
+    ...(obj(d?.carousel) && num(obj(d?.carousel)!.slides, 1) >= 2 ? { carousel: { slides: Math.round(num(obj(d?.carousel)!.slides, 2, 2, 20)) } } : {}),
     ...(typeof d?.folder === "string" && d.folder.trim() ? { folder: d.folder.split("/").map((p) => p.trim()).filter(Boolean).join("/").slice(0, 80) } : {}),
     createdAt: num(d?.createdAt, Date.now()),
   };

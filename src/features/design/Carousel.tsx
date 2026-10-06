@@ -1,0 +1,311 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useStore } from "@/app/hooks";
+import { toast } from "@/app/state";
+import { openMenu } from "@/components/Menu";
+import { Icon } from "@/components/icons";
+import { duplicateSlide, insertSlides, makeCarousel, MAX_SLIDES, moveSlide, removeSlide, slideCount, slideWidth } from "@/core/document/carousel";
+import { composite, editDocument } from "@/core/document/session";
+import { developEngine } from "@/core/gpu/develop-engine";
+import { createId } from "@/lib/id";
+import { viewDpr } from "@/lib/device";
+
+/** Which slide the view shows (its centre), or null when the whole carousel is in view. */
+export function currentSlide(): number | null {
+  const { doc, view } = composite.getState();
+  if (!doc?.carousel || view.fit) return null;
+  return Math.max(0, Math.min(slideCount(doc) - 1, Math.floor((view.centerX * doc.width) / slideWidth(doc))));
+}
+
+let glide = 0;
+/** Moves the view to show slide `index` whole, gliding there (instantly with reduced motion). */
+export function focusSlide(index: number, animate = true) {
+  const { doc, view } = composite.getState();
+  if (!doc) return;
+  const n = slideCount(doc);
+  const i = Math.max(0, Math.min(n - 1, index));
+  const sw = slideWidth(doc);
+  const zoom = developEngine().compositeFitFor(sw, doc.height);
+  const target = { fit: false, zoom, centerX: ((i + 0.5) * sw) / doc.width, centerY: 0.5 };
+  cancelAnimationFrame(glide);
+  const reduced = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const from = view.fit ? { ...target, zoom: developEngine().compositeFitScale(), centerX: 0.5 } : { ...view, centerY: 0.5 };
+  if (!animate || reduced || (view.fit && Math.abs(from.zoom - zoom) < 1e-6)) {
+    composite.setState({ view: target });
+    return;
+  }
+  const start = performance.now();
+  const ms = 260;
+  const step = (now: number) => {
+    const t = Math.min(1, (now - start) / ms);
+    const e = 1 - (1 - t) ** 3;
+    composite.setState({ view: { fit: false, zoom: from.zoom + (target.zoom - from.zoom) * e, centerX: from.centerX + (target.centerX - from.centerX) * e, centerY: 0.5 } });
+    if (t < 1) glide = requestAnimationFrame(step);
+  };
+  glide = requestAnimationFrame(step);
+}
+
+/** The whole carousel in view. */
+export const showAllSlides = () => {
+  cancelAnimationFrame(glide);
+  composite.setState((s) => ({ view: { ...s.view, fit: true } }));
+};
+
+/**
+ * A horizontal swipe on the canvas (started where no layer can be moved): the view follows
+ * the finger across the seamless canvas and settles on the nearest slide, or the next one
+ * when flicked. Returns false when the view is not on one slide (nothing to swipe).
+ */
+export function startSwipe(e: { clientX: number; pointerId: number }, el: HTMLElement): boolean {
+  const { doc, view } = composite.getState();
+  if (!doc?.carousel || view.fit) return false;
+  const engine = developEngine();
+  const pxPerDoc = engine.compositeScale() / viewDpr();
+  const startX = e.clientX;
+  const startCenter = view.centerX;
+  const startSlide = currentSlide() ?? 0;
+  let lastX = startX;
+  let lastT = performance.now();
+  let velocity = 0;
+  cancelAnimationFrame(glide);
+  const move = (ev: PointerEvent) => {
+    if (ev.pointerId !== e.pointerId) return;
+    const now = performance.now();
+    velocity = (ev.clientX - lastX) / Math.max(1, now - lastT);
+    lastX = ev.clientX;
+    lastT = now;
+    const centerX = startCenter - (ev.clientX - startX) / pxPerDoc / doc.width;
+    composite.setState((s) => ({ view: { ...s.view, fit: false, centerX: Math.max(0, Math.min(1, centerX)) } }));
+  };
+  const up = (ev: PointerEvent) => {
+    if (ev.pointerId !== e.pointerId) return;
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    el.removeEventListener("pointercancel", up);
+    const moved = ev.clientX - startX;
+    const sw = slideWidth(doc) * pxPerDoc;
+    // A flick or a drag past a quarter of the slide turns the page.
+    const turn = Math.abs(velocity) > 0.4 || Math.abs(moved) > sw / 4 ? -Math.sign(moved || -velocity) : 0;
+    focusSlide(startSlide + turn);
+  };
+  el.setPointerCapture?.(e.pointerId);
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+  return true;
+}
+
+// ─── Slide operations (each one undoable step) ────────────────────────────────
+
+export function addSlide(after?: number) {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  const n = slideCount(doc);
+  if (n >= MAX_SLIDES) return toast(`A carousel has at most ${MAX_SLIDES} slides.`, "error");
+  const at = after === undefined ? n : after + 1;
+  editDocument(n === 1 ? "Make a carousel" : "Add slide", (d) => (d.carousel ? insertSlides(d, at) : makeCarousel(d, 2)));
+  requestAnimationFrame(() => focusSlide(Math.min(at, slideCount(composite.getState().doc!) - 1)));
+}
+
+export function slideMenu(x: number, y: number, index: number) {
+  const doc = composite.getState().doc;
+  if (!doc) return;
+  const n = slideCount(doc);
+  openMenu(x, y, [
+    { label: "Add a slide before", disabled: n >= MAX_SLIDES, onSelect: () => editDocument("Add slide", (d) => insertSlides(d, index)) },
+    { label: "Add a slide after", disabled: n >= MAX_SLIDES, onSelect: () => addSlide(index) },
+    { label: "Duplicate slide", disabled: n >= MAX_SLIDES, onSelect: () => editDocument("Duplicate slide", (d) => duplicateSlide(d, index, () => createId("layer"))) },
+    "separator",
+    { label: "Move left", disabled: index === 0, onSelect: () => (editDocument("Move slide", (d) => moveSlide(d, index, index - 1)), focusSlide(index - 1)) },
+    { label: "Move right", disabled: index >= n - 1, onSelect: () => (editDocument("Move slide", (d) => moveSlide(d, index, index + 1)), focusSlide(index + 1)) },
+    "separator",
+    {
+      label: "Delete slide…",
+      disabled: n < 2,
+      onSelect: () => {
+        if (!confirm(`Delete slide ${index + 1} and the layers on it?`)) return;
+        editDocument("Delete slide", (d) => removeSlide(d, index));
+        requestAnimationFrame(() => focusSlide(Math.min(index, slideCount(composite.getState().doc!) - 1), false));
+      },
+    },
+  ]);
+}
+
+/**
+ * The slides under the canvas: tap one to go to it (the view glides), All shows the whole
+ * strip, + adds a slide, ⋯ on a slide inserts, duplicates, moves or deletes it; Preview
+ * swipes through the carousel as it will be posted.
+ */
+export function SlidesBar({ onPreview }: { onPreview: () => void }) {
+  const doc = useStore(composite, (s) => s.doc);
+  useStore(composite, (s) => s.view);
+  const current = currentSlide();
+  if (!doc) return null;
+  const n = slideCount(doc);
+  return (
+    <div className="slides-bar" role="toolbar" aria-label="Slides">
+      <button type="button" className="btn small ghost" aria-label="Previous slide" disabled={current === null ? false : current === 0} onClick={() => focusSlide(current === null ? 0 : current - 1)}>
+        ‹
+      </button>
+      <div className="slides" role="group" aria-label={`${n} slides`}>
+        {doc.carousel && (
+          <button type="button" className="slide-chip all" aria-pressed={current === null} onClick={showAllSlides}>
+            All
+          </button>
+        )}
+        {Array.from({ length: n }, (_, i) => (
+          <span key={i} className="slide-item">
+            <button type="button" className="slide-chip" aria-pressed={current === i} aria-label={`Slide ${i + 1}`} onClick={() => focusSlide(i)} onContextMenu={(e) => (e.preventDefault(), slideMenu(e.clientX, e.clientY, i))}>
+              {i + 1}
+            </button>
+            {doc.carousel && current === i && (
+              <button type="button" className="slide-more" aria-label={`Slide ${i + 1} options`} onClick={(e) => slideMenu(e.clientX, e.clientY, i)}>
+                ⋯
+              </button>
+            )}
+          </span>
+        ))}
+        <button type="button" className="slide-chip add" title={doc.carousel ? "Add a slide at the end" : "Make this a carousel: add a second slide"} aria-label="Add slide" onClick={() => addSlide(current ?? undefined)}>
+          +
+        </button>
+      </div>
+      <button type="button" className="btn small ghost" aria-label="Next slide" disabled={current !== null && current >= n - 1} onClick={() => focusSlide(current === null ? 0 : current + 1)}>
+        ›
+      </button>
+      {doc.carousel && (
+        <button type="button" className="btn small" onClick={onPreview} title="Swipe through the carousel as it will be posted">
+          <Icon name="play" size={12} /> Preview
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The carousel as it will be posted: one render of the whole canvas behind a phone-width
+ * window that swipes slide by slide (native scroll snapping and momentum), so a picture
+ * running across slides is seen continuing from one to the next.
+ */
+export function CarouselPreview({ onClose }: { onClose: () => void }) {
+  const doc = composite.getState().doc;
+  const [url, setUrl] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const scroller = useRef<HTMLDivElement>(null);
+  const n = doc ? slideCount(doc) : 1;
+  useEffect(() => {
+    if (!doc) return;
+    let live = true;
+    let made: string | null = null;
+    // A frame for "working" to show, then one render at preview size.
+    requestAnimationFrame(() =>
+      setTimeout(async () => {
+        const scale = Math.min(1, (1350 * Math.min(2, window.devicePixelRatio || 1)) / doc.height, 8192 / doc.width);
+        const image = developEngine().renderDocument(doc, scale);
+        const canvas = new OffscreenCanvas(image.width, image.height);
+        canvas.getContext("2d")!.putImageData(image, 0, 0);
+        const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 });
+        if (!live) return;
+        made = URL.createObjectURL(blob);
+        setUrl(made);
+      }, 0),
+    );
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [doc]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight") go(page + 1);
+      else if (e.key === "ArrowLeft") go(page - 1);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  });
+  // Mouse drag swipes too (touch and trackpads scroll natively).
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let start: { x: number; left: number } | null = null;
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      start = { x: e.clientX, left: el.scrollLeft };
+      el.style.scrollSnapType = "none";
+      el.setPointerCapture(e.pointerId);
+    };
+    const move = (e: PointerEvent) => start && (el.scrollLeft = start.left - (e.clientX - start.x));
+    const up = () => {
+      if (!start) return;
+      const moved = el.scrollLeft - start.left;
+      const from = Math.round(start.left / el.clientWidth);
+      start = null;
+      el.style.scrollSnapType = "";
+      const turn = Math.abs(moved) > el.clientWidth / 5 ? Math.sign(moved) : 0;
+      el.scrollTo({ left: (from + turn) * el.clientWidth, behavior: "smooth" });
+    };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    return () => {
+      el.removeEventListener("pointerdown", down);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+  }, [url]);
+  const go = (i: number) => {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTo({ left: Math.max(0, Math.min(n - 1, i)) * el.clientWidth, behavior: "smooth" });
+  };
+  if (!doc) return null;
+  const aspect = slideWidth(doc) / doc.height;
+  return createPortal(
+    <div className="carousel-preview" role="dialog" aria-modal="true" aria-label="Carousel preview" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="carousel-phone" style={{ ["--slide-aspect" as string]: String(aspect) }}>
+        <div
+          ref={scroller}
+          className="carousel-scroller"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setPage(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
+          }}
+        >
+          <div className="carousel-track" style={{ width: `${n * 100}%` }}>
+            {url && <img src={url} alt={`${doc.name}, ${n} slides`} draggable={false} />}
+            {Array.from({ length: n }, (_, i) => (
+              <span key={i} className="carousel-page" style={{ left: `${(i / n) * 100}%`, width: `${100 / n}%` }} />
+            ))}
+          </div>
+        </div>
+        {!url && <div className="carousel-loading">Rendering the carousel…</div>}
+        <div className="carousel-count" aria-live="polite">
+          {page + 1}/{n}
+        </div>
+      </div>
+      {/* Under the photo, as on Instagram: dots over a light slide would vanish. */}
+      <div className="carousel-dots" aria-hidden="true">
+        {Array.from({ length: n }, (_, i) => (
+          <i key={i} data-on={i === page || undefined} />
+        ))}
+      </div>
+      <div className="carousel-actions">
+        <button type="button" className="btn" aria-label="Previous slide" disabled={page === 0} onClick={() => go(page - 1)}>
+          ‹
+        </button>
+        <button type="button" className="btn primary" onClick={onClose}>
+          Done
+        </button>
+        <button type="button" className="btn" aria-label="Next slide" disabled={page >= n - 1} onClick={() => go(page + 1)}>
+          ›
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}

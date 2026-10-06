@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultRecipe } from "@/core/develop/defaults";
 import { createDocument, effectLayer, imageLayer, insertLayer, textLayer } from "@/core/document/operations";
-import { uniqueName } from "@/core/export/destination";
+import { fileSafe, uniqueName } from "@/core/export/destination";
 import { drawWatermark, sanitizeWatermark } from "@/core/export/watermark";
 import { describeLook, fitLayers, lookFromRecipe, lookLayers, newLook, readLookFile, lookToFile, sanitizeLook } from "@/core/looks/look";
 
@@ -61,6 +61,12 @@ describe("export helpers", () => {
     expect(uniqueName("a.jpg", used)).toBe("a.jpg");
     expect(uniqueName("A.jpg", used)).toBe("A (2).jpg");
     expect(uniqueName("a.jpg", used)).toBe("a (3).jpg");
+  });
+
+  it("makes file names every system accepts", () => {
+    expect(fileSafe("Carousel 4:5, 3 slides 1 of 3.png")).toBe("Carousel 4-5, 3 slides 1 of 3.png");
+    expect(fileSafe('a/b\\c?*"<>|.jpg')).toBe("a-b-c------.jpg");
+    expect(fileSafe(" .. ")).toBe("Untitled");
   });
 
   it("sanitizes watermark settings and places text by position", () => {

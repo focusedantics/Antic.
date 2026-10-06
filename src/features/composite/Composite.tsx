@@ -241,8 +241,18 @@ export function CanvasPanel() {
       </label>
       <div className="row" style={{ marginTop: 6 }}>
         <label className="field" style={{ flex: 1 }}>
-          <span>Width</span>
-          <input className="input" type="number" value={doc.width} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => editDocument("Canvas size", (d) => ({ ...d, width: Math.max(16, Math.min(30000, Number(e.target.value) || 16)) }))} />
+          {/* A carousel's width is per slide (the canvas is that many slides wide). */}
+          <span>{doc.carousel ? `Slide width (${doc.carousel.slides} slides)` : "Width"}</span>
+          <input
+            className="input"
+            type="number"
+            value={Math.round(doc.width / (doc.carousel?.slides ?? 1))}
+            onKeyDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const n = doc.carousel?.slides ?? 1;
+              editDocument("Canvas size", (d) => ({ ...d, width: Math.max(16, Math.min(30000, (Number(e.target.value) || 16) * n)) }));
+            }}
+          />
         </label>
         <label className="field" style={{ flex: 1 }}>
           <span>Height</span>

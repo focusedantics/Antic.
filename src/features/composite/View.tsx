@@ -13,6 +13,8 @@ import { clamp, type Point } from "@/lib/math";
 import { brush } from "@/features/develop/masks/brush";
 import { addAssetsToComposite, fillSlot, importPhotosFromDevice } from "./actions";
 import { PaintOptions, PaintOverlay } from "./tools/PaintTool";
+import { startSwipe } from "@/features/design/Carousel";
+import { slideCount, slideWidth } from "@/core/document/carousel";
 import { colorAt, eyedropper, finishPick } from "@/features/color/eyedropper";
 import { NodesOverlay, PenOptions, PenOverlay } from "./tools/PenTool";
 import { useSweepSelect } from "@/components/sweep";
@@ -160,6 +162,13 @@ export function CompositeView() {
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      // A sideways trackpad scroll pans along a carousel (zoomed in on its slides).
+      const { doc, view } = composite.getState();
+      if (doc?.carousel && !view.fit && !e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        const s = engine.compositeScale() / viewDpr();
+        composite.setState({ view: { ...view, centerX: clamp(view.centerX + e.deltaX / s / doc.width) } });
+        return;
+      }
       zoomComposite(clamp(engine.compositeScale() * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), engine.compositeFitScale(), 16), e.clientX, e.clientY);
     };
     el.addEventListener("pointerdown", onDown, true);
@@ -236,9 +245,11 @@ export function CompositeView() {
     const hit = layerAt(p);
     const before = composite.getState().selection;
     if (hit?.kind === "slot" && !hit.assetId && !hit.locked && before.length === 1 && before[0] === hit.id) frameTap.current = hit.id;
-    if (!hit) {
-      composite.setState({ selection: [] });
-      return;
+    if (!hit || hit.locked) {
+      if (!hit) composite.setState({ selection: [] });
+      // On a carousel, a drag where nothing can be moved swipes between slides.
+      if (doc.carousel && ref.current && startSwipe(e, ref.current)) return;
+      if (!hit) return;
     }
     const additive = e.shiftKey || e.metaKey || e.ctrlKey;
     const current = composite.getState().selection;
@@ -503,6 +514,19 @@ export function CompositeView() {
             })}
           {snapShown.x !== null && <line className="snap" x1={local({ x: snapShown.x, y: 0 }).x} x2={local({ x: snapShown.x, y: 0 }).x} y1={0} y2="100%" />}
           {snapShown.y !== null && <line className="snap" y1={local({ x: 0, y: snapShown.y }).y} y2={local({ x: 0, y: snapShown.y }).y} x1={0} x2="100%" />}
+          {doc?.carousel &&
+            Array.from({ length: slideCount(doc) }, (_, i) => {
+              const a = local({ x: i * slideWidth(doc), y: 0 });
+              const b = local({ x: i * slideWidth(doc), y: doc.height });
+              return (
+                <g key={`slide-${i}`} className="slide-guide">
+                  {i > 0 && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} />}
+                  <text x={a.x + 6} y={a.y - 6}>
+                    {i + 1}
+                  </text>
+                </g>
+              );
+            })}
           {overlay}
           {brushCursor}
         </svg>

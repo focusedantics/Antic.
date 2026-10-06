@@ -1,3 +1,4 @@
+import { unzipSync } from "fflate";
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 
@@ -569,5 +570,131 @@ test.describe("computer: colours, fonts, brushes and your things", () => {
     await importChooser.setFiles({ name: "again.gpl", mimeType: "text/plain", buffer: gpl });
     await things.getByRole("button", { name: "All", exact: true }).click();
     await expect(things.locator(".manager-item")).toHaveCount(2);
+  });
+});
+
+/** Width, height and the red pixels' columns on row `y` of a PNG. */
+async function redColumns(page: Page, png: Uint8Array, y: number) {
+  return page.evaluate(
+    async ([b64, row]) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+      const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const g = c.getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      const d = g.getImageData(0, row, bitmap.width, 1).data;
+      const red: number[] = [];
+      for (let x = 0; x < bitmap.width; x++) if (d[x * 4] > 200 && d[x * 4 + 1] < 60 && d[x * 4 + 2] < 60) red.push(x);
+      return { width: bitmap.width, height: bitmap.height, first: red[0] ?? -1, last: red[red.length - 1] ?? -1, count: red.length };
+    },
+    [Buffer.from(png).toString("base64"), y] as const,
+  );
+}
+
+test.describe("computer: carousels", () => {
+  test("a seamless carousel: slides, swipe, preview, add a slide, export each slide or the whole strip", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).click();
+    await page.getByRole("button", { name: /^Carousel 4:5, 3 slides/ }).click();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    await expect(bar.getByRole("button", { name: /^Slide \d$/ })).toHaveCount(3);
+    const right = page.locator("aside.side.right");
+
+    // A red square across the edge between slides 1 and 2.
+    await page.locator("aside.side.left").getByRole("button", { name: "Add rectangle", exact: true }).click();
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#ff0000");
+    await right.getByRole("spinbutton", { name: "W" }).fill("400");
+    await right.getByRole("spinbutton", { name: "X" }).fill("1080");
+    await right.getByRole("spinbutton", { name: "Y" }).fill("675");
+
+    // Go to slide 2, then swipe on the empty top of it to slide 3.
+    await bar.getByRole("button", { name: "Slide 2", exact: true }).click();
+    await expect(bar.getByRole("button", { name: "Slide 2", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const view = (await page.locator(".composite-view").boundingBox())!;
+    await page.waitForTimeout(400);
+    const y = view.y + 80;
+    await page.mouse.move(view.x + view.width * 0.75, y);
+    await page.mouse.down();
+    await page.mouse.move(view.x + view.width * 0.3, y, { steps: 8 });
+    await page.mouse.up();
+    await expect(bar.getByRole("button", { name: "Slide 3", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await bar.getByRole("button", { name: "All" }).click();
+    await expect(bar.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+
+    // The preview swipes slide by slide.
+    await bar.getByRole("button", { name: "Preview" }).click();
+    const preview = page.getByRole("dialog", { name: "Carousel preview" });
+    await expect(preview.locator("img")).toBeVisible({ timeout: 15_000 });
+    await expect(preview.locator(".carousel-count")).toHaveText("1/3");
+    await preview.getByRole("button", { name: "Next slide" }).click();
+    await expect(preview.locator(".carousel-count")).toHaveText("2/3");
+    await preview.getByRole("button", { name: "Done" }).click();
+
+    // Export every slide into a ZIP: three 1080 × 1350 images that meet exactly.
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+    let dialog = page.getByRole("dialog", { name: /^Export/ });
+    await expect(dialog.getByRole("radio", { name: /Every slide/ })).toBeChecked();
+    await dialog.getByLabel("Export destination").selectOption("zip");
+    const [zipFile] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export 3" }).click()]);
+    const files = unzipSync(new Uint8Array(readFileSync(await zipFile.path())));
+    const names = Object.keys(files).sort();
+    expect(names).toEqual(["Carousel 4-5, 3 slides 1 of 3.png", "Carousel 4-5, 3 slides 2 of 3.png", "Carousel 4-5, 3 slides 3 of 3.png"]);
+    const s1 = await redColumns(page, files[names[0]], 675);
+    const s2 = await redColumns(page, files[names[1]], 675);
+    const s3 = await redColumns(page, files[names[2]], 675);
+    expect([s1.width, s1.height]).toEqual([1080, 1350]);
+    expect(s1.first).toBe(880);
+    expect(s1.last).toBe(1079);
+    expect(s2.first).toBe(0);
+    expect(s2.last).toBe(199);
+    expect(s3.count).toBe(0);
+
+    // Chosen slides, and the whole strip as one image.
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+    dialog = page.getByRole("dialog", { name: /^Export/ });
+    await dialog.getByRole("radio", { name: "Chosen slides" }).check();
+    await dialog.getByRole("group", { name: "Slides to export" }).getByRole("checkbox", { name: "1" }).uncheck();
+    await dialog.getByRole("group", { name: "Slides to export" }).getByRole("checkbox", { name: "3" }).uncheck();
+    await dialog.getByLabel("Export destination").selectOption("download");
+    const [one] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+    expect(one.suggestedFilename()).toBe("Carousel 4-5, 3 slides 2 of 3.png");
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+    dialog = page.getByRole("dialog", { name: /^Export/ });
+    await dialog.getByRole("radio", { name: /whole carousel/ }).check();
+    const [whole] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+    const w = await redColumns(page, new Uint8Array(readFileSync(await whole.path())), 675);
+    expect([w.width, w.height, w.first, w.last]).toEqual([3240, 1350, 880, 1279]);
+
+    // Add a slide: four slides, the canvas a slide wider.
+    await bar.getByRole("button", { name: "Add slide" }).click();
+    await expect(bar.getByRole("button", { name: /^Slide \d$/ })).toHaveCount(4);
+    const left = page.locator("aside.side.left");
+    await left.getByRole("button", { name: "Canvas", exact: true }).click();
+    await expect(left.getByRole("spinbutton", { name: "Slide width (4 slides)" })).toHaveValue("1080");
+  });
+});
+
+test.describe("phone: carousels", () => {
+  test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+  test("the slide bar and the swipe preview fit the phone", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).tap();
+    await page.getByRole("button", { name: /^Carousel square, 3 slides/ }).tap();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    await expect(bar).toBeVisible();
+    const b = (await bar.boundingBox())!;
+    expect(b.x + b.width).toBeLessThanOrEqual(390);
+    await bar.getByRole("button", { name: "Slide 3", exact: true }).tap();
+    await expect(bar.getByRole("button", { name: "Slide 3", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await bar.getByRole("button", { name: "Preview" }).tap();
+    const phone = (await page.locator(".carousel-phone").boundingBox())!;
+    expect(phone.x).toBeGreaterThanOrEqual(0);
+    expect(phone.x + phone.width).toBeLessThanOrEqual(390);
+    await expect(page.locator(".carousel-count")).toHaveText("1/3");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });

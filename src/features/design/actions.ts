@@ -13,9 +13,10 @@ import { createId } from "@/lib/id";
 import { importPhotosFromDevice, placePhotos } from "@/features/composite/actions";
 import { design } from "./state";
 
-/** Starts a blank design of `width × height` and opens the editor on it. */
-export function newDesign(width: number, height: number, name = "Untitled design", background: string | null = "#ffffff") {
-  openDocument(createDocument(Math.round(width), Math.round(height), name, background, "design"));
+/** Starts a blank design of `width × height` (per slide, `slides` side by side for a carousel) and opens the editor on it. */
+export function newDesign(width: number, height: number, name = "Untitled design", background: string | null = "#ffffff", slides = 1) {
+  const doc = createDocument(Math.round(width) * Math.max(1, slides), Math.round(height), name, background, "design");
+  openDocument(slides > 1 ? { ...doc, carousel: { slides } } : doc);
   design.setState({ home: false });
 }
 
@@ -77,7 +78,8 @@ export async function addPhotosFromDevice() {
 
 /** Starts a design from a built-in template (fonts loaded first so text boxes fit). */
 export async function startTemplate(t: Template) {
-  const doc = createDocument(t.width, t.height, t.name, t.background, "design");
+  const base = createDocument(t.width, t.height, t.name, t.background, "design");
+  const doc = t.slides && t.slides > 1 ? { ...base, carousel: { slides: t.slides } } : base;
   const layers = t.build(doc);
   await loadFonts(layerFonts(layers), 3000);
   startFrom({ ...doc, layers: layers.map(fitTextBoxes) });

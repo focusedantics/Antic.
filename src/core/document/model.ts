@@ -319,6 +319,11 @@ export type CompositeDocument = {
   readonly animation?: DocAnimation;
   /** "design": made and listed in the Design workspace (absent: a Composite composition). */
   readonly purpose?: "design";
+  /**
+   * A carousel (Instagram-style swipeable post): the canvas is `slides` equal slides side
+   * by side, so anything crossing a slide edge continues seamlessly onto the next.
+   */
+  readonly carousel?: { readonly slides: number };
   /** Where the design is filed in Design's folders ("" or absent: the top level). */
   readonly folder?: string;
   readonly createdAt: number;

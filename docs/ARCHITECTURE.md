@@ -351,6 +351,21 @@ designer keeps can be filed in folders, exported and imported as a `.focusedkit`
 (`core/design/bundle.ts`), from the "Your things" manager; designs carry their folder in
 the document.
 
+**Carousels.** A carousel is one wide document, `carousel: { slides }` (2–20, kept by
+`sanitizeDocument`), whose width is slides × slide width, so anything that crosses a
+slide edge stays one continuous layer and the slides meet pixel for pixel. Slide
+operations (`core/document/carousel.ts`: insert, remove, duplicate, move, make) change
+the width and remap layers: a layer that spans the canvas (fills, adjustments, effects,
+groups, full-canvas boxes) stretches with it, paint strokes and collage areas are
+remapped, and anything else moves with its centre's slide. `sliceDocument` crops one or
+more slides into a plain document for export (`ExportDocument` exports every slide in
+order, chosen slides, or the whole strip; names end "1 of 5"). The editor
+(`features/design/Carousel.tsx`) adds the slide bar, a 260 ms glide to a slide (instant
+with reduced motion), swiping on empty canvas, Alt+←/→, and a preview that renders the
+strip once and scroll-snaps it inside a phone-sized frame. Composite's canvas size field
+edits the slide width. Export file names go through `fileSafe` (`core/export/destination.ts`),
+so “Carousel 4:5” saves as “Carousel 4-5” everywhere.
+
 Switching documents saves the one being replaced (`openDocument` flushes the pending
 save), and `pagehide` / hidden visibility flush too, so the last edits before leaving
 survive; a flush keeps the stored thumbnail, which it remembers rather than reads, so the

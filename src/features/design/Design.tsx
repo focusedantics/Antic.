@@ -25,6 +25,7 @@ import { addPhotosFromDevice, moveToDesign, startFrom } from "./actions";
 import { DesignHome } from "./Home";
 import { TemplatesSection } from "./Gallery";
 import { SaveAssetDialog } from "./SaveDialog";
+import { CarouselPreview, currentSlide, focusSlide, SlidesBar } from "./Carousel";
 import { ManagerDialog } from "./Manager";
 import { createStore } from "zustand/vanilla";
 
@@ -262,8 +263,15 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState<"template" | "element" | null>(null);
   const managing = useStore(manager, (st) => st.open);
+  const [previewing, setPreviewing] = useState(false);
   useEffect(() => registerShortcuts("design", (e) => {
     if (design.getState().home || !isDesign(composite.getState().doc)) return false;
+    // Alt + arrows: previous / next slide of a carousel (plain arrows nudge layers).
+    if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && composite.getState().doc?.carousel) {
+      const now = currentSlide();
+      focusSlide(now === null ? 0 : now + (e.key === "ArrowRight" ? 1 : -1));
+      return true;
+    }
     if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "t") {
       addTextStyle("heading");
       return true;
@@ -297,6 +305,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
             <>
               <DesignToolbar onExport={() => setExporting(true)} onSave={setSaving} />
               <CompositeView />
+              <SlidesBar onPreview={() => setPreviewing(true)} />
             </>
           ) : (
             <DesignHome templates={(q) => <TemplatesSection query={q} />} />
@@ -316,6 +325,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
       {exporting && editing && <ExportDocumentDialog onClose={() => setExporting(false)} />}
       {saving && editing && <SaveAssetDialog kind={saving} onClose={() => setSaving(null)} />}
       {managing && <ManagerDialog onClose={() => manager.setState({ open: false })} />}
+      {previewing && editing && <CarouselPreview onClose={() => setPreviewing(false)} />}
     </>
   );
 }

@@ -8,21 +8,24 @@ import { duplicateDesign, moveToComposite, newDesign, openDesign } from "./actio
 import { SIZE_GROUPS, SIZE_PRESETS, type SizeGroup, type SizePreset, sizeLabel } from "./presets";
 
 /** A size drawn to scale inside a fixed box. */
-export function SizeShape({ width, height, box = 56 }: { width: number; height: number; box?: number }) {
-  const k = box / Math.max(width, height);
+export function SizeShape({ width, height, box = 56, slides = 1 }: { width: number; height: number; box?: number; slides?: number }) {
+  const total = width * slides;
+  const k = box / Math.max(total, height);
   return (
     <span className="size-shape" style={{ width: box, height: box }} aria-hidden="true">
-      <span style={{ width: Math.max(6, width * k), height: Math.max(6, height * k) }} />
+      <span className="size-slides" style={{ width: Math.max(6, total * k), height: Math.max(6, height * k) }}>
+        {slides > 1 && Array.from({ length: slides - 1 }, (_, i) => <i key={i} style={{ left: `${((i + 1) / slides) * 100}%` }} />)}
+      </span>
     </span>
   );
 }
 
 function SizeCard({ preset }: { preset: SizePreset }) {
   return (
-    <button type="button" className="size-card" onClick={() => newDesign(preset.width, preset.height, preset.label)} title={`New ${preset.label}, ${sizeLabel(preset.width, preset.height)}`}>
-      <SizeShape width={preset.width} height={preset.height} />
+    <button type="button" className="size-card" onClick={() => newDesign(preset.width, preset.height, preset.label, "#ffffff", preset.slides ?? 1)} title={`New ${preset.label}, ${sizeLabel(preset.width, preset.height, preset.slides)}`}>
+      <SizeShape width={preset.width} height={preset.height} slides={preset.slides} />
       <span className="size-name">{preset.label}</span>
-      <span className="size-dims">{sizeLabel(preset.width, preset.height)}</span>
+      <span className="size-dims">{sizeLabel(preset.width, preset.height, preset.slides)}</span>
     </button>
   );
 }

@@ -37,6 +37,11 @@ export function uniqueName(name: string, used: Set<string>) {
   return candidate;
 }
 
+/** A file name every system accepts: no path or reserved characters (a name like “Carousel 4:5” becomes “Carousel 4-5”). */
+export function fileSafe(name: string) {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/^[\s.]+|[\s.]+$/g, "") || "Untitled";
+}
+
 /**
  * Collects the files of one export run and delivers them. Downloads and folders
  * write each file as it's done; a ZIP is assembled at the end.
@@ -52,7 +57,7 @@ export class ExportSink {
   ) {}
 
   async add(name: string, blob: Blob) {
-    const file = uniqueName(name, this.used);
+    const file = uniqueName(fileSafe(name), this.used);
     const d = this.destination;
     if (d.kind === "download") download(file, blob);
     else if (d.kind === "zip") this.zipped[file] = new Uint8Array(await blob.arrayBuffer());
@@ -72,7 +77,7 @@ export class ExportSink {
       zip(this.zipped, { level: 0 }, (err, out) => (err ? reject(err) : resolve(out))),
     );
     this.zipped = {};
-    download(this.zipName, new Blob([data as BlobPart], { type: "application/zip" }));
+    download(fileSafe(this.zipName), new Blob([data as BlobPart], { type: "application/zip" }));
   }
 }
 

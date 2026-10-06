@@ -2,14 +2,14 @@ import { buildCollage } from "@/core/document/collage";
 import type { CompositeDocument, Gradient, Layer } from "@/core/document/model";
 import { canvasTransform, gradientLayer } from "@/core/document/operations";
 import { ELEMENTS } from "./elements";
-import { frame, fx, kit, type Kit, path, shape, text } from "./kit";
+import { frame, fx, kit, type Kit, path, shape, text, trace } from "./kit";
 
 /**
  * Starting points: original templates written as code (no stock images; photos go in
  * frames the user fills). Each is drawn at its own size; `build` lays it out on a
  * document of that size.
  */
-export type TemplateCategory = "Posts" | "Stories" | "Wallpapers" | "Flyers & posters" | "Invitations & cards" | "Business" | "Thumbnails & banners" | "Collages";
+export type TemplateCategory = "Posts" | "Carousels" | "Stories" | "Wallpapers" | "Flyers & posters" | "Invitations & cards" | "Business" | "Thumbnails & banners" | "Collages";
 export type Template = {
   readonly id: string;
   readonly name: string;
@@ -18,10 +18,12 @@ export type Template = {
   readonly width: number;
   readonly height: number;
   readonly background: string | null;
+  /** A carousel: `width` is all its slides side by side. */
+  readonly slides?: number;
   readonly build: (doc: Pick<CompositeDocument, "width" | "height">) => Layer[];
 };
 
-export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = ["Posts", "Stories", "Wallpapers", "Flyers & posters", "Invitations & cards", "Business", "Thumbnails & banners", "Collages"];
+export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = ["Posts", "Carousels", "Stories", "Wallpapers", "Flyers & posters", "Invitations & cards", "Business", "Thumbnails & banners", "Collages"];
 
 const ANTON = "Anton, Impact, sans-serif";
 const BEBAS = "'Bebas Neue', Impact, sans-serif";
@@ -192,6 +194,81 @@ export const TEMPLATES: readonly Template[] = [
         ...row(0, "Find the light", "Shoot with the sun low and behind you."),
         ...row(1, "Get closer", "Fill the frame with what matters."),
         ...row(2, "Keep it level", "Line up the horizon before you shoot."),
+      ];
+    },
+  },
+  // ─── Carousels (slides side by side; things crossing an edge continue on the next slide) ───
+  {
+    id: "carousel-panorama",
+    name: "Panorama trip",
+    category: "Carousels",
+    tags: ["carousel", "panorama", "travel", "seamless", "instagram", "swipe"],
+    width: 3240,
+    height: 1350,
+    slides: 3,
+    background: "#101418",
+    build: (doc) => {
+      const k = P(doc, 3240, 1350);
+      return [
+        frame(k, 0, 0, 3240, 1350, "rectangle", { name: "Panorama photo" }),
+        { ...backdrop(k, { ...grad(90, "#000000", "#000000"), stops: [{ offset: 0.55, color: "#000000", opacity: 0 }, { offset: 1, color: "#000000", opacity: 0.7 }] }), name: "Shade" },
+        text(k, 80, 960, 920, 200, "Road trip", { size: 170, font: DMSERIF, color: "#ffffff", align: "left" }),
+        text(k, 80, 1150, 920, 90, "swipe for the view →", { size: 52, font: INTER, weight: 600, color: "#e6e6e6", align: "left" }),
+        // A line running across both slide edges: it joins up as you swipe.
+        path(k, [{ closed: false, nodes: trace(120, (t) => ({ x: 700 + t * 2400, y: 1180 - Math.sin(t * Math.PI * 1.5) * 160 })) }], { fill: null, stroke: "#ffd34d", strokeWidth: 10, cap: "round", join: "round", dash: [0.01, 2.5] }, "Route"),
+        text(k, 1160, 1150, 920, 90, "day 2 · the coast", { size: 64, font: CAVEAT, weight: 700, color: "#ffffff" }),
+        text(k, 2240, 1150, 920, 90, "day 3 · home", { size: 64, font: CAVEAT, weight: 700, color: "#ffffff" }),
+      ];
+    },
+  },
+  {
+    id: "carousel-tips",
+    name: "Five tips",
+    category: "Carousels",
+    tags: ["carousel", "tips", "education", "list", "instagram", "swipe"],
+    width: 5400,
+    height: 1350,
+    slides: 5,
+    background: "#f4ead5",
+    build: (doc) => {
+      const k = P(doc, 5400, 1350);
+      const tip = (i: number, title: string, body: string): Layer[] => {
+        const x = 1080 * (i + 1);
+        return [
+          text(k, x + 90, 260, 300, 300, String(i + 1), { size: 300, font: ANTON, color: "#d9a441", align: "left" }),
+          text(k, x + 90, 600, 900, 240, title, { size: 96, font: DMSERIF, color: "#2b2b2b", align: "left", lineHeight: 1.1 }),
+          text(k, x + 90, 860, 900, 160, body, { size: 44, font: INTER, weight: 500, color: "#5a5045", align: "left", lineHeight: 1.4 }),
+        ];
+      };
+      return [
+        // One wave across every slide.
+        path(k, [{ closed: false, nodes: trace(200, (t) => ({ x: t * 5400, y: 1180 + Math.sin(t * Math.PI * 10) * 40 })) }], { fill: null, stroke: "#d9a441", strokeWidth: 14, cap: "round", join: "round" }, "Wave"),
+        text(k, 90, 300, 900, 200, "5 WAYS TO", { size: 90, font: BEBAS, color: "#2b2b2b", letterSpacing: 0.12, align: "left" }),
+        text(k, 90, 460, 900, 420, "take better\nphone photos", { size: 130, font: DMSERIF, color: "#2b2b2b", align: "left", lineHeight: 1.05 }),
+        text(k, 90, 1000, 900, 90, "swipe →", { size: 56, font: CAVEAT, weight: 700, color: "#5a5045", align: "left" }),
+        ...tip(0, "Clean the lens", "A smudge softens everything. Wipe it first."),
+        ...tip(1, "Tap to focus", "Then slide down a little to keep the sky."),
+        ...tip(2, "Turn off zoom", "Walk closer instead: it stays sharp."),
+        ...tip(3, "Shoot in good light", "Windows, shade, golden hour."),
+      ];
+    },
+  },
+  {
+    id: "carousel-square-story",
+    name: "Photo story",
+    category: "Carousels",
+    tags: ["carousel", "photos", "story", "square", "instagram", "swipe"],
+    width: 3240,
+    height: 1080,
+    slides: 3,
+    background: "#ffffff",
+    build: (doc) => {
+      const k = P(doc, 3240, 1080);
+      return [
+        // A photo across the first two slides, one on the third.
+        frame(k, 60, 60, 2100, 960, { kind: "rectangle", points: 4, ratio: 0.5, round: 0.04 }),
+        frame(k, 2220, 60, 960, 760, { kind: "rectangle", points: 4, ratio: 0.5, round: 0.06 }),
+        text(k, 2220, 860, 960, 160, "the whole story", { size: 90, font: CAVEAT, weight: 700, color: "#2b2b2b" }),
       ];
     },
   },

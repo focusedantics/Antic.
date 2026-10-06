@@ -796,8 +796,13 @@ export class DevelopEngine {
   compositeFitScale(): number {
     const { doc } = composite.getState();
     if (!doc) return 1;
+    return this.compositeFitFor(doc.width, doc.height);
+  }
+
+  /** The scale that fits a `width × height` part of the document in the view (a carousel slide). */
+  compositeFitFor(width: number, height: number): number {
     const pad = 40 * viewDpr();
-    return Math.min((this.canvas.width - pad * 2) / doc.width, (this.compositeRoom() - pad * 2) / doc.height);
+    return Math.min((this.canvas.width - pad * 2) / width, (this.compositeRoom() - pad * 2) / height);
   }
 
   /** Screen device px → document px. */
