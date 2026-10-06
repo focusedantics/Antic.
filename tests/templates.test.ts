@@ -124,3 +124,18 @@ describe("yes / but templates", () => {
     }
   });
 });
+
+describe("two photos on one backdrop", () => {
+  it("is two slides: a backdrop frame over both, and a frame centred on each slide", () => {
+    const t = TEMPLATES.find((x) => x.id === "carousel-backdrop-pair")!;
+    expect([t.width, t.height, t.slides]).toEqual([2160, 1350, 2]);
+    const slots = flatten(t.build({ width: t.width, height: t.height })).filter((l): l is SlotLayer => l.kind === "slot");
+    const byName = Object.fromEntries(slots.map((s) => [s.name, s.transform]));
+    expect(byName["Background photo"]).toMatchObject({ x: 1080, y: 675, width: 2160, height: 1350 });
+    expect(byName["Photo 1"]).toMatchObject({ x: 540, y: 675 });
+    expect(byName["Photo 2"]).toMatchObject({ x: 1620, y: 675 });
+    expect(byName["Photo 1"].width).toBe(byName["Photo 2"].width);
+    // Filling empty frames top of the list first: Photo 1, Photo 2, then the backdrop.
+    expect(slots.reverse().map((s) => s.name)).toEqual(["Photo 1", "Photo 2", "Background photo"]);
+  });
+});

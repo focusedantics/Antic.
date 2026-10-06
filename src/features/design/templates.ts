@@ -252,6 +252,27 @@ export const TEMPLATES: readonly Template[] = [
     },
   },
   {
+    id: "carousel-backdrop-pair",
+    name: "Two photos on one backdrop",
+    category: "Carousels",
+    tags: ["carousel", "background", "backdrop", "seamless", "two photos", "pair", "instagram", "swipe", "sport"],
+    width: 2160,
+    height: 1350,
+    slides: 2,
+    background: "#151515",
+    build: (doc) => {
+      const k = P(doc, 2160, 1350);
+      // One photo across both slides, and a photo centred on each slide (about a tenth of
+      // the slide's width at the sides, 7.5 % of its height above and below).
+      const w = 856;
+      const h = 1148;
+      const soft = fx(k, { shadow: { color: "#000000", opacity: 0.3, angle: 90, distance: 12, blur: 40, spread: 0 } });
+      const photo = (slide: number, name: string) => frame(k, slide * 1080 + (1080 - w) / 2, (1350 - h) / 2, w, h, "rectangle", { name, placeholder: "#d7dace", fx: soft });
+      // Photo 1 on top of the list: picking three photos fills Photo 1, Photo 2, then the backdrop.
+      return [frame(k, 0, 0, 2160, 1350, "rectangle", { name: "Background photo", placeholder: "#8a9468" }), photo(1, "Photo 2"), photo(0, "Photo 1")];
+    },
+  },
+  {
     id: "carousel-tips",
     name: "Five tips",
     category: "Carousels",
