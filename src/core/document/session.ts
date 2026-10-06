@@ -112,9 +112,10 @@ export async function removeStoredDocument(id: string) {
 }
 
 /** One undoable document change. */
-export function editDocument(label: string, change: (doc: CompositeDocument) => CompositeDocument) {
+/** One edit of the open document; quick repeats of the same label merge unless `merge` is false. */
+export function editDocument(label: string, change: (doc: CompositeDocument) => CompositeDocument, { merge = true }: { merge?: boolean } = {}) {
   if (!history) return;
-  history.set(change(history.get()), label);
+  history.set(change(history.get()), label, merge);
 }
 
 export const beginDocGesture = (label: string) => history?.begin(label);

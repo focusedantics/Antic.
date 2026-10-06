@@ -64,11 +64,15 @@ export function createHistory<T>(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    /** Sets the state; outside a group it records a step labelled `label`. */
-    set(next: T, label = "Edit") {
+    /**
+     * Sets the state; outside a group it records a step labelled `label`. Quick repeats
+     * of the same label merge into one step unless `merge` is false (separate actions,
+     * like two pastes, stay separate).
+     */
+    set(next: T, label = "Edit", merge = true) {
       if (equal(current, next)) return;
       current = next;
-      if (!group) push(label, next, true);
+      if (!group) push(label, next, merge);
       else group.label = label;
       emit();
     },

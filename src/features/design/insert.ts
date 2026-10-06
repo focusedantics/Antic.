@@ -1,3 +1,4 @@
+import { ontoWorkingSlide } from "@/features/composite/slide";
 import type { Layer, TextLayer } from "@/core/document/model";
 import { flatten, insertLayer } from "@/core/document/operations";
 import { composite, editDocument } from "@/core/document/session";
@@ -31,11 +32,15 @@ export function fitTextBoxes(layer: Layer): Layer {
 /** Every font a layer tree uses. */
 export const layerFonts = (layers: readonly Layer[]) => flatten(layers).flatMap((l) => (l.kind === "text" ? [fontShorthand(l.style)] : []));
 
-/** Adds a ready-made element above the selection (fonts loaded first so its text fits) and selects it. */
+/**
+ * Adds a ready-made element (laid out on one slide's canvas) on the slide being worked
+ * on, above the selection (fonts loaded first so its text fits), and selects it.
+ */
 export async function insertElement(layer: Layer, label: string) {
   await loadFonts(layerFonts([layer]), 3000);
-  const fitted = fitTextBoxes(layer);
-  const { selection } = composite.getState();
+  const { doc, selection } = composite.getState();
+  if (!doc) return;
+  const fitted = ontoWorkingSlide(doc, fitTextBoxes(layer));
   editDocument(label, (d) => insertLayer(d, fitted, selection.at(-1)));
   composite.setState({ selection: [fitted.id], tool: "move" });
 }

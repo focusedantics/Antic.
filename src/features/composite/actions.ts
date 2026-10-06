@@ -1,3 +1,4 @@
+import { layoutCanvas, ontoWorkingSlide, workingSlide } from "./slide";
 import { device } from "@/lib/device";
 import { track } from "@/lib/activity";
 import type { Watermark } from "@/core/export/watermark";
@@ -52,13 +53,15 @@ export async function addAssetsToComposite(ids: readonly string[], at?: { x: num
     doc = composite.getState().doc!;
   }
   const added: Layer[] = [];
+  // Without a drop point, photos go on the slide being worked on (sized for one slide).
+  const slide = workingSlide(doc);
   editDocument(ids.length > 1 ? `Add ${ids.length} photos` : "Add photo", (d) => {
     let next = d;
     const top = composite.getState().selection.at(-1) ?? null;
     ids.forEach((id, i) => {
       const size = photoSize(id);
       const first = d.layers.length === 0 && i === 0;
-      let layer = imageLayer(next, id, getAsset(id)?.fileName.replace(/\.[^.]+$/, "") ?? "Photo", size.width, size.height, first);
+      let layer = ontoWorkingSlide(next, imageLayer(layoutCanvas(next), id, getAsset(id)?.fileName.replace(/\.[^.]+$/, "") ?? "Photo", size.width, size.height, first), slide);
       if (at && !first) layer = { ...layer, transform: { ...layer.transform, x: at.x + i * 24, y: at.y + i * 24 } };
       added.push(layer);
       next = insertLayer(next, layer, i === 0 ? top : added[i - 1].id);
@@ -76,6 +79,11 @@ export async function addAssetsToComposite(ids: readonly string[], at?: { x: num
  */
 export async function importPhotosFromDevice(multiple = true): Promise<string[]> {
   const files = await chooseFiles({ multiple, accept: pickerAccept(acceptAttribute, { images: true }) });
+  return importFilesToLibrary(files);
+}
+
+/** Imports files into the Library (ones already there are reused) and returns their asset ids, in order. */
+export async function importFilesToLibrary(files: readonly File[]): Promise<string[]> {
   if (!files.length) return [];
   const prints = await Promise.all(files.map((f) => fingerprint(f)));
   await importItems(itemsFromFileList(files));
@@ -83,7 +91,6 @@ export async function importPhotosFromDevice(multiple = true): Promise<string[]>
   return prints.map((p) => byPrint.get(p)).filter((id): id is string => !!id);
 }
 
-/** Puts a photo in a frame (replacing the one there), centred and unzoomed. */
 /**
  * Puts a photo in a frame. With `pair`, empty "before edits" frames get the same photo
  * (one undoable step), so one photo fills a before/after design.

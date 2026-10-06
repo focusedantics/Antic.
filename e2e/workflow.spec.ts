@@ -253,6 +253,8 @@ test("histogram draws for the developed photo", async ({ page }) => {
 });
 
 test("animated effects: snow plays and pauses, exports as GIF, MP4 and a still frame", async ({ page }) => {
+  // Three full exports (45 GIF frames, an MP4 loop, a still): about two minutes on a slow machine.
+  test.setTimeout(300_000);
   await freshLibrary(page);
   await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
   await page.locator(".cell").first().click({ button: "right" });

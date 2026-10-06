@@ -130,6 +130,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | S3 | Wallpaper preview with the lock-screen clock | New: an overlay that is never exported | ⬜ |
 | S6 | Instagram carousels: one seamless canvas several slides wide, so a photo or a line can run across slides; add, duplicate, move and delete slides; swipe between slides while editing; a phone-style swipe preview; export every slide, chosen slides or the whole strip | New (not in the reference app): `doc.carousel`, `core/document/carousel.ts`, `features/design/Carousel.tsx`, carousel sizes and templates, export parts | ✅ |
 | S7 | Add slides from templates of the same slide shape (built-in and saved; carousel templates add all their slides) | New: the slide bar's Template button and picker; `insertSlidesWith`; + stays for blank slides | ✅ |
+| S8 | Copy, cut and paste; pasting (and adding) goes on the slide in use | New: layer clipboard (keyboard, layer menu, More → Paste), images and text pasted from other apps, new layers sized for and placed on the working slide | ✅ |
 | S4 | Cloud sync, accounts | Skip: costs a server; designs stay local, `.focused` files move them | — |
 | S5 | AI image generation | Skip: needs paid inference | — |
 

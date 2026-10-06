@@ -1,3 +1,4 @@
+import { layoutCanvas, ontoWorkingSlide } from "@/features/composite/slide";
 import { useStore } from "@/app/hooks";
 import { Icon, type IconName } from "@/components/icons";
 import { Panel } from "@/components/Panel";
@@ -32,10 +33,11 @@ export const TEXT_STYLES: readonly { id: string; label: string; size: number; st
   { id: "retro", label: "Pixel", size: 1 / 18, style: { text: "PRESS START", font: "'Press Start 2P', monospace", weight: 400 } },
 ];
 
-/** Adds a layer above the selection and selects it. */
-function addToDesign(layer: Layer, label: string) {
+/** Adds a layer (laid out on one slide's canvas) on the slide being worked on, above the selection, and selects it. */
+function addToDesign(laidOut: Layer, label: string) {
   const { doc, selection } = composite.getState();
   if (!doc) return;
+  const layer = ontoWorkingSlide(doc, laidOut);
   editDocument(label, (d) => insertLayer(d, layer, selection.at(-1)));
   composite.setState({ selection: [layer.id], tool: "move" });
 }
@@ -47,14 +49,14 @@ let shapeCount = 0;
 export function addSmartShape(kind: SmartShapeKind) {
   const doc = composite.getState().doc;
   if (!doc) return;
-  const layer = pathLayer(doc, smartShape(kind), kind === "line" ? { stroke: readableOn(doc.background) } : { fill: SHAPE_COLORS[shapeCount++ % SHAPE_COLORS.length] });
+  const layer = pathLayer(layoutCanvas(doc), smartShape(kind), kind === "line" ? { stroke: readableOn(doc.background) } : { fill: SHAPE_COLORS[shapeCount++ % SHAPE_COLORS.length] });
   addToDesign(layer, `Add ${layer.name.toLowerCase()}`);
 }
 
 export function addPhotoFrame(kind: SmartShapeKind = "rectangle") {
   const doc = composite.getState().doc;
   if (!doc) return;
-  addToDesign(slotLayer(doc, smartShape(kind)), "Add photo frame");
+  addToDesign(slotLayer(layoutCanvas(doc), smartShape(kind)), "Add photo frame");
 }
 
 /** A shape drawn small, from the same generator the canvas uses. */
@@ -90,8 +92,10 @@ export function addTextStyle(id: string) {
   const preset = TEXT_STYLES.find((t) => t.id === id);
   if (!doc || !preset) return;
   const texts = doc.layers.filter((l) => l.kind === "text").length;
-  const made = textLayer(doc, { color: readableOn(doc.background), ...preset.style, size: Math.round(Math.min(doc.width, doc.height) * preset.size) });
-  const layer = { ...made, transform: { ...made.transform, y: Math.round(doc.height * TEXT_ROWS[texts % TEXT_ROWS.length]) } };
+  // Sized for one slide of a carousel, and placed on the slide being worked on.
+  const canvas = layoutCanvas(doc);
+  const made = textLayer(canvas, { color: readableOn(doc.background), ...preset.style, size: Math.round(Math.min(canvas.width, canvas.height) * preset.size) });
+  const layer = ontoWorkingSlide(doc, { ...made, transform: { ...made.transform, y: Math.round(doc.height * TEXT_ROWS[texts % TEXT_ROWS.length]) } });
   editDocument(`Add ${preset.label.toLowerCase()}`, (d) => insertLayer(d, layer, selection.at(-1)));
   composite.setState({ selection: [layer.id], tool: "move" });
 }
@@ -120,7 +124,7 @@ function ElementSketch({ element }: { element: Element }) {
 export function addElement(element: Element) {
   const doc = composite.getState().doc;
   if (!doc) return;
-  void insertElement(element.make(doc, readableOn(doc.background)), `Add ${element.label.toLowerCase()}`);
+  void insertElement(element.make(layoutCanvas(doc), readableOn(doc.background)), `Add ${element.label.toLowerCase()}`);
 }
 
 function ElementGrid({ group }: { group: ElementGroup }) {

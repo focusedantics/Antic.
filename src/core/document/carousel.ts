@@ -78,11 +78,16 @@ export function insertSlides(doc: CompositeDocument, at: number, count = 1): Com
   return withWidth(doc, n + add, remap(doc.layers, doc.width, newWidth, doc.height, (x) => (x >= edge ? add * sw : 0)));
 }
 
-/** A layer moved sideways by `dx` (a group with its children and collage area). */
-export function shiftLayer(l: Layer, dx: number): Layer {
+/** A layer moved by `dx`, `dy` (a group with its children and collage area). */
+export function shiftLayer(l: Layer, dx: number, dy = 0): Layer {
   return l.kind === "group"
-    ? { ...l, transform: moveTransform(l.transform, dx, 0), children: l.children.map((c) => shiftLayer(c, dx)), ...(l.collage ? { collage: { ...l.collage, area: { ...l.collage.area, x: l.collage.area.x + dx } } } : {}) }
-    : { ...l, transform: moveTransform(l.transform, dx, 0) };
+    ? {
+        ...l,
+        transform: moveTransform(l.transform, dx, dy),
+        children: l.children.map((c) => shiftLayer(c, dx, dy)),
+        ...(l.collage ? { collage: { ...l.collage, area: { ...l.collage.area, x: l.collage.area.x + dx, y: l.collage.area.y + dy } } } : {}),
+      }
+    : { ...l, transform: moveTransform(l.transform, dx, dy) };
 }
 
 /**

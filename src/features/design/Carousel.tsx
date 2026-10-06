@@ -10,6 +10,7 @@ import { composite, editDocument } from "@/core/document/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { createId } from "@/lib/id";
 import { viewDpr } from "@/lib/device";
+import { setHeadingSlide } from "@/features/composite/slide";
 import { TemplatePreview } from "./Gallery";
 import { sizeLabel } from "./presets";
 import { myTemplatePages, myTemplatesForSlides, type SlidePages, templatePages, templatesForSlides } from "./slide-templates";
@@ -32,6 +33,7 @@ export function focusSlide(index: number, animate = true) {
   const zoom = developEngine().compositeFitFor(sw, doc.height);
   const target = { fit: false, zoom, centerX: ((i + 0.5) * sw) / doc.width, centerY: 0.5 };
   cancelAnimationFrame(glide);
+  setHeadingSlide(null);
   const reduced = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const from = view.fit ? { ...target, zoom: developEngine().compositeFitScale(), centerX: 0.5 } : { ...view, centerY: 0.5 };
   if (!animate || reduced || (view.fit && Math.abs(from.zoom - zoom) < 1e-6)) {
@@ -40,11 +42,14 @@ export function focusSlide(index: number, animate = true) {
   }
   const start = performance.now();
   const ms = 260;
+  // Things added or pasted during the glide go on the slide it is heading for.
+  setHeadingSlide(i);
   const step = (now: number) => {
     const t = Math.min(1, (now - start) / ms);
     const e = 1 - (1 - t) ** 3;
     composite.setState({ view: { fit: false, zoom: from.zoom + (target.zoom - from.zoom) * e, centerX: from.centerX + (target.centerX - from.centerX) * e, centerY: 0.5 } });
     if (t < 1) glide = requestAnimationFrame(step);
+    else setHeadingSlide(null);
   };
   glide = requestAnimationFrame(step);
 }
@@ -52,6 +57,7 @@ export function focusSlide(index: number, animate = true) {
 /** The whole carousel in view. */
 export const showAllSlides = () => {
   cancelAnimationFrame(glide);
+  setHeadingSlide(null);
   composite.setState((s) => ({ view: { ...s.view, fit: true } }));
 };
 
@@ -72,6 +78,7 @@ export function startSwipe(e: { clientX: number; pointerId: number }, el: HTMLEl
   let lastT = performance.now();
   let velocity = 0;
   cancelAnimationFrame(glide);
+  setHeadingSlide(null);
   const move = (ev: PointerEvent) => {
     if (ev.pointerId !== e.pointerId) return;
     const now = performance.now();

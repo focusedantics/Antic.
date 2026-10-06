@@ -1,3 +1,4 @@
+import { clipboardShortcut, useLayerClipboard } from "./clipboard";
 import { chooseFiles, pickerAccept } from "@/lib/files";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
@@ -427,6 +428,7 @@ export function compositeShortcuts(e: KeyboardEvent, openExport: () => void): bo
   const { selection, doc } = composite.getState();
   const history = compositeHistory();
   if (!doc) return false;
+  clipboardShortcut(e);
   if (mod && key === "z") {
     if (e.shiftKey) history?.redo();
     else history?.undo();
@@ -531,6 +533,7 @@ export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> 
   const docs = useMemo(() => allDocs.filter((d) => !d.design), [allDocs]);
   const [dialog, setDialog] = useState<"new" | "export" | null>(null);
   useEffect(() => registerShortcuts("composite", (e) => compositeShortcuts(e, () => setDialog("export"))), []);
+  useLayerClipboard(() => ui.getState().workspace === "composite" && !!composite.getState().doc && !composite.getState().doc!.purpose);
   useEffect(() => () => void flushDocument(), []);
   // Fonts the user imported, for text in these documents.
   useEffect(() => {

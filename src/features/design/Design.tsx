@@ -1,10 +1,11 @@
+import { layerClipboard, pasteLayers, useLayerClipboard } from "@/features/composite/clipboard";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { useStore } from "@/app/hooks";
 import { loadCustomFonts } from "@/core/text/custom-fonts";
 import { layout } from "@/app/layout";
 import { registerShortcuts } from "@/app/shortcuts";
-import { toast } from "@/app/state";
+import { toast, ui } from "@/app/state";
 import { Icon, type IconName } from "@/components/icons";
 import { openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
@@ -43,6 +44,8 @@ function moreMenu(e: React.MouseEvent<HTMLElement>, openSave: (kind: "template" 
   const r = e.currentTarget.getBoundingClientRect();
   const { doc, selection } = composite.getState();
   openMenu(r.left, r.bottom + 4, [
+    { label: "Paste", shortcut: "Ctrl+V", disabled: !layerClipboard.getState().clip, onSelect: () => pasteLayers() },
+    "separator",
     { label: "Save as template…", disabled: !doc, onSelect: () => openSave("template") },
     { label: "Save selection as element…", disabled: !selection.length, onSelect: () => openSave("element") },
     { label: "Your things…", onSelect: openManager },
@@ -279,6 +282,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
     return compositeShortcuts(e, () => setExporting(true));
   }), []);
   useEffect(() => () => void flushDocument(), []);
+  useLayerClipboard(() => ui.getState().workspace === "design" && !design.getState().home && isDesign(composite.getState().doc));
   // Fonts the user imported, for text in these documents.
   useEffect(() => {
     void loadCustomFonts();

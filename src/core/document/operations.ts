@@ -420,14 +420,17 @@ export function arrangeLayers(doc: CompositeDocument, ids: readonly string[], ho
   return orderOf(layers) === orderOf(doc.layers) ? doc : { ...doc, layers };
 }
 
+/** A copy of a layer (a group with its children) with new ids, its mask's parts included. */
+export function cloneLayer(l: Layer): Layer {
+  return l.kind === "group"
+    ? { ...l, id: createId("layer"), children: l.children.map(cloneLayer) }
+    : { ...l, id: createId("layer"), mask: l.mask ? { ...l.mask, components: l.mask.components.map((c) => ({ ...c, id: createId("mc") })) } : null };
+}
+
 export function duplicateLayer(doc: CompositeDocument, id: string): { doc: CompositeDocument; id: string | null } {
   const layer = findLayer(doc, id);
   if (!layer) return { doc, id: null };
-  const clone = (l: Layer): Layer =>
-    l.kind === "group"
-      ? { ...l, id: createId("layer"), children: l.children.map(clone) }
-      : { ...l, id: createId("layer"), mask: l.mask ? { ...l.mask, components: l.mask.components.map((c) => ({ ...c, id: createId("mc") })) } : null };
-  const copy = { ...clone(layer), name: `${layer.name} copy` };
+  const copy = { ...cloneLayer(layer), name: `${layer.name} copy` };
   return { doc: insertLayer(doc, copy, id), id: copy.id };
 }
 

@@ -12,6 +12,7 @@ import type { Template } from "./templates";
 import { createId } from "@/lib/id";
 import { importPhotosFromDevice, placePhotos } from "@/features/composite/actions";
 import { design } from "./state";
+import { layoutCanvas } from "@/features/composite/slide";
 
 /** Starts a blank design of `width × height` (per slide, `slides` side by side for a carousel) and opens the editor on it. */
 export function newDesign(width: number, height: number, name = "Untitled design", background: string | null = "#ffffff", slides = 1) {
@@ -140,7 +141,9 @@ export async function insertMyElement(asset: DesignAsset) {
   const doc = composite.getState().doc;
   const data = assetData(asset) as ElementData | null;
   if (!doc || !data) return;
-  const fitted = fitLayers({ width: data.width, height: data.height, items: data.layers }, doc.width, doc.height);
-  const layer = fitted.length === 1 ? fitted[0] : { ...groupLayer(doc, fitted, asset.name), expanded: false };
+  // Scaled to one slide of a carousel; insertElement puts it on the slide being worked on.
+  const canvas = layoutCanvas(doc);
+  const fitted = fitLayers({ width: data.width, height: data.height, items: data.layers }, canvas.width, canvas.height);
+  const layer = fitted.length === 1 ? fitted[0] : { ...groupLayer(canvas, fitted, asset.name), expanded: false };
   await insertElement(layer, `Add ${asset.name}`);
 }

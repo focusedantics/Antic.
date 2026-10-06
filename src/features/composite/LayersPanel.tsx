@@ -31,25 +31,30 @@ import { layout } from "@/app/layout";
 import { ui } from "@/app/state";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { addAssetsToComposite } from "./actions";
+import { copyLayers, cutLayers, layerClipboard, pasteLayers } from "./clipboard";
 import { startLayerDrag } from "./layer-drag";
+import { layoutCanvas, ontoWorkingSlide } from "./slide";
 
 const kindIcon: Record<Layer["kind"], string> = { image: "▣", fill: "■", gradient: "◐", text: "T", shape: "◆", path: "⬟", slot: "▢", paint: "✎", adjustment: "◑", effect: "✦", group: "▤" };
 
 export function addLayer(kind: "fill" | "gradient" | "text" | "rectangle" | "ellipse" | "adjustment" | "group") {
   const { doc, selection } = composite.getState();
   if (!doc) return;
-  const layer =
+  // Fills and adjustments cover the whole design; the rest go on the slide being worked on.
+  const canvas = layoutCanvas(doc);
+  const made =
     kind === "fill"
       ? fillLayer(doc)
       : kind === "gradient"
-        ? gradientLayer(doc)
+        ? gradientLayer(canvas)
         : kind === "text"
-          ? textLayer(doc)
+          ? textLayer(canvas)
           : kind === "adjustment"
             ? adjustmentLayer(doc)
             : kind === "group"
               ? null
-              : shapeLayer(doc, kind);
+              : shapeLayer(canvas, kind);
+  const layer = made && ontoWorkingSlide(doc, made);
   if (kind === "group") {
     if (!selection.length) return;
     let id: string | null = null;
@@ -143,8 +148,16 @@ function arrangeItems() {
 /** The layer menu. With several layers selected (Ctrl-click or a right-click sweep) it leads with batch actions. */
 export function layerMenu(layer: Layer, x: number, y: number) {
   const n = composite.getState().selection.length;
+  // Copy, cut and paste (pasted layers go on the slide being worked on).
+  const clipItems = [
+    { label: "Copy", shortcut: "Ctrl+C", onSelect: () => void copyLayers() },
+    { label: "Cut", shortcut: "Ctrl+X", onSelect: () => void cutLayers() },
+    { label: "Paste", shortcut: "Ctrl+V", disabled: !layerClipboard.getState().clip, onSelect: () => void pasteLayers() },
+  ];
   if (n > 1)
     return openMenu(x, y, [
+      ...clipItems,
+      "separator",
       { label: `Duplicate ${n} layers`, shortcut: "Ctrl+J", onSelect: duplicateSelected },
       { label: `Group ${n} layers`, shortcut: "Ctrl+G", onSelect: groupSelected },
       "separator",
@@ -153,6 +166,8 @@ export function layerMenu(layer: Layer, x: number, y: number) {
       { label: `Delete ${n} layers`, shortcut: "Del", danger: true, onSelect: deleteSelected },
     ]);
   openMenu(x, y, [
+    ...clipItems,
+    "separator",
     { label: "Duplicate", shortcut: "Ctrl+J", onSelect: duplicateSelected },
     { label: layer.clip ? "Release Clipping Mask" : "Create Clipping Mask", shortcut: "Ctrl+Alt+G", onSelect: () => editDocument("Clipping mask", (d) => updateLayer(d, layer.id, (l) => ({ ...l, clip: !l.clip }))) },
     { label: layer.mask ? "Delete Layer Mask" : "Add Layer Mask", onSelect: () => editDocument(layer.mask ? "Delete mask" : "Add mask", (d) => updateLayer(d, layer.id, (l) => ({ ...l, mask: l.mask ? null : emptyMask() }))) },

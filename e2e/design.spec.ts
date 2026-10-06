@@ -1220,3 +1220,107 @@ test.describe("phone: slides from templates", () => {
     await expect(bar.getByRole("button", { name: /^Slide \d+$/ })).toHaveCount(2);
   });
 });
+
+test.describe("computer: paste onto the slide in use", () => {
+  test("new layers and pasted layers, text and images go on the slide being worked on", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).click();
+    await page.getByRole("button", { name: /^Carousel 4:5, 3 slides/ }).click();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    const left = page.locator("aside.side.left");
+    const slideOf = (x: number) => Math.floor(x / 1080);
+
+    // A new shape lands on the slide in view, sized for one slide.
+    await bar.getByRole("button", { name: "Slide 1", exact: true }).click();
+    await left.getByRole("button", { name: "Add rectangle", exact: true }).click();
+    const rect = (await docLayers(page)).find((l) => l.name === "Rectangle")!;
+    expect(slideOf(rect.transform.x)).toBe(0);
+    expect(rect.transform.width).toBeLessThan(1080);
+
+    // Ctrl+C on slide 1, Ctrl+V on slide 3: the same spot on slide 3.
+    await page.locator(".composite-view").click({ position: { x: 5, y: 5 } }).catch(() => {});
+    await row(page, "Rectangle").locator(".name").click();
+    await page.keyboard.press("Control+c");
+    await bar.getByRole("button", { name: "Slide 3", exact: true }).click();
+    await page.keyboard.press("Control+v");
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Rectangle").length).toBe(2);
+    let rects = (await docLayers(page)).filter((l) => l.name === "Rectangle");
+    expect(rects.map((l) => Math.round(l.transform.x)).sort((a, b) => a - b)).toEqual([Math.round(rect.transform.x), Math.round(rect.transform.x + 2160)]);
+    // Pasting again on slide 3 steps it lower right so it is seen.
+    await page.keyboard.press("Control+v");
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Rectangle").length).toBe(3);
+    rects = (await docLayers(page)).filter((l) => l.name === "Rectangle");
+    expect(rects.filter((l) => slideOf(l.transform.x) === 2)).toHaveLength(2);
+    // One undo step per paste.
+    await page.keyboard.press("Control+z");
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Rectangle").length).toBe(2);
+
+    // Cut from slide 3 (the top row: the first paste) and paste on slide 2 with the layer menu.
+    await page.locator(".layer-list .layer-row").first().locator(".name").click();
+    await page.keyboard.press("Control+x");
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Rectangle").length).toBe(1);
+    await bar.getByRole("button", { name: "Slide 2", exact: true }).click();
+    await row(page, "Rectangle").click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Paste/ }).click();
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Rectangle").map((l) => slideOf(l.transform.x)).sort()).toEqual([0, 1]);
+
+    // Text and an image from another app.
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "Pasted words");
+      window.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data }));
+    });
+    await expect.poll(async () => (await docLayers(page)).find((l) => l.kind === "text")?.style.text).toBe("Pasted words");
+    expect(slideOf((await docLayers(page)).find((l) => l.kind === "text")!.transform.x)).toBe(1);
+    await page.evaluate(async () => {
+      const c = new OffscreenCanvas(300, 200);
+      const g = c.getContext("2d")!;
+      g.fillStyle = "#3399ff";
+      g.fillRect(0, 0, 300, 200);
+      const file = new File([await c.convertToBlob({ type: "image/png" })], "shot.png", { type: "image/png" });
+      const data = new DataTransfer();
+      data.items.add(file);
+      window.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data }));
+    });
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.kind === "image").length, { timeout: 20_000 }).toBe(1);
+    const image = (await docLayers(page)).find((l) => l.kind === "image")!;
+    expect(slideOf(image.transform.x)).toBe(1);
+  });
+});
+
+test.describe("phone: paste onto the slide in use", () => {
+  test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+  test("copy and paste from the select bar's actions", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).tap();
+    await page.getByRole("button", { name: /^Carousel 4:5, 3 slides/ }).tap();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    await bar.getByRole("button", { name: "Slide 1", exact: true }).tap();
+    const dock = page.getByRole("navigation", { name: "Panels" });
+    const sheet = page.getByTestId("sheet");
+    await dock.getByRole("button", { name: "Add" }).tap();
+    await sheet.getByRole("button", { name: "Add star", exact: true }).tap();
+    await dock.getByRole("button", { name: "Layers" }).tap();
+    // Select mode: press and hold the layer, then Actions → Copy.
+    const cdp = await page.context().newCDPSession(page);
+    const b = (await row(page, "Star").boundingBox())!;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: b.x + b.width / 2, y: b.y + b.height / 2 }] });
+    await page.waitForTimeout(700);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const select = page.getByRole("navigation", { name: "Selection" });
+    await select.getByRole("button", { name: "Actions" }).tap();
+    await page.getByRole("menuitem", { name: /^Copy/ }).tap();
+    await select.getByRole("button", { name: "Done" }).tap();
+    await dock.getByRole("button", { name: "Layers" }).tap(); // closes the sheet over the slide bar
+    // On slide 2, paste from the More menu.
+    await bar.getByRole("button", { name: "Slide 2", exact: true }).tap();
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "More", exact: true }).tap();
+    await page.getByRole("menuitem", { name: /^Paste/ }).tap();
+    await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Star").map((l) => Math.floor(l.transform.x / 1080)).sort()).toEqual([0, 1]);
+  });
+});

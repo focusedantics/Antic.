@@ -276,6 +276,20 @@ layer's own. Position moves the selection together; size, angle and flips apply 
 effect settings reach only the same effect. A layer's words, mask, collage and photo are
 its own (`setOne`).
 
+**Copy, paste and the slide in use.** `features/composite/slide.ts` knows the slide being
+worked on (the one in view or being glided to, else the selected layer's); new layers are
+laid out on one slide's canvas (`layoutCanvas`) and moved onto that slide
+(`ontoWorkingSlide`), so a heading or a photo is sized for a slide and lands on it.
+`features/composite/clipboard.ts` copies the selected layers relative to their slide and
+pastes them at the same spot on the slide in use (scaled when the slide size differs; a
+step lower right when they would land on themselves), above the selection, as one
+unmerged undo step (`editDocument(…, { merge: false })`). The system clipboard carries
+them as marked text, so they paste into other designs and tabs and are sanitized on the
+way in; images pasted from other apps go into the Library and onto the slide, and text
+becomes a text layer. Ctrl/⌘ + C, X, V and the layer menu do the same; a Ctrl/⌘ + V whose
+paste event never comes (no text field focused in some browsers) pastes from the app's own
+clipboard.
+
 **Layer order.** `moveLayers` drops layers (kept in paint order) above, below or into
 another layer, and `arrangeLayers` brings to front / forward or sends backward / to back
 within each layer's group, moving several selected siblings as a block; both return the
