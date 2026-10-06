@@ -1050,6 +1050,75 @@ test.describe("computer: yes / but template", () => {
   });
 });
 
+test.describe("computer: playing card template", () => {
+  test("one photo fills both halves, the lower one upside down; moving it moves both, after a reload too", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("searchbox").first().fill("playing card");
+    await page.locator(".template-card", { hasText: "Playing card" }).click();
+    await expect(layerNames(page)).toHaveCount(9);
+    const right = page.locator("aside.side.right");
+    await row(page, "Top half photo").locator(".name").click();
+    await expect(right.getByText("Linked with another frame")).toBeVisible();
+
+    // A photo dark on top and light below, into the top half.
+    const b64 = await page.evaluate(async () => {
+      const c = new OffscreenCanvas(1200, 800);
+      const g = c.getContext("2d")!;
+      g.fillStyle = "#202020";
+      g.fillRect(0, 0, 1200, 400);
+      g.fillStyle = "#e0e0e0";
+      g.fillRect(0, 400, 1200, 400);
+      const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.95 })).arrayBuffer());
+      let s = "";
+      for (const x of bytes) s += String.fromCharCode(x);
+      return btoa(s);
+    });
+    await right.getByRole("button", { name: "Add photo…" }).click();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("menuitem", { name: "From this device…" }).click()]);
+    await chooser.setFiles({ name: "two-tone.jpg", mimeType: "image/jpeg", buffer: Buffer.from(b64, "base64") });
+    await expect(right.getByRole("button", { name: "Replace photo…" })).toBeVisible({ timeout: 30_000 });
+    await row(page, "Bottom half photo, upside down").locator(".name").click();
+    await expect(right.getByRole("button", { name: "Replace photo…" })).toBeVisible();
+
+    // Mirrored through the middle: dark at the card's top and bottom, light either side of the middle.
+    const points: [number, number][] = [[750, 330], [750, 950], [750, 1150], [750, 1770]];
+    const [top, nearTop, nearBottom, bottom] = await exportedLuma(page, points);
+    expect(top).toBeLessThan(70);
+    expect(bottom).toBeLessThan(70);
+    expect(nearTop).toBeGreaterThan(180);
+    expect(nearBottom).toBeGreaterThan(180);
+
+    // Zooming the photo in the lower half zooms the upper one too.
+    const zoom = right.getByRole("slider", { name: "Zoom" });
+    await zoom.focus();
+    for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowRight");
+    await page.waitForTimeout(400);
+    const fits = async () => (await page.evaluate(async () => {
+      const { composite } = await import("/src/core/document/session.ts" as string);
+      const { flatten } = await import("/src/core/document/operations.ts" as string);
+      return flatten(composite.getState().doc.layers).filter((l: { kind: string }) => l.kind === "slot").map((l: { fit: unknown; assetId: string }) => ({ fit: l.fit, assetId: l.assetId }));
+    })) as { fit: { zoom: number }; assetId: string }[];
+    const zoomed = await fits();
+    expect(zoomed[0].fit.zoom).toBeGreaterThan(1.2);
+    expect(zoomed[1]).toEqual(zoomed[0]);
+
+    // Linked frames are data: after a reload, filling still goes to both.
+    await page.waitForTimeout(1200);
+    await page.reload();
+    await go(page, "Design");
+    await page.locator(".design-tile").first().getByRole("button", { name: /^Open/ }).click();
+    await expect(layerNames(page)).toHaveCount(9);
+    expect(await fits()).toEqual(zoomed);
+    await row(page, "Top half photo").locator(".name").click();
+    await right.getByRole("button", { name: "Remove photo" }).click();
+    await expect.poll(async () => (await fits()).map((f) => f.assetId)).toEqual([null, null]);
+    // Unlinked, a frame keeps its own photo.
+    await right.getByRole("button", { name: "Unlink" }).click();
+    await expect(right.getByText("Linked with another frame")).toBeHidden();
+  });
+});
+
 /** The open document's layers (top-level), read from the app. */
 const docLayers = (page: Page) =>
   page.evaluate(async () => {

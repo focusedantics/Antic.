@@ -1,6 +1,6 @@
 import { setWorkspace, toast, ui } from "@/app/state";
 import { getDocument, putDocument } from "@/core/catalog/db";
-import { createDocument, flatten, groupLayer, sanitizeDocument } from "@/core/document/operations";
+import { createDocument, flatten, groupLayer, relinkFrames, sanitizeDocument } from "@/core/document/operations";
 import type { CompositeDocument, Layer } from "@/core/document/model";
 import { composite, flushDocument, openDocument, openStoredDocument, refreshDocumentList } from "@/core/document/session";
 import { buildCollage, defaultLayout } from "@/core/document/collage";
@@ -81,7 +81,8 @@ export async function addPhotosFromDevice() {
 export async function startTemplate(t: Template) {
   const base = createDocument(t.width, t.height, t.name, t.background, "design");
   const doc = t.slides && t.slides > 1 ? { ...base, carousel: { slides: t.slides } } : base;
-  const layers = t.build(doc);
+  // A fresh link for linked frames, so two designs from one template are not tied together.
+  const layers = relinkFrames(t.build(doc));
   await loadFonts(layerFonts(layers), 3000);
   startFrom({ ...doc, layers: layers.map(fitTextBoxes) });
 }
@@ -122,7 +123,7 @@ export function startMyTemplate(asset: DesignAsset) {
   const data = assetData(asset) as TemplateData | null;
   if (!data) return toast("This template could not be read.", "error");
   const d = data.document;
-  startFrom({ ...d, id: createId("doc"), name: asset.name, createdAt: Date.now(), layers: freshIds(d.layers) });
+  startFrom({ ...d, id: createId("doc"), name: asset.name, createdAt: Date.now(), layers: relinkFrames(freshIds(d.layers)) });
 }
 
 /** Saves the selected layers as one of my elements. */
@@ -143,7 +144,7 @@ export async function insertMyElement(asset: DesignAsset) {
   if (!doc || !data) return;
   // Scaled to one slide of a carousel; insertElement puts it on the slide being worked on.
   const canvas = layoutCanvas(doc);
-  const fitted = fitLayers({ width: data.width, height: data.height, items: data.layers }, canvas.width, canvas.height);
+  const fitted = relinkFrames(fitLayers({ width: data.width, height: data.height, items: data.layers }, canvas.width, canvas.height));
   const layer = fitted.length === 1 ? fitted[0] : { ...groupLayer(canvas, fitted, asset.name), expanded: false };
   await insertElement(layer, `Add ${asset.name}`);
 }

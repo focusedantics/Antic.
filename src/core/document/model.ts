@@ -269,6 +269,11 @@ export type SlotLayer = LayerBase & {
   readonly placeholder: string;
   /** Shows the photo before its Develop edits (still cropped and straightened as edited), for before/after posts. */
   readonly original?: boolean;
+  /**
+   * Frames sharing a link show the same photo, framed the same way (like the two halves of
+   * a playing card): filling, emptying, zooming or moving the photo in one does it in all.
+   */
+  readonly link?: string;
 };
 /** Brushes for paint layers. */
 export type BrushKind = "round" | "soft" | "marker" | "pencil" | "spray" | "calligraphy" | "eraser";

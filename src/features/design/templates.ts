@@ -83,6 +83,37 @@ function yesBut(k: Kit, height: number, photoHeight: number, gap: number, size: 
   ];
 }
 
+/** Turned upside down about its own centre. */
+const upsideDown = <T extends Layer>(l: T): T => ({ ...l, transform: { ...l.transform, rotation: 180 } });
+
+/**
+ * A playing card: the photo in the top half and again, upside down, in the bottom half,
+ * so it reads the same either way up. The two frames are linked: one photo fills both,
+ * and moving or zooming it in one moves it in the other.
+ */
+function playingCard(k: Kit): Layer[] {
+  const red = "#c41e3a";
+  const ink = "#1d1d1f";
+  const half = { placeholder: "#c9b99a", link: "card" };
+  // The index in a corner: a letter over a heart.
+  const index = (flip: boolean): Layer[] => {
+    const at = (l: Layer) => (flip ? upsideDown({ ...l, transform: { ...l.transform, x: k.doc.width - l.transform.x, y: k.doc.height - l.transform.y } }) : l);
+    return [
+      at(text(k, 50, 70, 130, 150, "K", { size: 130, font: PLAYFAIR, weight: 700, color: red }, { name: flip ? "Lower corner letter" : "Corner letter" })),
+      at(shape(k, 75, 225, 80, 72, "heart", { fill: red }, { name: flip ? "Lower corner heart" : "Corner heart" })),
+    ];
+  };
+  return [
+    frame(k, 190, 230, 1120, 820, "rectangle", { ...half, name: "Top half photo" }),
+    upsideDown(frame(k, 190, 1050, 1120, 820, "rectangle", { ...half, name: "Bottom half photo, upside down" })),
+    shape(k, 190, 1040, 1120, 20, "line", { stroke: ink, strokeWidth: 5, fill: null }, { name: "Middle line" }),
+    shape(k, 190, 230, 1120, 1640, "rectangle", { stroke: ink, strokeWidth: 6, fill: null }, { name: "Picture border" }),
+    shape(k, 40, 40, 1420, 2020, { kind: "rectangle", points: 4, ratio: 0.5, round: 0.05 }, { stroke: ink, strokeWidth: 6, fill: null }, { name: "Card edge" }),
+    ...index(false),
+    ...index(true),
+  ];
+}
+
 export const TEMPLATES: readonly Template[] = [
   // ─── Posts (1080 × 1080 / 1350) ───
   {
@@ -624,6 +655,16 @@ export const TEMPLATES: readonly Template[] = [
         shape(k, 820, 920, 160, 150, "heart", { fill: "#e0457b" }),
       ];
     },
+  },
+  {
+    id: "card-playing",
+    name: "Playing card",
+    category: "Invitations & cards",
+    tags: ["playing card", "card", "king", "queen", "mirror", "flip", "photo"],
+    width: 1500,
+    height: 2100,
+    background: "#f7f1e3",
+    build: (doc) => playingCard(P(doc, 1500, 2100)),
   },
   // ─── Business ───
   {

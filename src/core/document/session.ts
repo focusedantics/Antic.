@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import { deleteDocument, getDocument, listDocuments, putDocument } from "@/core/catalog/db";
 import { createHistory, type History } from "@/core/history/history";
 import type { CompositeDocument } from "./model";
-import { sanitizeDocument } from "./operations";
+import { sanitizeDocument, syncLinkedFrames } from "./operations";
 
 /** move: select and transform · mask: paint a layer mask · pen: draw a new path · nodes: edit a path · paint: brushes and fill. */
 export type CompositeTool = "move" | "mask" | "pen" | "nodes" | "paint";
@@ -115,7 +115,8 @@ export async function removeStoredDocument(id: string) {
 /** One edit of the open document; quick repeats of the same label merge unless `merge` is false. */
 export function editDocument(label: string, change: (doc: CompositeDocument) => CompositeDocument, { merge = true }: { merge?: boolean } = {}) {
   if (!history) return;
-  history.set(change(history.get()), label, merge);
+  const before = history.get();
+  history.set(syncLinkedFrames(before, change(before)), label, merge);
 }
 
 export const beginDocGesture = (label: string) => history?.begin(label);

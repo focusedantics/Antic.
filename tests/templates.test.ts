@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { assetData } from "@/core/design/assets";
 import { buildCollage, COLLAGE_LAYOUTS, collageCells, defaultLayout, relayout, rotatePhotos } from "@/core/document/collage";
-import type { GroupLayer, Layer, SlotLayer } from "@/core/document/model";
-import { createDocument, flatten, sanitizeDocument } from "@/core/document/operations";
+import type { CompositeDocument, GroupLayer, Layer, SlotLayer } from "@/core/document/model";
+import { createDocument, flatten, relinkFrames, sanitizeDocument, syncLinkedFrames, updateLayer } from "@/core/document/operations";
 import { fitLayers } from "@/core/looks/look";
 import { ELEMENTS } from "@/features/design/elements";
 import { TEMPLATES, matchesTemplate } from "@/features/design/templates";
@@ -137,5 +137,61 @@ describe("two photos on one backdrop", () => {
     expect(byName["Photo 1"].width).toBe(byName["Photo 2"].width);
     // Filling empty frames top of the list first: Photo 1, Photo 2, then the backdrop.
     expect(slots.reverse().map((s) => s.name)).toEqual(["Photo 1", "Photo 2", "Background photo"]);
+  });
+});
+
+describe("playing card (linked frames)", () => {
+  const t = TEMPLATES.find((x) => x.id === "card-playing")!;
+  const doc = createDocument(t.width, t.height);
+  const card: CompositeDocument = { ...doc, layers: t.build(doc) };
+  const halves = (d: CompositeDocument) => flatten(d.layers).filter((l): l is SlotLayer => l.kind === "slot");
+
+  it("has the photo twice, the lower one upside down, the same size and mirrored through the middle", () => {
+    const [top, bottom] = halves(card);
+    expect(top.link).toBeTruthy();
+    expect(bottom.link).toBe(top.link);
+    expect(top.transform.rotation).toBe(0);
+    expect(bottom.transform.rotation).toBe(180);
+    expect(bottom.transform.width).toBeCloseTo(top.transform.width);
+    expect(bottom.transform.height).toBeCloseTo(top.transform.height);
+    expect(top.transform.x).toBeCloseTo(doc.width / 2);
+    expect(top.transform.y + bottom.transform.y).toBeCloseTo(doc.height);
+    // The corner letters too: one at the top left, one upside down at the bottom right.
+    const letters = flatten(card.layers).filter((l) => l.kind === "text");
+    expect(letters[0].transform.x + letters[1].transform.x).toBeCloseTo(doc.width);
+    expect(letters[1].transform.rotation).toBe(180);
+  });
+
+  it("filling, moving or emptying one half does the same to the other", () => {
+    const [top, bottom] = halves(card);
+    const filled = syncLinkedFrames(card, updateLayer(card, bottom.id, (l) => (l.kind === "slot" ? { ...l, assetId: "p1" } : l)));
+    expect(halves(filled).map((f) => f.assetId)).toEqual(["p1", "p1"]);
+    const moved = syncLinkedFrames(filled, updateLayer(filled, top.id, (l) => (l.kind === "slot" ? { ...l, fit: { zoom: 2, x: 0.3, y: -0.1 } } : l)));
+    expect(halves(moved).map((f) => f.fit)).toEqual([{ zoom: 2, x: 0.3, y: -0.1 }, { zoom: 2, x: 0.3, y: -0.1 }]);
+    const emptied = syncLinkedFrames(moved, updateLayer(moved, bottom.id, (l) => (l.kind === "slot" ? { ...l, assetId: null } : l)));
+    expect(halves(emptied).map((f) => f.assetId)).toEqual([null, null]);
+    // Other edits pass through untouched.
+    const renamed = updateLayer(card, top.id, (l) => ({ ...l, name: "Me" }));
+    expect(syncLinkedFrames(card, renamed)).toBe(renamed);
+  });
+
+  it("an unlinked frame keeps its own photo", () => {
+    const [top, bottom] = halves(card);
+    const apart = updateLayer(card, bottom.id, (l) => {
+      const { link: _off, ...rest } = l as SlotLayer;
+      return rest;
+    });
+    const filled = syncLinkedFrames(apart, updateLayer(apart, top.id, (l) => (l.kind === "slot" ? { ...l, assetId: "p1" } : l)));
+    expect(halves(filled).map((f) => f.assetId)).toEqual(["p1", null]);
+  });
+
+  it("links survive saving, and a second copy gets its own link", () => {
+    expect(sanitizeDocument(JSON.parse(JSON.stringify(card)))).toEqual(card);
+    const bad = sanitizeDocument({ ...card, layers: card.layers.map((l) => (l.kind === "slot" ? { ...l, link: "<script>" } : l)) });
+    expect(halves(bad).every((f) => f.link === undefined)).toBe(true);
+    const again = relinkFrames(card.layers);
+    const [a, b] = flatten(again).filter((l): l is SlotLayer => l.kind === "slot");
+    expect(a.link).toBe(b.link);
+    expect(a.link).not.toBe(halves(card)[0].link);
   });
 });

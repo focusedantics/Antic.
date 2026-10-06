@@ -325,6 +325,13 @@ one object per edited recipe, so renders stay cached. Putting one photo in a fra
 fills empty "before edits" frames (`fillSlot`), which is how the "yes / but" templates
 fill from a single photo.
 
+Frames with the same `link` show one photo framed the same way (the playing card's two
+halves, the lower one turned 180°). `editDocument` passes every change through
+`syncLinkedFrames`: a linked frame whose photo or fit changed hands it to the rest, in the
+same undo step, so any control that edits a frame keeps the set together. Templates and
+saved templates or elements get fresh links when placed (`relinkFrames`), so two copies
+are not tied; `placePhotos` gives one photo per linked set; Properties can unlink a frame.
+
 **Layer styles** (`fx`) are made on the GPU from a layer's placed, canvas-sized content,
 after its clipped layers: drop shadow and glow are `pipeline.blur` of it (offset, spread
 by rescaling alpha), the outline a dilation in halving steps (`dilate`, 12 taps on a ring;

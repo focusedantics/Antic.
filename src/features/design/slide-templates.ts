@@ -2,7 +2,7 @@ import type { DesignAsset, TemplateData } from "@/core/design/assets";
 import { assetData } from "@/core/design/assets";
 import { MAX_SLIDES, slideCount, slideWidth } from "@/core/document/carousel";
 import type { CompositeDocument, Layer } from "@/core/document/model";
-import { canvasTransform, groupLayer, pathLayer } from "@/core/document/operations";
+import { canvasTransform, groupLayer, pathLayer, relinkFrames } from "@/core/document/operations";
 import { smartShape } from "@/core/document/shapes";
 import { fitLayers } from "@/core/looks/look";
 import { loadFonts } from "@/core/text/fonts";
@@ -62,7 +62,7 @@ export async function templatePages(doc: CompositeDocument, t: Template): Promis
   const count = t.slides ?? 1;
   const width = Math.round(slideWidth(doc) * count);
   const height = doc.height;
-  const built = t.build({ width, height });
+  const built = relinkFrames(t.build({ width, height }));
   await loadFonts(layerFonts(built), 3000);
   const layers = built.map(fitTextBoxes);
   const back = t.background && t.background !== doc.background ? [pageRect(width, height, t.background, `${t.name} background`)] : [];
@@ -76,7 +76,7 @@ export async function myTemplatePages(doc: CompositeDocument, asset: DesignAsset
   const count = slideCount(d);
   const width = Math.round(slideWidth(doc) * count);
   const height = doc.height;
-  const fitted = fitLayers({ width: d.width, height: d.height, items: d.layers }, width, height);
+  const fitted = relinkFrames(fitLayers({ width: d.width, height: d.height, items: d.layers }, width, height));
   await loadFonts(layerFonts(fitted), 3000);
   const back = d.background && d.background !== doc.background ? [pageRect(width, height, d.background, `${asset.name} background`)] : [];
   return { name: asset.name, count, layers: keepToPage([...back, ...fitted.map(fitTextBoxes)], width, height, asset.name) };

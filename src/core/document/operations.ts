@@ -327,6 +327,47 @@ export function updateLayers(doc: CompositeDocument, ids: readonly string[], cha
   return { ...doc, layers: mapTree(doc.layers, (l) => (set.has(l.id) ? change(l) : l)) };
 }
 
+const sameFit = (a: SlotLayer["fit"], b: SlotLayer["fit"]) => a.zoom === b.zoom && a.x === b.x && a.y === b.y;
+
+/**
+ * Keeps linked frames together after an edit: a frame whose photo or framing changed
+ * passes it to the other frames with its link (new frames, like pasted ones, pass nothing).
+ */
+export function syncLinkedFrames(before: CompositeDocument, after: CompositeDocument): CompositeDocument {
+  if (before === after) return after;
+  const linked = flatten(after.layers).filter((l): l is SlotLayer => l.kind === "slot" && !!l.link);
+  if (linked.length < 2) return after;
+  const old = new Map(flatten(before.layers).map((l) => [l.id, l]));
+  const lead = new Map<string, SlotLayer>();
+  for (const l of linked) {
+    const was = old.get(l.id);
+    if (was?.kind === "slot" && !lead.has(l.link!) && (was.assetId !== l.assetId || !sameFit(was.fit, l.fit))) lead.set(l.link!, l);
+  }
+  if (!lead.size) return after;
+  const follow = linked.filter((l) => {
+    const from = lead.get(l.link!);
+    return from && from.id !== l.id && (l.assetId !== from.assetId || !sameFit(l.fit, from.fit));
+  });
+  if (!follow.length) return after;
+  return updateLayers(after, follow.map((l) => l.id), (l) => {
+    const from = l.kind === "slot" && lead.get(l.link!);
+    return from ? { ...l, assetId: from.assetId, fit: from.fit } : l;
+  });
+}
+
+/** A copy of layers whose frame links are new (consistently), so a second copy of a template is not linked to the first. */
+export function relinkFrames(layers: readonly Layer[]): Layer[] {
+  const keys = new Map<string, string>();
+  const walk = (list: readonly Layer[]): Layer[] =>
+    list.map((l) => {
+      if (l.kind === "group") return { ...l, children: walk(l.children) };
+      if (l.kind !== "slot" || !l.link) return l;
+      if (!keys.has(l.link)) keys.set(l.link, createId("link"));
+      return { ...l, link: keys.get(l.link)! };
+    });
+  return walk(layers);
+}
+
 export function removeLayers(doc: CompositeDocument, ids: readonly string[]): CompositeDocument {
   const set = new Set(ids);
   return { ...doc, layers: mapTree(doc.layers, (l) => (set.has(l.id) ? null : l)) };
@@ -837,6 +878,7 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
         fit: { zoom: num(f?.zoom, 1, 1, 20), x: num(f?.x, 0, -1, 1), y: num(f?.y, 0, -1, 1) },
         placeholder: color(l.placeholder, "#c9ccd1"),
         ...(l.original === true ? { original: true } : {}),
+        ...(typeof l.link === "string" && /^[\w-]{1,48}$/.test(l.link) ? { link: l.link } : {}),
       };
     }
     case "shape": {

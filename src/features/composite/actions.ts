@@ -6,7 +6,7 @@ import { setWorkspace, toast, ui } from "@/app/state";
 import { getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
-import type { CompositeDocument, Layer } from "@/core/document/model";
+import type { CompositeDocument, Layer, SlotLayer } from "@/core/document/model";
 import { createDocument, documentAssets, flatten, imageLayer, insertLayer, updateLayer, updateLayers } from "@/core/document/operations";
 import { chooseFiles, pickerAccept } from "@/lib/files";
 import { acceptAttribute } from "@/core/image/formats";
@@ -129,7 +129,16 @@ export async function placePhotos(ids: readonly string[]) {
     .reverse()
     .map((l) => l.id);
   const first = selection.at(-1);
-  const order = first && empty.includes(first) ? [first, ...empty.filter((id) => id !== first)] : empty;
+  const ordered = first && empty.includes(first) ? [first, ...empty.filter((id) => id !== first)] : empty;
+  // Linked frames all show one photo: only the first of each takes one.
+  const links = new Set<string>();
+  const order = ordered.filter((id) => {
+    const link = (flatten(doc.layers).find((l) => l.id === id) as SlotLayer | undefined)?.link;
+    if (!link) return true;
+    if (links.has(link)) return false;
+    links.add(link);
+    return true;
+  });
   const queue = [...ids];
   // One photo pairs with "before edits" frames; several go one per frame.
   const pair = ids.length === 1;

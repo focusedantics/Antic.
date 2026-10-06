@@ -5,7 +5,7 @@ import { Slider } from "@/components/Slider";
 import { getAsset } from "@/core/catalog/store";
 import { COLLAGE_LAYOUTS, relayout, rotatePhotos } from "@/core/document/collage";
 import type { CollageInfo, GlowStyle, Gradient, GroupLayer, Layer, LayerFx, OutlineStyle, PathLayer, PathStyle, ShadowStyle, SlotLayer, SmartShape, TextLayer, TextStyle } from "@/core/document/model";
-import { defaultGradient, toEditablePath } from "@/core/document/operations";
+import { defaultGradient, flatten, toEditablePath } from "@/core/document/operations";
 import { SMART_SHAPES, smartShape } from "@/core/document/shapes";
 import { beginDocGesture, composite, endDocGesture } from "@/core/document/session";
 import { curveSag, fontShorthand, shownText } from "@/core/text/draw";
@@ -197,6 +197,8 @@ export function SlotSection({ layer }: { layer: SlotLayer }) {
   const setFrameKind = (label: string, frame: SmartShape) => set(layer.id, label, (l) => (l.kind === "slot" ? { ...l, frame: { ...frame, round: l.frame.round } } : l));
   const setFrameParams = (label: string, patch: Partial<SmartShape>) => set(layer.id, label, (l) => (l.kind === "slot" ? { ...l, frame: shapePatch(l.frame, layer.frame, patch) } : l));
   const asset = layer.assetId ? getAsset(layer.assetId) : null;
+  // Other frames linked to this one (they show the same photo, framed the same).
+  const twins = useStore(composite, (s) => (layer.link && s.doc ? flatten(s.doc.layers).filter((l) => l.kind === "slot" && l.link === layer.link && l.id !== layer.id).length : 0));
   return (
     <>
       <div className="subhead">Photo frame</div>
@@ -226,6 +228,26 @@ export function SlotSection({ layer }: { layer: SlotLayer }) {
         />{" "}
         Before edits (as shot)
       </label>
+      {twins > 0 && (
+        <div className="row wrap" style={{ alignItems: "center", gap: 6, margin: "2px 0 6px" }}>
+          <span className="faint" style={{ fontSize: 10, flex: "1 1 160px" }}>
+            Linked with {twins === 1 ? "another frame" : `${twins} other frames`}: one photo fills them all, and moving or zooming it here moves it there too.
+          </span>
+          <button
+            type="button"
+            className="btn small"
+            onClick={() =>
+              setOne(layer.id, "Unlink frame", (l) => {
+                if (l.kind !== "slot") return l;
+                const { link: _off, ...rest } = l;
+                return rest;
+              })
+            }
+          >
+            Unlink
+          </button>
+        </div>
+      )}
       {layer.original && <p className="faint" style={{ fontSize: 10, margin: "2px 0 6px" }}>Shows the photo without its Develop edits, cropped the same. A photo put in another frame fills this one too while it is empty.</p>}
       {layer.assetId && (
         <>
