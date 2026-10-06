@@ -3,6 +3,7 @@ import { blurEffects } from "./library/blur";
 import { craftEffects, glassExtras } from "./library/craft";
 import { edgeEffects } from "./library/edges";
 import { experimentalEffects } from "./library/experimental";
+import { frostEffects } from "./library/frost";
 import { halftoneEffects } from "./library/halftone";
 import { interfaceEffects } from "./library/interface";
 import { lightEffects } from "./library/light";
@@ -19,6 +20,7 @@ const withPost = (def: EffectDef): EffectDef => ({ ...def, params: [...def.param
 export const EFFECTS: readonly EffectDef[] = [
   ...blurEffects,
   ...lightEffects,
+  ...frostEffects,
   ...liquidEffects,
   ...glassExtras,
   ...typeEffects,
@@ -38,7 +40,7 @@ const byId = new Map(EFFECTS.map((e) => [e.id, e]));
 
 export const effectById = (id: string): EffectDef | undefined => byId.get(id);
 
-export const PICKS: readonly string[] = ["liquid-glass", "liquid-metal", "snow", "sparkles", "film", "ascii", "bricks", "halftone-cmyk", "fluted-glass", "contours", "tracking", "cross-stitch", "vhs", "dither", "neon", "risograph", "stained-glass", "lens-blur", "tilt-shift"];
+export const PICKS: readonly string[] = ["liquid-glass", "liquid-metal", "snow", "sparkles", "film", "ascii", "bricks", "halftone-cmyk", "fluted-glass", "contours", "tracking", "cross-stitch", "vhs", "dither", "neon", "risograph", "stained-glass", "lens-blur", "tilt-shift", "frosted-glass"];
 
 export function newEffect(id: string): EffectInstance | null {
   const def = byId.get(id);

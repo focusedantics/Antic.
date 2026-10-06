@@ -144,3 +144,58 @@ test("effects: liquid glass, glass blobs and liquid metal render without errors 
   await expect(page.locator(".toast.error")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("frosted glass: a dark figure on light grey becomes green ink on paper, or keeps its own colours", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => indexedDB.deleteDatabase("focused-catalog"));
+  await page.reload();
+  const b64 = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(800, 1000);
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#d8d8d8";
+    g.fillRect(0, 0, 800, 1000);
+    g.fillStyle = "#2a2a2a";
+    g.fillRect(300, 250, 200, 500);
+    const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.95 })).arrayBuffer());
+    let s = "";
+    for (const x of bytes) s += String.fromCharCode(x);
+    return btoa(s);
+  });
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Import Photos…" }).click()]);
+  await chooser.setFiles({ name: "figure.jpg", mimeType: "image/jpeg", buffer: Buffer.from(b64, "base64") });
+  await expect(page.locator(".cell img")).toHaveCount(1, { timeout: 30_000 });
+  await page.locator(".cell").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Apply an Effect…" }).click();
+  await page.getByLabel("Search effects").fill("frosted");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".layer-row").first()).toContainText("Frosted Glass");
+
+  /** Share of near-white paper, and the average colour in the figure's middle, from an exported PNG. */
+  const measure = async () => {
+    await page.getByRole("button", { name: "Export…" }).click();
+    const dialog = page.getByRole("dialog");
+    const [file] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+    const png = (await import("node:fs")).readFileSync((await file.path())!).toString("base64");
+    return page.evaluate(async (data) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+      const g = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      const all = g.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      let paper = 0;
+      for (let i = 0; i < all.length; i += 4) if (all[i] > 190 && all[i + 1] > 190 && all[i + 2] > 190) paper++;
+      const mid = g.getImageData(bitmap.width * 0.45, bitmap.height * 0.45, bitmap.width * 0.1, bitmap.height * 0.1).data;
+      const avg = [0, 0, 0];
+      for (let i = 0; i < mid.length; i += 4) for (let k = 0; k < 3; k++) avg[k] += mid[i + k] / (mid.length / 4);
+      return { paper: paper / (all.length / 4), figure: avg.map(Math.round) };
+    }, png);
+  };
+  const duo = await measure();
+  // Mostly paper; the figure is dark green ink (green above red and blue).
+  expect(duo.paper).toBeGreaterThan(0.6);
+  expect(duo.figure[1]).toBeGreaterThan(duo.figure[0] + 10);
+  expect(duo.figure[1]).toBeLessThan(140);
+  // Its own colours: the figure stays grey, not green.
+  await page.getByRole("combobox", { name: "Colour", exact: true }).selectOption("photo");
+  const own = await measure();
+  expect(Math.abs(own.figure[1] - own.figure[0])).toBeLessThan(12);
+});

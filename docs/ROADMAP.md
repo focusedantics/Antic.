@@ -159,6 +159,13 @@ Done:
 - 51 original GLSL effects in ten categories: Light & glass, Type & code, Halftone & dither,
   Textile & craft, Pixel & 3D, Edges & outlines, Analog & glitch, Experimental,
   Tracking & interface, and Motion. Every parameter is real: the GPU reads each one.
+- **Frosted Glass** (Light & glass): the photo behind sand-blasted, pebbled glass. Each pixel
+  looks through a random nearby spot, so edges break into speckles; a slow warp melts the
+  shapes, and grain covers it like print. It shows as a two-colour print (ink on paper,
+  green on grey by default) or in the photo's own colours.
+- The effects' average brightness (used by Halftone, the type effects and Frosted Glass to
+  re-centre tones) now samples the whole image. It used to read the smallest mip level,
+  which on odd sizes held mostly the middle, so a dark subject made a light photo read dark.
 - 21 animated effects. Motion adds Snowfall, Rain, Sparkles, Film Grain & Flicker, Light
   Leaks, Bokeh Float, Heat & Water, Color Cycle, Camera Motion and Confetti. Code Rain,
   CRT, VHS, Datamosh Glitch, Kaleidoscope, Liquid Warp, Aura Gradient, Tracking HUD and

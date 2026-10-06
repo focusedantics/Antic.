@@ -29,8 +29,19 @@ vec4 srcLod(vec2 p, float lod) { return unpremul(textureLod(uInput, p / uSize, c
 /** Average color over a footprint of about \`size\` pixels around p. */
 vec4 srcAvg(vec2 p, float size) { return srcLod(p, log2(max(size, 1.0))); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
-/** The image's average brightness (its smallest mip level). */
-float meanLuma() { return luma(srcLod(uSize * 0.5, uMaxLod).rgb); }
+/**
+ * The image's average brightness. Not the 1 × 1 mip: halving an odd size drops the last
+ * row or column, so the top levels hold mostly the middle of the image (a dark subject in
+ * the middle made a light photo read as dark). A 4 × 4 grid of samples from a level a few
+ * steps finer covers the whole picture.
+ */
+float meanLuma() {
+  float lod = max(0.0, uMaxLod - 3.0);
+  float sum = 0.0;
+  for (int j = 0; j < 4; j++)
+    for (int i = 0; i < 4; i++) sum += luma(srcLod(uSize * (vec2(float(i), float(j)) + 0.5) / 4.0, lod).rgb);
+  return sum / 16.0;
+}
 /** Brightness re-centered on the image's average, so mid-toned photos still use the full range. */
 float leveled(float l, float k) { return clamp((l - meanLuma()) * k + 0.5, 0.0, 1.0); }
 float sat01(float x) { return clamp(x, 0.0, 1.0); }
