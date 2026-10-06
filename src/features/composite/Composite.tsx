@@ -2,6 +2,7 @@ import { chooseFiles, pickerAccept } from "@/lib/files";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/app/hooks";
+import { loadCustomFonts } from "@/core/text/custom-fonts";
 import { layout } from "@/app/layout";
 import { Icon, type IconName } from "@/components/icons";
 import { registerShortcuts } from "@/app/shortcuts";
@@ -27,6 +28,8 @@ import { isAnimated } from "@/core/document/animation";
 import { newDocument } from "./actions";
 import { addLayerMenu, deleteSelected, duplicateSelected, groupSelected, LayersPanel } from "./LayersPanel";
 import { PropertiesPanel } from "./Properties";
+import { DocColor } from "./fields";
+import { ColorField } from "@/features/color/ColorField";
 import { openLooks } from "@/features/looks/LooksDialog";
 import { readLookFile } from "@/core/looks/look";
 import { saveLook } from "@/core/looks/store";
@@ -112,7 +115,7 @@ function NewDocumentDialog({ onClose }: { onClose: () => void }) {
         <label className="check">
           <input type="checkbox" checked={bg === null} onChange={(e) => setBg(e.target.checked ? null : "#ffffff")} /> Transparent background
         </label>
-        {bg !== null && <input type="color" value={bg} aria-label="Background color" onChange={(e) => setBg(e.target.value)} />}
+        {bg !== null && <ColorField label="Background color" value={bg} onChange={setBg} />}
       </div>
     </Dialog>
   );
@@ -250,7 +253,7 @@ export function CanvasPanel() {
         <label className="check">
           <input type="checkbox" checked={doc.background === null} onChange={(e) => editDocument("Background", (d) => ({ ...d, background: e.target.checked ? null : "#ffffff" }))} /> Transparent
         </label>
-        {doc.background && <input type="color" value={doc.background} aria-label="Background color" onChange={(e) => editDocument("Background", (d) => ({ ...d, background: e.target.value }))} />}
+        {doc.background && <DocColor label="Background color" value={doc.background} onChange={(c) => editDocument("Background", (d) => ({ ...d, background: c }))} />}
       </div>
     </Panel>
   );
@@ -517,6 +520,10 @@ export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> 
   const [dialog, setDialog] = useState<"new" | "export" | null>(null);
   useEffect(() => registerShortcuts("composite", (e) => compositeShortcuts(e, () => setDialog("export"))), []);
   useEffect(() => () => void flushDocument(), []);
+  // Fonts the user imported, for text in these documents.
+  useEffect(() => {
+    void loadCustomFonts();
+  }, []);
   // Reopen the most recent composition (the open document may be a design, from the Design workspace).
   useEffect(() => {
     void openLatest(false);

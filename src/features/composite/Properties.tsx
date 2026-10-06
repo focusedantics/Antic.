@@ -11,11 +11,14 @@ import type { Basic, MaskComponent } from "@/core/develop/recipe";
 import { ANIMATION_LIMITS, DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
 import type { DocAnimation, Layer, ShapeStyle, TextMotionKind, TextStyle, Transform } from "@/core/document/model";
 import { FONT_GROUPS, FONTS, fontLabel } from "@/core/text/fonts";
+import { customFonts, importFonts, loadCustomFonts } from "@/core/text/custom-fonts";
+import { chooseFiles, pickerAccept } from "@/lib/files";
+import { useEffect } from "react";
 import { effectById } from "@/core/effects/registry";
 import { emptyMask, fitTransform, locate, TEXT_MOTIONS } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
 import { recipeFor, setRecipeFor } from "@/core/develop/session";
-import { GradientEditor, Num, set } from "./fields";
+import { DocColor, GradientEditor, Num, set } from "./fields";
 import { CollageSection, PathSection, ReplacePhoto, SlotSection, StylesSection, TextExtras } from "./StyleSections";
 import { EffectParams } from "@/features/effects/EffectParams";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
@@ -264,6 +267,57 @@ function GradientSection({ layer }: { layer: Extract<Layer, { kind: "gradient" }
   return <GradientEditor gradient={layer.gradient} onChange={(label, patch) => set(layer.id, label, (l) => (l.kind === "gradient" ? { ...l, gradient: { ...l.gradient, ...patch } } : l))} />;
 }
 
+/** Bundled fonts by group, my imported fonts, and importing more. */
+function FontSelect({ value, onChange }: { value: string; onChange: (font: string) => void }) {
+  const mine = useStore(customFonts, (st) => st.fonts);
+  useEffect(() => {
+    void loadCustomFonts();
+  }, []);
+  const known = FONTS.some((f) => f.css === value) || mine.some((f) => f.css === value);
+  return (
+    <select
+      className="input"
+      value={value}
+      aria-label="Font"
+      style={{ width: "100%", margin: "6px 0", fontFamily: value }}
+      onChange={async (e) => {
+        if (e.target.value !== "__import") return onChange(e.target.value);
+        e.target.value = value;
+        const files = await chooseFiles({ multiple: true, accept: pickerAccept(".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2", {}) });
+        if (!files.length) return;
+        try {
+          const added = await importFonts(files, FONTS.map((f) => f.label));
+          if (added[0]) onChange(added[0].css);
+          toast(`Added ${added.length} font${added.length === 1 ? "" : "s"}.`);
+        } catch (error) {
+          toast(error instanceof Error ? error.message : "That font could not be read.", "error");
+        }
+      }}
+    >
+      {!known && <option value={value}>{fontLabel(value)}</option>}
+      {mine.length > 0 && (
+        <optgroup label="My fonts">
+          {mine.map((f) => (
+            <option key={f.id} value={f.css} style={{ fontFamily: f.css }}>
+              {f.family}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {FONT_GROUPS.map((group) => (
+        <optgroup key={group} label={group}>
+          {FONTS.filter((f) => f.group === group).map((f) => (
+            <option key={f.css} value={f.css} style={{ fontFamily: f.css }}>
+              {f.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+      <option value="__import">Import a font file…</option>
+    </select>
+  );
+}
+
 function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
   const s = layer.style;
   const motion = s.motion && s.motion.kind !== "none" ? s.motion : null;
@@ -278,20 +332,9 @@ function TextSection({ layer }: { layer: Extract<Layer, { kind: "text" }> }) {
     <>
       <div className="subhead">Text</div>
       <textarea className="input" rows={3} value={s.text} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => update("Edit text", { text: e.target.value })} aria-label="Text" style={{ width: "100%" }} />
-      <select className="input" value={s.font} onChange={(e) => update("Font", { font: e.target.value })} aria-label="Font" style={{ width: "100%", margin: "6px 0", fontFamily: s.font }}>
-        {!FONTS.some((f) => f.css === s.font) && <option value={s.font}>{fontLabel(s.font)}</option>}
-        {FONT_GROUPS.map((group) => (
-          <optgroup key={group} label={group}>
-            {FONTS.filter((f) => f.group === group).map((f) => (
-              <option key={f.css} value={f.css} style={{ fontFamily: f.css }}>
-                {f.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
+      <FontSelect value={s.font} onChange={(font) => update("Font", { font })} />
       <div className="row">
-        <input type="color" value={s.color} aria-label="Text color" onChange={(e) => update("Text color", { color: e.target.value })} />
+        <DocColor label="Text color" value={s.color} onChange={(c) => update("Text color", { color: c })} />
         <select className="input" value={s.weight} aria-label="Weight" onChange={(e) => update("Font weight", { weight: Number(e.target.value) })}>
           {[300, 400, 500, 600, 700, 800, 900].map((w) => (
             <option key={w} value={w}>
@@ -380,8 +423,8 @@ function ShapeSection({ layer }: { layer: Extract<Layer, { kind: "shape" }> }) {
         </div>
       </div>
       <div className="row">
-        Fill <input type="color" value={s.fill} aria-label="Fill color" onChange={(e) => update("Fill color", { fill: e.target.value })} />
-        Stroke <input type="color" value={s.stroke} aria-label="Stroke color" onChange={(e) => update("Stroke color", { stroke: e.target.value })} />
+        Fill <DocColor label="Fill color" value={s.fill} onChange={(c) => update("Fill color", { fill: c })} />
+        Stroke <DocColor label="Stroke color" value={s.stroke} onChange={(c) => update("Stroke color", { stroke: c })} />
       </div>
       <Slider label="Fill alpha" value={Math.round(s.fillOpacity * 100)} min={0} max={100} defaultValue={100} format={(v) => `${v}%`} onGestureStart={() => beginDocGesture("Shape fill")} onGestureEnd={endDocGesture} onChange={(v) => update("Shape fill", { fillOpacity: v / 100 })} />
       <Slider label="Stroke" value={s.strokeWidth} min={0} max={200} defaultValue={0} format={(v) => `${v}px`} onGestureStart={() => beginDocGesture("Stroke width")} onGestureEnd={endDocGesture} onChange={(v) => update("Stroke width", { strokeWidth: v })} />
@@ -594,7 +637,7 @@ export function PropertiesPanel() {
       {layer.kind === "effect" && <EffectSection layer={layer} />}
       {layer.kind === "fill" && (
         <div className="row" style={{ marginBottom: 6 }}>
-          Color <input type="color" value={layer.color} aria-label="Fill color" onChange={(e) => set(layer.id, "Fill color", (l) => (l.kind === "fill" ? { ...l, color: e.target.value } : l))} />
+          Color <DocColor label="Fill color" value={layer.color} onChange={(c) => set(layer.id, "Fill color", (l) => (l.kind === "fill" ? { ...l, color: c } : l))} />
         </div>
       )}
       {layer.kind !== "adjustment" && layer.kind !== "effect" && <StylesSection layer={layer} />}

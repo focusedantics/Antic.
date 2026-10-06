@@ -45,3 +45,13 @@ export function pickerAccept(desktop: string, phone: { images?: boolean; videos?
   if (!appleTouch()) return desktop;
   return [phone.images && "image/*", phone.videos && "video/*", phone.extra].filter(Boolean).join(",");
 }
+
+/** Saves a blob as a download (the browser's file save). */
+export function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}

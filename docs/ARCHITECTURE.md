@@ -335,6 +335,22 @@ fact. A user's templates, elements (and, from phase 5, palettes, gradients, brus
 fonts) live in the `designAssets` store with a folder path; `core/design/assets.ts`
 validates them on every read.
 
+**Colours** (`features/color`, shared by Composite and Design): `ColorField` is a swatch
+plus a hex field; its picker has a hue/saturation wheel with brightness, a
+saturation/brightness square with hue, and RGB/HSB values (`lib/hsv.ts`), swatches from
+recent colours, the open design's colours (`documentColors`), built-in and saved
+palettes, and an eyedropper: the EyeDropper API where the browser has it, otherwise the
+next tap on the canvas reads the design's own pixels (`colorAt`, one render per pick).
+Picker drags are one undoable step (`DocColor` wraps them in a document gesture).
+Palettes read and write GIMP `.gpl`, Adobe `.ase`, JSON and hex lists (`formats.ts`);
+a palette can be taken from a photo (`extract.ts`: deterministic k-means++ on about
+9 000 pixels). Imported fonts are registered as FontFaces when Composite or Design opens
+and before exports (`core/text/custom-fonts.ts`); custom brush tips are decoded on first
+use and drawn as round dabs until then (`core/document/brush-tips.ts`). Everything a
+designer keeps can be filed in folders, exported and imported as a `.focusedkit` zip
+(`core/design/bundle.ts`), from the "Your things" manager; designs carry their folder in
+the document.
+
 Switching documents saves the one being replaced (`openDocument` flushes the pending
 save), and `pagehide` / hidden visibility flush too, so the last edits before leaving
 survive; a flush keeps the stored thumbnail, which it remembers rather than reads, so the

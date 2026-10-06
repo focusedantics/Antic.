@@ -10,7 +10,7 @@ import { SMART_SHAPES, smartShape } from "@/core/document/shapes";
 import { beginDocGesture, composite, endDocGesture } from "@/core/document/session";
 import { curveSag, fontShorthand, shownText } from "@/core/text/draw";
 import { fillSlot, importPhotosFromDevice, replaceImage } from "./actions";
-import { GradientEditor, set } from "./fields";
+import { DocColor, GradientEditor, set } from "./fields";
 
 /** A slider that is one undoable step per drag. */
 function Gesture({ label, history, value, min, max, step, def, format, onChange }: { label: string; history?: string; value: number; min: number; max: number; step?: number; def: number; format?: (v: number) => string; onChange: (v: number) => void }) {
@@ -92,7 +92,7 @@ export function PathSection({ layer }: { layer: PathLayer }) {
         </label>
         {s.fill !== null && (
           <>
-            <input type="color" value={s.fill} aria-label="Fill colour" onChange={(e) => update("Fill colour", { fill: e.target.value })} />
+            <DocColor label="Fill colour" value={s.fill} onChange={(c) => update("Fill colour", { fill: c })} />
             <label className="check">
               <input type="checkbox" checked={!!s.fillGradient} onChange={(e) => update("Fill gradient", { fillGradient: e.target.checked ? { ...defaultGradient, stops: [{ offset: 0, color: s.fill ?? "#d9a441", opacity: 1 }, { offset: 1, color: "#e0457b", opacity: 1 }] } : undefined })} /> Gradient
             </label>
@@ -118,7 +118,7 @@ export function PathSection({ layer }: { layer: PathLayer }) {
         </label>
         {s.stroke !== null && s.strokeWidth > 0 && (
           <>
-            <input type="color" value={s.stroke} aria-label="Stroke colour" onChange={(e) => update("Stroke colour", { stroke: e.target.value })} />
+            <DocColor label="Stroke colour" value={s.stroke} onChange={(c) => update("Stroke colour", { stroke: c })} />
             <label className="check">
               <input type="checkbox" checked={!!s.strokeGradient} onChange={(e) => update("Stroke gradient", { strokeGradient: e.target.checked ? { ...defaultGradient, stops: [{ offset: 0, color: s.stroke ?? "#111111", opacity: 1 }, { offset: 1, color: "#3dd6ff", opacity: 1 }] } : undefined })} /> Gradient
             </label>
@@ -203,7 +203,7 @@ export function SlotSection({ layer }: { layer: SlotLayer }) {
       <ShapeParams shape={layer.frame} onChange={(label, patch) => setFrame(label, { ...layer.frame, ...patch })} />
       {!layer.assetId && (
         <div className="row" style={{ marginTop: 4 }}>
-          Placeholder <input type="color" value={layer.placeholder} aria-label="Placeholder colour" onChange={(e) => set(layer.id, "Placeholder colour", (l) => (l.kind === "slot" ? { ...l, placeholder: e.target.value } : l))} />
+          Placeholder <DocColor label="Placeholder colour" value={layer.placeholder} onChange={(c) => set(layer.id, "Placeholder colour", (l) => (l.kind === "slot" ? { ...l, placeholder: c } : l))} />
         </div>
       )}
     </>
@@ -279,7 +279,7 @@ export function TextExtras({ layer }: { layer: TextLayer }) {
       {s.highlight && (
         <>
           <div className="row">
-            Highlight <input type="color" value={s.highlight.color} aria-label="Highlight colour" onChange={(e) => update("Highlight colour", { highlight: { ...s.highlight!, color: e.target.value } })} />
+            Highlight <DocColor label="Highlight colour" value={s.highlight.color} onChange={(c) => update("Highlight colour", { highlight: { ...s.highlight!, color: c } })} />
           </div>
           <Gesture label="Opacity" history="Highlight opacity" value={Math.round(s.highlight.opacity * 100)} min={0} max={100} def={100} format={pct} onChange={(v) => update("Highlight opacity", { highlight: { ...s.highlight!, opacity: v / 100 } })} />
           <Gesture label="Padding" history="Highlight padding" value={Math.round(s.highlight.padding * unit)} min={0} max={Math.round(unit)} def={Math.round(unit * 0.18)} format={px} onChange={(v) => update("Highlight padding", { highlight: { ...s.highlight!, padding: v / unit } })} />
@@ -328,7 +328,7 @@ export function StylesSection({ layer }: { layer: Layer }) {
       {sh && (
         <div className="style-group">
           <div className="row">
-            Shadow <input type="color" value={sh.color} aria-label="Shadow colour" onChange={(e) => update("Shadow colour", "shadow", { ...sh, color: e.target.value })} />
+            Shadow <DocColor label="Shadow colour" value={sh.color} onChange={(c) => update("Shadow colour", "shadow", { ...sh, color: c })} />
           </div>
           <Gesture label="Opacity" history="Shadow opacity" value={Math.round(sh.opacity * 100)} min={0} max={100} def={45} format={pct} onChange={(v) => update("Shadow opacity", "shadow", { ...sh, opacity: v / 100 })} />
           <Gesture label="Distance" history="Shadow distance" value={sh.distance} min={0} max={big} def={Math.round(docUnit())} format={px} onChange={(v) => update("Shadow distance", "shadow", { ...sh, distance: v })} />
@@ -340,7 +340,7 @@ export function StylesSection({ layer }: { layer: Layer }) {
       {gl && (
         <div className="style-group">
           <div className="row">
-            Glow <input type="color" value={gl.color} aria-label="Glow colour" onChange={(e) => update("Glow colour", "glow", { ...gl, color: e.target.value })} />
+            Glow <DocColor label="Glow colour" value={gl.color} onChange={(c) => update("Glow colour", "glow", { ...gl, color: c })} />
           </div>
           <Gesture label="Opacity" history="Glow opacity" value={Math.round(gl.opacity * 100)} min={0} max={100} def={90} format={pct} onChange={(v) => update("Glow opacity", "glow", { ...gl, opacity: v / 100 })} />
           <Gesture label="Size" history="Glow size" value={gl.blur} min={0} max={big} def={Math.round(docUnit() * 2.5)} format={px} onChange={(v) => update("Glow size", "glow", { ...gl, blur: v })} />
@@ -350,7 +350,7 @@ export function StylesSection({ layer }: { layer: Layer }) {
       {ol && (
         <div className="style-group">
           <div className="row">
-            Outline <input type="color" value={ol.color} aria-label="Outline colour" onChange={(e) => update("Outline colour", "outline", { ...ol, color: e.target.value })} />
+            Outline <DocColor label="Outline colour" value={ol.color} onChange={(c) => update("Outline colour", "outline", { ...ol, color: c })} />
           </div>
           <Gesture label="Width" history="Outline width" value={ol.width} min={1} max={Math.round(big / 2)} def={Math.max(1, Math.round(docUnit() * 0.8))} format={px} onChange={(v) => update("Outline width", "outline", { ...ol, width: v })} />
           <Gesture label="Opacity" history="Outline opacity" value={Math.round(ol.opacity * 100)} min={0} max={100} def={100} format={pct} onChange={(v) => update("Outline opacity", "outline", { ...ol, opacity: v / 100 })} />

@@ -1,5 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
+import { ColorField } from "@/features/color/ColorField";
 import type { PathNode, SubPath } from "@/core/document/model";
 import { canvasToPathPoint, insertLayer, locate, pathFromCanvas, pathPointToCanvas, refitPath, toEditablePath, updateLayer } from "@/core/document/operations";
 import { beginDocGesture, composite, editDocument, endDocGesture } from "@/core/document/session";
@@ -356,7 +357,7 @@ export function PenOptions({ tool, onDone }: { tool: "pen" | "nodes"; onDone: ()
     <div className="tool-options" role="toolbar" aria-label={tool === "pen" ? "Pen options" : "Point options"}>
       {tool === "pen" ? (
         <>
-          <input type="color" value={s.color} aria-label="Pen colour" onChange={(e) => paint.setState({ color: e.target.value })} />
+          <ColorField label="Pen colour" value={s.color} onChange={(c) => paint.setState({ color: c })} />
           <label className="tool-range">
             <span>Line</span>
             <input type="range" min={1} max={100} value={Math.min(100, Math.round(s.size))} aria-label="Line width" onChange={(e) => paint.setState({ size: Number(e.target.value) })} />

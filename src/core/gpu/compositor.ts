@@ -5,6 +5,7 @@ import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
 import { canvasToContent, layerPaths } from "@/core/document/operations";
 import { tracePaths, shapePaths } from "@/core/document/shapes";
 import { drawOps } from "@/core/document/paint";
+import { tipLoads } from "@/core/document/brush-tips";
 import { DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
 import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, LayerFx, PaintLayer, PaintOp, PathLayer, ShapeLayer, SlotLayer, TextLayer } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
@@ -48,7 +49,7 @@ export class Compositor {
    * Paint layers drawn so far, per layer: a canvas with every op but the newest (the one
    * still being drawn), so a stroke in progress redraws only itself.
    */
-  private paints = new Map<string, { width: number; height: number; ops: readonly PaintOp[]; base: OffscreenCanvas; out: OffscreenCanvas; scratch: OffscreenCanvas; used: number }>();
+  private paints = new Map<string, { width: number; height: number; ops: readonly PaintOp[]; tips: string; base: OffscreenCanvas; out: OffscreenCanvas; scratch: OffscreenCanvas; used: number }>();
   private frame = 0;
   /** Seconds into the document's animation loop for the render in progress. */
   private time = 0;
@@ -412,11 +413,13 @@ export class Compositor {
   private paintContent(layer: PaintLayer, scale: number): Texture {
     const size = this.contentSize(layer, scale);
     const ops = layer.ops;
-    return this.cache(`${size.width}x${size.height}:${recipeKey(ops)}`, layer.id, () => {
+    // Custom tips draw as round dabs until they load; then the drawing is made again.
+    const tips = ops.some((op) => op.type === "stroke" && op.tip) ? `:t${tipLoads.getState().generation}` : "";
+    return this.cache(`${size.width}x${size.height}:${recipeKey(ops)}${tips}`, layer.id, () => {
       let entry = this.paints.get(layer.id);
       if (!entry || entry.width !== size.width || entry.height !== size.height) {
         const make = () => new OffscreenCanvas(size.width, size.height);
-        entry = { width: size.width, height: size.height, ops: [], base: make(), out: make(), scratch: make(), used: this.frame };
+        entry = { width: size.width, height: size.height, ops: [], tips, base: make(), out: make(), scratch: make(), used: this.frame };
         this.paints.set(layer.id, entry);
       }
       entry.used = this.frame;
@@ -424,7 +427,8 @@ export class Compositor {
       const scratch = entry.scratch.getContext("2d")!;
       // The base holds a prefix of the ops: keep it when the ops still start with it.
       const committed = Math.max(0, ops.length - 1);
-      const prefix = entry.ops.length <= committed && entry.ops.every((op, i) => ops[i] === op);
+      const prefix = entry.ops.length <= committed && entry.ops.every((op, i) => ops[i] === op) && entry.tips === tips;
+      entry.tips = tips;
       if (!prefix) {
         base.clearRect(0, 0, size.width, size.height);
         entry.ops = [];

@@ -1,4 +1,5 @@
 import type { BrushKind, PaintFill, PaintLayer, PaintOp, PaintStroke } from "./model";
+import { brushTip } from "./brush-tips";
 
 /**
  * Paint layers: brush strokes and bucket fills kept as data and drawn with Canvas2D at
@@ -101,7 +102,8 @@ function softSprite(hardness: number, color: string): OffscreenCanvas {
 export function drawStroke(ctx: Ctx2D, scratch: Ctx2D, s: PaintStroke, w: number, h: number) {
   const radius = Math.max(0.25, (s.size * w) / 2);
   const pressure = (p: number) => 0.25 + 0.75 * Math.max(0, Math.min(1, p));
-  const spacing = s.brush === "spray" ? radius * 0.5 : s.brush === "soft" ? Math.max(0.5, radius * 0.15) : Math.max(0.4, radius * 0.18);
+  const tip = s.tip ? brushTip(s.tip) : null;
+  const spacing = tip ? Math.max(0.5, radius * 2 * tip.spacing) : s.brush === "spray" ? radius * 0.5 : s.brush === "soft" ? Math.max(0.5, radius * 0.15) : Math.max(0.4, radius * 0.18);
   const dabs = resample(s.points, w, h, spacing);
   if (!dabs.length) return;
   const sw = scratch.canvas.width;
@@ -113,6 +115,27 @@ export function drawStroke(ctx: Ctx2D, scratch: Ctx2D, s: PaintStroke, w: number
   scratch.save();
   scratch.fillStyle = s.brush === "eraser" ? "#000000" : s.color;
   const random = rng(s.seed);
+  if (tip) {
+    // A custom tip: tinted once, stamped along the stroke and turned with it.
+    const tinted = new OffscreenCanvas(tip.image.width, tip.image.height);
+    const t = tinted.getContext("2d")!;
+    t.drawImage(tip.image, 0, 0);
+    t.globalCompositeOperation = "source-in";
+    t.fillStyle = s.brush === "eraser" ? "#000000" : s.color;
+    t.fillRect(0, 0, tinted.width, tinted.height);
+    for (let i = 0; i < dabs.length; i++) {
+      const d = dabs[i];
+      const next = dabs[Math.min(dabs.length - 1, i + 1)];
+      const prev = dabs[Math.max(0, i - 1)];
+      const angle = Math.atan2(next.y - prev.y, next.x - prev.x);
+      const r = radius * pressure(d.p);
+      scratch.save();
+      scratch.translate(d.x, d.y);
+      scratch.rotate(angle);
+      scratch.drawImage(tinted, -r, -r, r * 2, r * 2);
+      scratch.restore();
+    }
+  } else
   switch (s.brush) {
     case "soft": {
       const sprite = softSprite(s.hardness, s.color);

@@ -19,10 +19,12 @@ export type PaintSettings = {
   /** Tap fills an area (the bucket) instead of drawing. */
   readonly bucket: boolean;
   readonly tolerance: number;
+  /** A saved brush's tip (design asset id), stamped instead of the brush's dab. */
+  readonly tip: string | null;
 };
 
 const KEY = "focused:paint";
-const defaults: PaintSettings = { brush: "round", color: "#111111", size: 12, opacity: 1, hardness: 0.2, smoothing: 0.35, shapes: true, bucket: false, tolerance: 0.15 };
+const defaults: PaintSettings = { brush: "round", color: "#111111", size: 12, opacity: 1, hardness: 0.2, smoothing: 0.35, shapes: true, bucket: false, tolerance: 0.15, tip: null };
 
 function load(): PaintSettings {
   try {
@@ -38,6 +40,7 @@ function load(): PaintSettings {
       shapes: raw.shapes !== false,
       bucket: false,
       tolerance: typeof raw.tolerance === "number" && raw.tolerance >= 0 && raw.tolerance <= 1 ? raw.tolerance : defaults.tolerance,
+      tip: typeof raw.tip === "string" ? raw.tip : null,
     };
   } catch {
     return defaults;
@@ -60,7 +63,7 @@ export function chooseBrush(kind: BrushKind, docShort: number) {
   perBrush.set(s.brush, { size: s.size, opacity: s.opacity, hardness: s.hardness });
   const b = BRUSHES.find((x) => x.kind === kind)!;
   const kept = perBrush.get(kind);
-  paint.setState({ brush: kind, bucket: false, ...(kept ?? { size: Math.max(1, Math.round(b.size * docShort)), opacity: b.opacity, hardness: b.hardness }) });
+  paint.setState({ brush: kind, bucket: false, tip: null, ...(kept ?? { size: Math.max(1, Math.round(b.size * docShort)), opacity: b.opacity, hardness: b.hardness }) });
 }
 
 /**

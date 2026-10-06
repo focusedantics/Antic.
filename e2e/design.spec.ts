@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
@@ -164,7 +165,7 @@ test.describe("computer: shapes, styles, text and frames", () => {
     // A blue outline around it, then a drop shadow under it.
     const blue = "b > 200 && r < 60 && g < 60";
     await right.getByRole("checkbox", { name: "Outline" }).check();
-    await right.getByLabel("Outline colour").fill("#0000ff");
+    await right.getByRole("textbox", { name: "Outline colour" }).fill("#0000ff");
     expect(await count(page, blue)).toBeGreaterThan(200);
     const grey = "r < 235 && r > 120 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6";
     const before = await count(page, grey);
@@ -262,7 +263,7 @@ test.describe("computer: drawing tools", () => {
     // Draw: a stroke in red makes a drawing layer.
     await tools.getByRole("button", { name: "Draw", exact: true }).click();
     const options = page.getByRole("toolbar", { name: "Drawing options" });
-    await options.getByLabel("Brush colour").fill("#ff0000");
+    await options.getByRole("textbox", { name: "Brush colour" }).fill("#ff0000");
     await options.getByRole("checkbox", { name: "Hold to straighten" }).uncheck();
     await page.mouse.move(cx - r, cy - r * 0.8);
     await page.mouse.down();
@@ -293,7 +294,7 @@ test.describe("computer: drawing tools", () => {
     }
     await page.mouse.up();
     await options.getByRole("button", { name: "Fill", exact: true }).click();
-    await options.getByLabel("Brush colour").fill("#0000ff");
+    await options.getByRole("textbox", { name: "Brush colour" }).fill("#0000ff");
     const blue = "b > 200 && r < 60 && g < 60";
     // The options bar's colour swatch is blue too.
     const swatch = await count(page, blue);
@@ -310,7 +311,7 @@ test.describe("computer: drawing tools", () => {
 
     // Pen: three clicks and a click on the first point make a filled triangle.
     await tools.getByRole("button", { name: "Pen", exact: true }).click();
-    await page.getByRole("toolbar", { name: "Pen options" }).getByLabel("Pen colour").fill("#00b000");
+    await page.getByRole("toolbar", { name: "Pen options" }).getByRole("textbox", { name: "Pen colour" }).fill("#00b000");
     const p1 = { x: cx - r * 0.9, y: cy - r * 0.2 };
     await page.mouse.click(p1.x, p1.y);
     await page.mouse.click(cx - r * 0.5, cy - r * 0.9);
@@ -447,5 +448,126 @@ test.describe("computer: templates and collages", () => {
     await page.locator("aside.side.left").getByRole("button", { name: "Mine", exact: true }).click();
     await page.locator("aside.side.left").getByRole("button", { name: "Add My burst" }).click();
     await expect(layerNames(page)).toHaveCount(layers + 1);
+  });
+});
+
+test.describe("computer: colours, fonts, brushes and your things", () => {
+  test("picker, eyedropper, gradient presets, custom fonts, brush tips, palettes and folders", async ({ page }) => {
+    // Use the canvas eyedropper (the system one cannot be driven by a test).
+    await page.addInitScript(() => delete (window as unknown as { EyeDropper?: unknown }).EyeDropper);
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    await left.getByRole("button", { name: "Add heart", exact: true }).click();
+    const fill = right.getByRole("textbox", { name: "Fill colour" });
+    const before = await fill.inputValue();
+
+    // The wheel: a drag is one undoable step.
+    await right.getByRole("button", { name: "Fill colour picker" }).click();
+    const picker = page.getByRole("dialog", { name: "Colour picker" });
+    await picker.getByRole("button", { name: "Wheel" }).click();
+    const wheel = (await picker.getByRole("slider", { name: "Hue and saturation" }).boundingBox())!;
+    await page.mouse.move(wheel.x + wheel.width * 0.8, wheel.y + wheel.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(wheel.x + wheel.width * 0.5, wheel.y + wheel.height * 0.85, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await fill.inputValue();
+    expect(dragged).not.toBe(before);
+    // The whole drag is one step: one undo goes back to the start, one redo to the end.
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Control+z");
+    await expect(fill).toHaveValue(before);
+    await page.keyboard.press("Control+Shift+z");
+    await expect(fill).toHaveValue(dragged);
+    await right.getByRole("button", { name: "Fill colour picker" }).click();
+    // Values: exact blue.
+    await picker.getByRole("button", { name: "Values" }).click();
+    await picker.getByRole("spinbutton", { name: "Red" }).fill("0");
+    await picker.getByRole("spinbutton", { name: "Green" }).fill("0");
+    await picker.getByRole("spinbutton", { name: "Blue" }).fill("255");
+    await expect(fill).toHaveValue("#0000ff");
+    // A palette swatch.
+    await picker.getByRole("combobox").selectOption({ label: "Basics" });
+    await picker.getByRole("option", { name: "#e8343a" }).click();
+    await expect(fill).toHaveValue("#e8343a");
+    await page.keyboard.press("Escape");
+    await expect(picker).toHaveCount(0);
+    await fill.fill(before);
+
+    // Eyedropper: pick the heart's colour into the outline.
+    await right.getByRole("checkbox", { name: "Outline" }).check();
+    await right.getByRole("button", { name: "Outline colour picker" }).click();
+    await page.getByRole("dialog", { name: "Colour picker" }).getByRole("button", { name: "Eyedropper" }).click();
+    await expect(page.locator(".eyedropper-hint")).toBeVisible();
+    const view = (await page.locator(".composite-view").boundingBox())!;
+    await page.mouse.click(view.x + view.width / 2, view.y + view.height / 2);
+    await expect(right.getByRole("textbox", { name: "Outline colour" })).toHaveValue(before);
+
+    // A gradient preset on text.
+    await left.getByRole("button", { name: "Subheading", exact: true }).click();
+    await right.getByRole("checkbox", { name: "Gradient fill" }).check();
+    await right.getByRole("button", { name: "Gradient: Lagoon" }).click();
+    await expect.poll(() => count(page, "b > 200 && r < 60 && g > 60 && g < 200")).toBeGreaterThan(30);
+
+    // A font from a file: listed under My fonts and used.
+    const font = { name: "My Pacifico.woff2", mimeType: "font/woff2", buffer: readFileSync("node_modules/@fontsource/pacifico/files/pacifico-latin-400-normal.woff2") };
+    const [fontChooser] = await Promise.all([page.waitForEvent("filechooser"), right.getByRole("combobox", { name: "Font" }).selectOption("__import")]);
+    await fontChooser.setFiles(font);
+    await expect(right.getByRole("combobox", { name: "Font" })).toHaveValue("'My Pacifico', sans-serif");
+    expect(await page.evaluate(() => document.fonts.check("40px 'My Pacifico'"))).toBe(true);
+
+    // A brush from an image: its tip paints.
+    const tip = await page.evaluate(async () => {
+      const c = new OffscreenCanvas(64, 64);
+      const g = c.getContext("2d")!;
+      g.fillStyle = "#fff";
+      g.fillRect(0, 0, 64, 64);
+      g.fillStyle = "#000";
+      g.fillRect(16, 16, 32, 32);
+      const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/png" })).arrayBuffer());
+      let s = "";
+      for (const x of bytes) s += String.fromCharCode(x);
+      return btoa(s);
+    });
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Draw", exact: true }).click();
+    const options = page.getByRole("toolbar", { name: "Drawing options" });
+    const [tipChooser] = await Promise.all([page.waitForEvent("filechooser"), options.getByRole("button", { name: "+ Brush" }).click()]);
+    await tipChooser.setFiles({ name: "square.png", mimeType: "image/png", buffer: Buffer.from(tip, "base64") });
+    await expect(options.getByRole("button", { name: "Brush: square" })).toHaveAttribute("aria-pressed", "true");
+    await options.getByRole("textbox", { name: "Brush colour" }).fill("#00c000");
+    await page.mouse.move(view.x + view.width * 0.2, view.y + view.height * 0.85);
+    await page.mouse.down();
+    await page.mouse.move(view.x + view.width * 0.8, view.y + view.height * 0.85, { steps: 12 });
+    await page.mouse.up();
+    await expect.poll(() => count(page, "g > 150 && r < 60 && b < 60")).toBeGreaterThan(200);
+    await options.getByRole("button", { name: "Done" }).click();
+
+    // Your things: a palette from a photo, filed in a folder, exported and imported again.
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "More" }).click();
+    await page.getByRole("menuitem", { name: "Your things…" }).click();
+    const things = page.getByRole("dialog", { name: "Your things" });
+    await things.getByRole("tab", { name: "Fonts" }).click();
+    await expect(things.getByText("My Pacifico")).toBeVisible();
+    await things.getByRole("tab", { name: "Brushes" }).click();
+    await expect(things.getByText("square")).toBeVisible();
+    await things.getByRole("tab", { name: "Palettes" }).click();
+    await things.getByRole("button", { name: "From a photo…" }).click();
+    const [photoChooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("menuitem", { name: "A photo on this device…" }).click()]);
+    await photoChooser.setFiles(await jpeg(page, "#1fa83a"));
+    await expect(things.locator(".palette-chip").first()).toBeVisible();
+    await things.getByRole("button", { name: "More for green" }).click();
+    page.once("dialog", (d) => void d.accept("Brand/Greens"));
+    await page.getByRole("menuitem", { name: "Move to folder…" }).click();
+    await expect(things.getByRole("button", { name: "Brand/Greens" })).toBeVisible();
+    await things.getByRole("button", { name: "More for green" }).click();
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("menuitem", { name: "Export as GIMP palette (.gpl)" }).click()]);
+    const gpl = readFileSync(await download.path());
+    expect(gpl.toString()).toContain("GIMP Palette");
+    const [importChooser] = await Promise.all([page.waitForEvent("filechooser"), things.getByRole("button", { name: "Import…" }).click()]);
+    await importChooser.setFiles({ name: "again.gpl", mimeType: "text/plain", buffer: gpl });
+    await things.getByRole("button", { name: "All", exact: true }).click();
+    await expect(things.locator(".manager-item")).toHaveCount(2);
   });
 });

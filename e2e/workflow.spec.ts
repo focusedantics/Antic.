@@ -486,7 +486,7 @@ test("composite: layer mask brush size and feather change what is painted", asyn
   // A red fill layer, hidden by an empty mask, revealed by brush dabs.
   await page.getByRole("button", { name: "+ Layer" }).click();
   await page.getByRole("menuitem", { name: "Solid Color" }).click();
-  await page.getByLabel("Fill color").fill("#ff0000");
+  await page.getByRole("textbox", { name: "Fill color" }).fill("#ff0000");
   await page.getByRole("button", { name: "Add layer mask" }).click();
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByRole("menuitem", { name: "Reveal: Brush" }).click();

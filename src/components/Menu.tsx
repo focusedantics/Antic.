@@ -1,5 +1,5 @@
 import { Icon, type IconName } from "./icons";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type MenuItem =
@@ -118,10 +118,12 @@ export function Dialog({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
+  // The title names the dialog for screen readers.
+  const titleId = useId();
   return createPortal(
     <div className="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={wide ? "dialog wide" : "dialog"} role="dialog" aria-modal="true">
-        <header>{title}</header>
+      <div className={wide ? "dialog wide" : "dialog"} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header id={titleId}>{title}</header>
         <div className="dialog-body">{children}</div>
         {footer && <div className="dialog-actions">{footer}</div>}
       </div>

@@ -1,5 +1,10 @@
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "@/app/state";
+import { designAssets, loadDesignAssets, saveDesignAsset } from "@/core/design/assets";
+import { tipFromImage } from "@/core/document/brush-tips";
+import { chooseFiles, pickerAccept } from "@/lib/files";
 import { useStore } from "@/app/hooks";
+import { ColorField } from "@/features/color/ColorField";
 import type { PaintLayer, PaintOp, PaintStroke } from "@/core/document/model";
 import { canvasToContent, insertLayer, locate, paintLayer, updateLayer } from "@/core/document/operations";
 import { BRUSHES, recognize, streamline } from "@/core/document/paint";
@@ -82,6 +87,7 @@ export function PaintOverlay({ toDoc, pxPerDoc }: Mapping) {
       hardness: settings.hardness,
       points: [],
       seed: Math.floor(Math.random() * 2 ** 31),
+      ...(settings.tip && settings.brush !== "eraser" ? { tip: settings.tip } : {}),
     };
     const points: number[] = [];
     const docPoints: Point[] = [];
@@ -204,15 +210,16 @@ export function PaintOptions({ onDone }: { onDone: () => void }) {
     <div className="tool-options" role="toolbar" aria-label="Drawing options">
       <div className="segmented" role="group" aria-label="Brush">
         {BRUSHES.map((b) => (
-          <button key={b.kind} type="button" title={b.note} aria-pressed={!s.bucket && s.brush === b.kind} onClick={() => chooseBrush(b.kind, short)}>
+          <button key={b.kind} type="button" title={b.note} aria-pressed={!s.bucket && !s.tip && s.brush === b.kind} onClick={() => chooseBrush(b.kind, short)}>
             {b.label}
           </button>
         ))}
+        <MyBrushes />
         <button type="button" title="Fill an area with the colour (tap inside a shape)" aria-pressed={s.bucket} onClick={() => paint.setState({ bucket: !s.bucket })}>
           Fill
         </button>
       </div>
-      <input type="color" value={s.color} aria-label="Brush colour" onChange={(e) => paint.setState({ color: e.target.value })} />
+      <ColorField label="Brush colour" value={s.color} onChange={(c) => paint.setState({ color: c })} />
       {!s.bucket && range("Size", Math.round(s.size), 1, maxSize, (v) => paint.setState({ size: v }), (v) => `${v}px`)}
       {range("Opacity", Math.round(s.opacity * 100), 1, 100, (v) => paint.setState({ opacity: v / 100 }), (v) => `${v}%`)}
       {!s.bucket && s.brush === "soft" && range("Hardness", Math.round(s.hardness * 100), 0, 100, (v) => paint.setState({ hardness: v / 100 }), (v) => `${v}%`)}
@@ -227,5 +234,54 @@ export function PaintOptions({ onDone }: { onDone: () => void }) {
         Done
       </button>
     </div>
+  );
+}
+
+/** Saved brushes (custom tips), and making one from an image. */
+function MyBrushes() {
+  const s = useStore(paint, (x) => x);
+  const items = useStore(designAssets, (x) => x.items);
+  const mine = useMemo(() => items.filter((a) => a.kind === "brush"), [items]);
+  useEffect(() => {
+    void loadDesignAssets();
+  }, []);
+  return (
+    <>
+      {mine.map((a) => (
+        <TipButton key={a.id} id={a.id} name={a.name} tip={(a.data as { tip?: Blob }).tip} pressed={!s.bucket && s.tip === a.id} onClick={() => paint.setState({ tip: a.id, brush: "round", bucket: false })} />
+      ))}
+      <button
+        type="button"
+        title="Make a brush from an image: dark (or opaque) areas paint"
+        onClick={async () => {
+          const [file] = await chooseFiles({ accept: pickerAccept("image/*", { images: true }) });
+          if (!file) return;
+          try {
+            const tip = await tipFromImage(file);
+            const asset = await saveDesignAsset("brush", file.name.replace(/\.[^.]+$/, "") || "My brush", { tip, spacing: 0.25 });
+            paint.setState({ tip: asset.id, brush: "round", bucket: false });
+          } catch {
+            toast("That image could not be read.", "error");
+          }
+        }}
+      >
+        + Brush
+      </button>
+    </>
+  );
+}
+
+function TipButton({ id, name, tip, pressed, onClick }: { id: string; name: string; tip?: Blob; pressed: boolean; onClick: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!(tip instanceof Blob)) return;
+    const u = URL.createObjectURL(tip);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [tip]);
+  return (
+    <button type="button" className="tip-button" data-id={id} title={name} aria-label={`Brush: ${name}`} aria-pressed={pressed} onClick={onClick}>
+      {url ? <img src={url} alt="" /> : name.slice(0, 2)}
+    </button>
   );
 }

@@ -1,6 +1,7 @@
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
 import { useStore } from "@/app/hooks";
+import { loadCustomFonts } from "@/core/text/custom-fonts";
 import { layout } from "@/app/layout";
 import { registerShortcuts } from "@/app/shortcuts";
 import { toast } from "@/app/state";
@@ -24,6 +25,12 @@ import { addPhotosFromDevice, moveToDesign, startFrom } from "./actions";
 import { DesignHome } from "./Home";
 import { TemplatesSection } from "./Gallery";
 import { SaveAssetDialog } from "./SaveDialog";
+import { ManagerDialog } from "./Manager";
+import { createStore } from "zustand/vanilla";
+
+/** The "Your things" manager, opened from the home or the More menu. */
+const manager = createStore<{ open: boolean }>(() => ({ open: false }));
+export const openManager = () => manager.setState({ open: true });
 import { moveToComposite } from "./actions";
 import { addPhotoFrame, addSmartShape, addTextStyle, MakePanel } from "./MakePanel";
 import { SMART_SHAPES } from "@/core/document/shapes";
@@ -37,6 +44,7 @@ function moreMenu(e: React.MouseEvent<HTMLElement>, openSave: (kind: "template" 
   openMenu(r.left, r.bottom + 4, [
     { label: "Save as template…", disabled: !doc, onSelect: () => openSave("template") },
     { label: "Save selection as element…", disabled: !selection.length, onSelect: () => openSave("element") },
+    { label: "Your things…", onSelect: openManager },
     "separator",
     { label: "Move to Composite", disabled: !doc, onSelect: () => doc && void moveToComposite(doc.id) },
   ]);
@@ -204,6 +212,9 @@ function StartPanel() {
   return (
     <Panel id="design-start" title="Start">
       <div className="stack">
+        <button type="button" className="btn" onClick={openManager} title="Designs, templates, elements, palettes, gradients, brushes and fonts in folders">
+          Your things…
+        </button>
         <button type="button" className="btn" onClick={() => void openProjectAsDesign()}>
           Open a .focused project…
         </button>
@@ -250,6 +261,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
   const editing = !home && !!doc;
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState<"template" | "element" | null>(null);
+  const managing = useStore(manager, (st) => st.open);
   useEffect(() => registerShortcuts("design", (e) => {
     if (design.getState().home || !isDesign(composite.getState().doc)) return false;
     if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "t") {
@@ -259,6 +271,10 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
     return compositeShortcuts(e, () => setExporting(true));
   }), []);
   useEffect(() => () => void flushDocument(), []);
+  // Fonts the user imported, for text in these documents.
+  useEffect(() => {
+    void loadCustomFonts();
+  }, []);
   // A composition left open by Composite is not a design: start at the home screen.
   useEffect(() => {
     if (!isDesign(composite.getState().doc)) design.setState({ home: true });
@@ -299,6 +315,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
       <EffectsBrowserHost />
       {exporting && editing && <ExportDocumentDialog onClose={() => setExporting(false)} />}
       {saving && editing && <SaveAssetDialog kind={saving} onClose={() => setSaving(null)} />}
+      {managing && <ManagerDialog onClose={() => manager.setState({ open: false })} />}
     </>
   );
 }

@@ -3,7 +3,7 @@ import { useStore } from "@/app/hooks";
 import { openMenu } from "@/components/Menu";
 import { Icon } from "@/components/icons";
 import { type DocumentRecord, getDocument } from "@/core/catalog/db";
-import { composite, refreshDocumentList, removeStoredDocument } from "@/core/document/session";
+import { composite, moveDocumentToFolder, refreshDocumentList, removeStoredDocument } from "@/core/document/session";
 import { duplicateDesign, moveToComposite, newDesign, openDesign } from "./actions";
 import { SIZE_GROUPS, SIZE_PRESETS, type SizeGroup, type SizePreset, sizeLabel } from "./presets";
 
@@ -55,7 +55,10 @@ function CustomSize() {
 /** Saved designs with their thumbnails, newest first. */
 function YourDesigns() {
   const all = useStore(composite, (s) => s.documents);
-  const docs = useMemo(() => all.filter((d) => d.design), [all]);
+  const designs = useMemo(() => all.filter((d) => d.design), [all]);
+  const folders = useMemo(() => [...new Set(designs.map((d) => d.folder))].filter(Boolean).sort((a, b) => a.localeCompare(b)), [designs]);
+  const [folder, setFolder] = useState<string | null>(null);
+  const docs = useMemo(() => (folder === null ? designs : designs.filter((d) => d.folder === folder || d.folder.startsWith(`${folder}/`))), [designs, folder]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
     void refreshDocumentList();
@@ -78,8 +81,21 @@ function YourDesigns() {
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [docs]);
-  if (!docs.length) return <p className="faint">Designs you make appear here.</p>;
+  if (!designs.length) return <p className="faint">Designs you make appear here.</p>;
   return (
+    <>
+      {folders.length > 0 && (
+        <div className="chip-row" role="group" aria-label="Design folders">
+          <button type="button" className="filter-chip" aria-pressed={folder === null} onClick={() => setFolder(null)}>
+            All
+          </button>
+          {folders.map((f) => (
+            <button key={f} type="button" className="filter-chip" aria-pressed={folder === f} onClick={() => setFolder(f)}>
+              <Icon name="folders" size={12} /> {f}
+            </button>
+          ))}
+        </div>
+      )}
     <div className="design-grid">
       {docs.map((d) => (
         <div key={d.id} className="design-tile">
@@ -96,6 +112,13 @@ function YourDesigns() {
               openMenu(r.left, r.bottom + 4, [
                 { label: "Open", onSelect: () => void openDesign(d.id) },
                 { label: "Duplicate", onSelect: () => void duplicateDesign(d.id) },
+                {
+                  label: "Move to folder…",
+                  onSelect: () => {
+                    const f = prompt("Folder (empty for none; use / for subfolders)", d.folder);
+                    if (f !== null) void moveDocumentToFolder(d.id, f);
+                  },
+                },
                 { label: "Move to Composite", onSelect: () => void moveToComposite(d.id) },
                 "separator",
                 { label: "Delete…", onSelect: () => confirm(`Delete the design “${d.name}”? Photos stay in the Library.`) && void removeStoredDocument(d.id) },
@@ -107,6 +130,7 @@ function YourDesigns() {
         </div>
       ))}
     </div>
+    </>
   );
 }
 

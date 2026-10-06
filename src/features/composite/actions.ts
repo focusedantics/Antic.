@@ -17,6 +17,7 @@ import { encodeGif, encodeLoopVideo } from "@/core/export/animated";
 import { type ExportFrame, frameLayout } from "@/core/export/frame";
 import { fontShorthand } from "@/core/text/draw";
 import { loadFonts } from "@/core/text/fonts";
+import { loadCustomFonts } from "@/core/text/custom-fonts";
 import { developEngine, encodePixels } from "@/core/gpu/develop-engine";
 
 /** Developed pixel size of a photo, from its recipe crop and the catalog dimensions. */
@@ -174,6 +175,8 @@ export function exportDocument(doc: CompositeDocument, options: DocExport, water
 }
 
 async function renderDocumentExport(doc: CompositeDocument, options: DocExport, watermark: Watermark | undefined, onProgress: DocProgress, signal: AbortSignal, frame?: ExportFrame): Promise<Blob> {
+  // Fonts the user imported must be registered before text is measured and drawn.
+  await loadCustomFonts();
   const engine = developEngine();
   // Wait for every photo in the composition to be decoded at full quality.
   for (let i = 0; i < 600 && usedAssets(doc).some((id) => !engine.hasSource(id) || engine.hasSource(id, "preview")); i++) {

@@ -668,6 +668,7 @@ function sanitizePaintOps(v: unknown): PaintOp[] {
         hardness: num(o.hardness, 1, 0, 1),
         points,
         seed: Math.round(num(o.seed, 1, 0, 2 ** 31)),
+        ...(typeof o.tip === "string" && o.tip ? { tip: o.tip.slice(0, 64) } : {}),
       },
     ];
   });
@@ -857,6 +858,7 @@ export function sanitizeDocument(v: unknown): CompositeDocument {
       .map((g) => ({ id: str(g.id, createId("guide"), 64), axis: g.axis === "y" ? ("y" as const) : ("x" as const), position: num(g.position, 0) })),
     ...(obj(d?.animation) ? { animation: sanitizeAnimation(d?.animation) } : {}),
     ...(d?.purpose === "design" ? { purpose: "design" as const } : {}),
+    ...(typeof d?.folder === "string" && d.folder.trim() ? { folder: d.folder.split("/").map((p) => p.trim()).filter(Boolean).join("/").slice(0, 80) } : {}),
     createdAt: num(d?.createdAt, Date.now()),
   };
 }

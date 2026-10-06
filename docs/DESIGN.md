@@ -84,7 +84,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | V5 | SVG import and export | New: SVG subset parser (path, rect, circle, ellipse, line, polyline, polygon, transforms) and an SVG writer | ⬜ |
 | V6 | Curved text | New: text arc (bend) | ✅ |
 | V7 | Text fill gradient, outline, case, underline | New: text style fields (outline is the Outline layer style); plus a highlight box | ✅ |
-| V8 | Custom fonts | New: import TTF/OTF/WOFF files (kept locally, FontFace); Workaround for paid font libraries: bundled OFL fonts | ⬜ |
+| V8 | Custom fonts | New: import TTF/OTF/WOFF files (kept locally, FontFace); Workaround for paid font libraries: bundled OFL fonts | ✅ |
 | V9 | Text knockout (photo inside letters) | Exists: clipping. New: one-tap "Photo inside text" | ⬜ |
 
 ### Drawing
@@ -92,7 +92,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | --- | --- | --- | --- |
 | D1 | Paint layers with brushes and colours | New: `paint` layer kind; strokes are data (resolution independent, "vector paint") | ✅ |
 | D2 | Brush presets: round, soft, marker, pencil, spray, calligraphy, eraser | New | ✅ |
-| D3 | Custom brush tips from images | New: a tip image kept as a design asset | ⬜ |
+| D3 | Custom brush tips from images | New: a tip image kept as a design asset (dark or opaque areas paint), stamped along the stroke | ✅ |
 | D4 | Predictive brush: smoothing, and hold to straighten into a line, circle or rectangle | New (also triangles and polygons) | ✅ |
 | D5 | Colour fill (bucket) | New: fill operations replayed with the strokes | ✅ |
 | D6 | Mask any layer with brushes | Exists: layer masks | ✅ |
@@ -114,10 +114,10 @@ paid or online feature. "Skip" means it is left out, with the reason.
 ### Colours and folders
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
-| C1 | Colour picker: wheel, square, values (hex, RGB, HSB), eyedropper | New: `components/ColorPicker` | ⬜ |
-| C2 | Palettes and gradient presets in folders; import/export (JSON, GIMP .gpl, hex lists) | New | ⬜ |
-| C3 | Palette from a photo | New (k-means on a thumbnail) | ⬜ |
-| C4 | Folder manager: designs, templates, elements, brushes, palettes, gradients, fonts (rename, move, duplicate, delete, import/export) | New: `designAssets` with folders | ⬜ |
+| C1 | Colour picker: wheel, square, values (hex, RGB, HSB), eyedropper | New: `features/color` picker (wheel, square, values; the EyeDropper API where present, else a tap on the design) with hex entry, recent, document and palette swatches | ✅ |
+| C2 | Palettes and gradient presets in folders; import/export (JSON, GIMP .gpl, hex lists) | New; also Adobe .ase; 11 built-in palettes and 9 gradients | ✅ |
+| C3 | Palette from a photo | New (k-means on a thumbnail) | ✅ |
+| C4 | Folder manager: designs, templates, elements, brushes, palettes, gradients, fonts (rename, move, duplicate, delete, import/export) | New: `designAssets` with folders; "Your things" manager; `.focusedkit` bundles | ✅ |
 | C5 | Guides, rulers, grid, snapping | Guides and snapping exist; New: rulers and grid (snap to grid) | ⬜ |
 
 ### Social and motion

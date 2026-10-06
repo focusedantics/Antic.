@@ -273,6 +273,8 @@ export type PaintStroke = {
   readonly hardness: number;
   readonly points: readonly number[];
   readonly seed: number;
+  /** A custom tip (a saved brush, by id): stamped along the stroke instead of the brush's dab. */
+  readonly tip?: string;
 };
 /** A bucket fill at a point of the layer (unit box), replayed in order with the strokes. */
 export type PaintFill = { readonly type: "fill"; readonly x: number; readonly y: number; readonly color: string; readonly opacity: number; /** 0..1 colour distance */ readonly tolerance: number };
@@ -317,5 +319,7 @@ export type CompositeDocument = {
   readonly animation?: DocAnimation;
   /** "design": made and listed in the Design workspace (absent: a Composite composition). */
   readonly purpose?: "design";
+  /** Where the design is filed in Design's folders ("" or absent: the top level). */
+  readonly folder?: string;
   readonly createdAt: number;
 };

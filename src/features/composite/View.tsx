@@ -13,6 +13,7 @@ import { clamp, type Point } from "@/lib/math";
 import { brush } from "@/features/develop/masks/brush";
 import { addAssetsToComposite, fillSlot, importPhotosFromDevice } from "./actions";
 import { PaintOptions, PaintOverlay } from "./tools/PaintTool";
+import { colorAt, eyedropper, finishPick } from "@/features/color/eyedropper";
 import { NodesOverlay, PenOptions, PenOverlay } from "./tools/PenTool";
 import { useSweepSelect } from "@/components/sweep";
 import { sweepLayers } from "./LayersPanel";
@@ -186,6 +187,13 @@ export function CompositeView() {
   const pxPerDoc = engine.compositeScale() / viewDpr();
   const toDoc = (x: number, y: number) => engine.clientToDoc(x, y);
   const toMove = useCallback(() => composite.setState({ tool: "move" }), []);
+  const picking = useStore(eyedropper, (st) => !!st.pick);
+  useEffect(() => {
+    if (!picking) return;
+    const key = (e: KeyboardEvent) => e.key === "Escape" && finishPick(null);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [picking]);
   const primary = doc && selection.length ? (locate(doc.layers, selection[selection.length - 1])?.layer ?? null) : null;
 
   // ─── Move / transform ──────────────────────────────────────────────────
@@ -526,6 +534,19 @@ export function CompositeView() {
           <NodesOverlay toDoc={toDoc} local={local} onDone={toMove} />
           <PenOptions tool="nodes" onDone={toMove} />
         </>
+      )}
+      {doc && picking && (
+        <div
+          className="eyedropper-layer"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const p = engine.clientToDoc(e.clientX, e.clientY);
+            finishPick(p.x >= 0 && p.y >= 0 && p.x <= doc.width && p.y <= doc.height ? colorAt(p.x, p.y) : null);
+          }}
+        >
+          <div className="eyedropper-hint">Tap the design to pick a colour</div>
+        </div>
       )}
       {doc && engine.compositeLoading && <div className="develop-status">Developing photos for the composition…</div>}
     </div>

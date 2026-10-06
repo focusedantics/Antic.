@@ -21,7 +21,7 @@ export type CompositeState = {
   readonly maskLayerId: string | null;
   readonly maskComponentId: string | null;
   /** Saved documents, newest first; `design`: made in the Design workspace. */
-  readonly documents: readonly { id: string; name: string; updatedAt: number; design: boolean }[];
+  readonly documents: readonly { id: string; name: string; updatedAt: number; design: boolean; folder: string }[];
 };
 
 export const composite = createStore<CompositeState>(() => ({
@@ -45,7 +45,10 @@ export async function refreshDocumentList() {
   const docs = await listDocuments();
   composite.setState({
     documents: docs
-      .map((d) => ({ id: d.id, name: d.name, updatedAt: d.updatedAt, design: (d.data as { purpose?: unknown } | null)?.purpose === "design" }))
+      .map((d) => {
+        const data = d.data as { purpose?: unknown; folder?: unknown } | null;
+        return { id: d.id, name: d.name, updatedAt: d.updatedAt, design: data?.purpose === "design", folder: typeof data?.folder === "string" ? data.folder : "" };
+      })
       .sort((a, b) => b.updatedAt - a.updatedAt),
   });
 }
@@ -161,4 +164,23 @@ export function flushDocument(): Promise<void> {
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", () => void flushDocument());
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushDocument());
+}
+
+/** Files a saved document in a folder (the open one is updated in place, without an undo step). */
+export async function moveDocumentToFolder(id: string, folder: string) {
+  const clean = folder.split("/").map((p) => p.trim()).filter(Boolean).join("/").slice(0, 80);
+  if (composite.getState().doc?.id === id) {
+    // The open design: an ordinary edit (saved with it).
+    editDocument("Move to folder", (d) => {
+      const { folder: _f, ...rest } = d;
+      return clean ? { ...rest, folder: clean } : rest;
+    });
+    await flushDocument();
+    return;
+  }
+  const record = await getDocument(id);
+  if (!record) return;
+  const { folder: _old, ...data } = record.data as CompositeDocument;
+  await putDocument({ ...record, data: clean ? { ...data, folder: clean } : data });
+  await refreshDocumentList();
 }

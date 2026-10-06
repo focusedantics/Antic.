@@ -1,7 +1,16 @@
 import { Slider } from "@/components/Slider";
+import { ColorField } from "@/features/color/ColorField";
+import { BUILT_IN_GRADIENTS } from "@/features/color/palettes";
+import { useStore } from "@/app/hooks";
+import { assetData, designAssets, type GradientData, saveDesignAsset } from "@/core/design/assets";
 import type { Gradient, GradientStop, Layer } from "@/core/document/model";
 import { updateLayer } from "@/core/document/operations";
 import { beginDocGesture, editDocument, endDocGesture } from "@/core/document/session";
+
+/** A colour in the document: a drag in the picker is one undoable step. */
+export function DocColor({ label, value, onChange, swatchOnly }: { label: string; value: string; onChange: (hex: string) => void; swatchOnly?: boolean }) {
+  return <ColorField label={label} value={value} onChange={onChange} swatchOnly={swatchOnly} onGestureStart={() => beginDocGesture(label)} onGestureEnd={endDocGesture} />;
+}
 
 /** One undoable change to a layer. */
 export const set = (id: string, label: string, change: (l: Layer) => Layer) => editDocument(label, (d) => updateLayer(d, id, change));
@@ -46,6 +55,7 @@ export function GradientEditor({ gradient: g, onChange, title = "Gradient" }: { 
   return (
     <>
       {title && <div className="subhead">{title}</div>}
+      <GradientPresets current={g} onPick={(preset) => update("Gradient preset", { ...preset, angle: preset.type === "linear" ? preset.angle : g.angle })} />
       <div className="segmented" style={{ marginBottom: 6 }}>
         <button type="button" aria-pressed={g.type === "linear"} onClick={() => update("Linear gradient", { type: "linear" })}>
           Linear
@@ -57,7 +67,7 @@ export function GradientEditor({ gradient: g, onChange, title = "Gradient" }: { 
       <div className="gradient-preview" style={{ background: stopsCss(g) }} />
       {g.stops.map((s, i) => (
         <div className="stop-row" key={i}>
-          <input type="color" value={s.color} aria-label={`Stop ${i + 1} color`} onChange={(e) => setStop(i, { color: e.target.value })} />
+          <DocColor swatchOnly label={`Stop ${i + 1} color`} value={s.color} onChange={(c) => setStop(i, { color: c })} />
           <input type="range" min={0} max={100} value={Math.round(s.offset * 100)} aria-label={`Stop ${i + 1} position`} onChange={(e) => setStop(i, { offset: Number(e.target.value) / 100 })} />
           <input className="input num" type="number" min={0} max={100} value={Math.round(s.opacity * 100)} aria-label={`Stop ${i + 1} opacity %`} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setStop(i, { opacity: Math.max(0, Math.min(100, Number(e.target.value))) / 100 })} />
           <button type="button" className="btn ghost small" disabled={g.stops.length <= 2} aria-label={`Remove stop ${i + 1}`} onClick={() => update("Remove stop", { stops: g.stops.filter((_, j) => j !== i) })}>
@@ -90,3 +100,30 @@ export function GradientEditor({ gradient: g, onChange, title = "Gradient" }: { 
   );
 }
 
+
+/** Built-in and saved gradients to start from, and saving this one. */
+function GradientPresets({ current, onPick }: { current: Gradient; onPick: (g: Gradient) => void }) {
+  const items = useStore(designAssets, (s) => s.items);
+  const mine = items.filter((a) => a.kind === "gradient").flatMap((a) => {
+    const d = assetData(a) as GradientData | null;
+    return d ? [{ id: a.id, name: a.name, gradient: d.gradient }] : [];
+  });
+  return (
+    <div className="gradient-presets" role="group" aria-label="Gradient presets">
+      {[...mine, ...BUILT_IN_GRADIENTS].map((p) => (
+        <button key={p.id} type="button" className="gradient-chip" title={p.name} aria-label={`Gradient: ${p.name}`} style={{ background: stopsCss(p.gradient) }} onClick={() => onPick(p.gradient)} />
+      ))}
+      <button
+        type="button"
+        className="btn ghost small"
+        title="Save this gradient for later"
+        onClick={() => {
+          const name = prompt("Gradient name", "My gradient");
+          if (name) void saveDesignAsset("gradient", name, { gradient: current });
+        }}
+      >
+        Save
+      </button>
+    </div>
+  );
+}
