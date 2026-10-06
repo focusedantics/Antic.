@@ -54,6 +54,7 @@ export function handleKey(e: KeyboardEvent) {
     ui.setState({ libraryView: "survey" });
   } else if (key === "d") setWorkspace("develop");
   else if (key === "c") setWorkspace("composite");
+  else if (key === "b") setWorkspace("design");
   else if (key === "tab") {
     const both = prefs.getState().showLeft && prefs.getState().showRight;
     setPrefs({ showLeft: !both, showRight: !both });

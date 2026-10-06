@@ -57,7 +57,8 @@ function WideShell({ left, center, right }: ShellProps) {
         <div />
       )}
       <section className="center">{center}</section>
-      {showRight ? (
+      {/* No right column when there is nothing for it (a workspace's start screen). */}
+      {showRight && right !== null ? (
         <div className="side-frame" style={rightWidth ? ({ "--panel-width": `${rightWidth}px` } as React.CSSProperties) : undefined}>
           <Resizer side="right" />
           <aside className="side right">{right}</aside>
@@ -142,7 +143,7 @@ export function PanelToggles() {
   const showRight = useStore(prefs, (s) => s.showRight);
   const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
   const workspace = useStore(ui, (s) => s.workspace);
-  const left = workspace === "develop" ? "presets, snapshots and history" : workspace === "library" ? "folders and collections" : workspace === "composite" ? "documents" : "clips";
+  const left = workspace === "develop" ? "presets, snapshots and history" : workspace === "library" ? "folders and collections" : workspace === "composite" ? "documents" : workspace === "design" ? "templates, elements and text" : "clips";
   return (
     <div className="panel-toggles" role="group" aria-label="Panels">
       <button type="button" className="tool-btn" aria-pressed={showLeft} aria-label="Left panel" title={`${showLeft ? "Hide" : "Show"} the left panel (${left})`} onClick={() => setPrefs({ showLeft: !showLeft })}>
@@ -210,7 +211,8 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
       </section>
       {floating && host && createPortal(panel, host)}
       {!floating && panel}
-      {!sheet && showFilmstrip && workspace !== "video" && <Filmstrip />}
+      {/* Design adds photos from its Add sheet; the canvas gets the room. */}
+      {!sheet && showFilmstrip && workspace !== "video" && workspace !== "design" && <Filmstrip />}
       {/* In select mode the selection's bar takes the dock's place, as in Photos. */}
       {selecting ? <SelectBar scope={selecting} /> : <nav className="dock" aria-label="Panels">
         {items.map((item) => {

@@ -34,7 +34,7 @@ describe("tour steps", () => {
 describe("glow looks", () => {
   it("has a distinct look per workspace", () => {
     const colours = Object.values(LOOKS).map((l) => l.color1.join());
-    expect(new Set(colours).size).toBe(4);
+    expect(new Set(colours).size).toBe(colours.length);
     // Develop stays dim so the surround does not skew colour judgement.
     expect(LOOKS.develop.intensity).toBeLessThan(LOOKS.library.intensity);
   });

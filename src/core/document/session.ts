@@ -19,7 +19,8 @@ export type CompositeState = {
   /** Layer whose mask the canvas tools edit. */
   readonly maskLayerId: string | null;
   readonly maskComponentId: string | null;
-  readonly documents: readonly { id: string; name: string; updatedAt: number }[];
+  /** Saved documents, newest first; `design`: made in the Design workspace. */
+  readonly documents: readonly { id: string; name: string; updatedAt: number; design: boolean }[];
 };
 
 export const composite = createStore<CompositeState>(() => ({
@@ -41,10 +42,43 @@ export const compositeHistory = () => history;
 
 export async function refreshDocumentList() {
   const docs = await listDocuments();
-  composite.setState({ documents: docs.map((d) => ({ id: d.id, name: d.name, updatedAt: d.updatedAt })).sort((a, b) => b.updatedAt - a.updatedAt) });
+  composite.setState({
+    documents: docs
+      .map((d) => ({ id: d.id, name: d.name, updatedAt: d.updatedAt, design: (d.data as { purpose?: unknown } | null)?.purpose === "design" }))
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+  });
+}
+
+/** True when `doc` belongs to the Design workspace (Composite lists the others). */
+export const isDesign = (doc: { purpose?: string } | null | undefined) => doc?.purpose === "design";
+
+/**
+ * Composite and Design share the open document (one engine, one history); each opens
+ * its own kind. Opens the newest saved document of that kind, or closes the open one
+ * when there is none. Does nothing if one of that kind is already open.
+ */
+export async function openLatest(design: boolean) {
+  const open = composite.getState().doc;
+  if (open && isDesign(open) === design) return;
+  await flushDocument();
+  await refreshDocumentList();
+  const latest = composite.getState().documents.find((d) => d.design === design);
+  if (latest) await openStoredDocument(latest.id);
+  else closeDocument();
+}
+
+/** Closes the open document (it stays saved). */
+export function closeDocument() {
+  flushDocument();
+  unsubscribe?.();
+  unsubscribe = null;
+  history = null;
+  composite.setState({ doc: null, selection: [], maskLayerId: null, maskComponentId: null, tool: "move" });
 }
 
 export function openDocument(doc: CompositeDocument) {
+  // Save the document being replaced first (its pending save would be cancelled).
+  if (composite.getState().doc?.id !== doc.id) flushDocument();
   unsubscribe?.();
   history = createHistory(doc, { label: "Open" });
   const h = history;
@@ -58,7 +92,9 @@ export function openDocument(doc: CompositeDocument) {
 
 export async function openStoredDocument(id: string) {
   const record = await getDocument(id);
-  if (record) openDocument(sanitizeDocument(record.data));
+  if (!record) return;
+  lastThumb = { id, thumb: record.thumb };
+  openDocument(sanitizeDocument(record.data));
 }
 
 export async function removeStoredDocument(id: string) {
@@ -81,6 +117,8 @@ export const beginDocGesture = (label: string) => history?.begin(label);
 export const endDocGesture = () => history?.commit();
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** The open document's stored thumbnail, so a flush can save without reading it first. */
+let lastThumb: { id: string; thumb: Blob | undefined } | null = null;
 let thumbnailer: ((doc: CompositeDocument) => Promise<Blob | undefined>) | null = null;
 /** The renderer registers a thumbnail maker so saved documents show a preview. */
 export const setDocumentThumbnailer = (fn: typeof thumbnailer) => {
@@ -98,17 +136,28 @@ function scheduleSave(doc: CompositeDocument) {
       // A thumbnail is optional.
     }
     // Keep the last good thumbnail when a new one couldn't be made (photos still loading).
-    thumb ??= (await getDocument(doc.id))?.thumb;
+    thumb ??= lastThumb?.id === doc.id ? lastThumb.thumb : (await getDocument(doc.id))?.thumb;
+    lastThumb = { id: doc.id, thumb };
     await putDocument({ id: doc.id, name: doc.name, updatedAt: Date.now(), data: doc, thumb });
     await refreshDocumentList();
   }, 800);
 }
 
-export function flushDocument() {
+/** Saves the open document now if a save is pending; resolves once it is stored and listed. */
+export function flushDocument(): Promise<void> {
   const doc = composite.getState().doc;
-  if (saveTimer && doc) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-    void putDocument({ id: doc.id, name: doc.name, updatedAt: Date.now(), data: doc });
-  }
+  if (!saveTimer || !doc) return Promise.resolve();
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  // Keep its thumbnail (making a new one needs the renderer, which may be gone). The
+  // write starts synchronously so it survives the page closing.
+  const record = (thumb: Blob | undefined) => ({ id: doc.id, name: doc.name, updatedAt: Date.now(), data: doc, thumb });
+  const saved = lastThumb?.id === doc.id ? putDocument(record(lastThumb.thumb)) : getDocument(doc.id).then((old) => putDocument(record(old?.thumb)));
+  return saved.then(refreshDocumentList);
+}
+
+// Edits made in the last moment before the page closes or is hidden are saved too.
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => void flushDocument());
+  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flushDocument());
 }

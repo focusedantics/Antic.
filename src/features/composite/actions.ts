@@ -1,7 +1,7 @@
 import { device } from "@/lib/device";
 import { track } from "@/lib/activity";
 import type { Watermark } from "@/core/export/watermark";
-import { setWorkspace, toast } from "@/app/state";
+import { setWorkspace, toast, ui } from "@/app/state";
 import { getAsset } from "@/core/catalog/store";
 import { outputSize } from "@/core/develop/geometry";
 import { recipeFor } from "@/core/develop/session";
@@ -61,7 +61,8 @@ export async function addAssetsToComposite(ids: readonly string[], at?: { x: num
     return next;
   });
   composite.setState({ selection: added.map((l) => l.id).slice(-1) });
-  setWorkspace("composite");
+  // Design edits the same documents: stay there when adding to a design.
+  if (ui.getState().workspace !== "design") setWorkspace("composite");
 }
 
 /**

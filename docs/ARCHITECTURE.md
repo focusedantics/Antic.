@@ -1,7 +1,7 @@
 # Focused architecture
 
-Focused is one application with four workspaces — **Library**, **Develop**,
-**Composite** and **Video** — built on one asset system and one rendering engine. This file is the
+Focused is one application with five workspaces — **Library**, **Develop**,
+**Composite**, **Design** and **Video** — built on one asset system and one rendering engine. This file is the
 contract: when a change moves a responsibility, update it in the same change.
 
 ```
@@ -29,7 +29,7 @@ contract: when a change moves a responsibility, update it in the same change.
 | 0 | `src/lib` | Pure utilities (math, colorimetry, ids) | nothing app-specific |
 | 1 | `src/core/*` | Data models, persistence, decoding, rendering. No React. | `lib`, other `core` |
 | 1 | `src/components` | UI primitives (Slider, Panel, Menu, Dialog) | `lib` |
-| 2 | `src/features/*` | Workspace UIs: library, develop, composite, video; shared `effects` (browser, parameter editor) and `export` (photo export dialog host) | `core`, `components`, `app/state` |
+| 2 | `src/features/*` | Workspace UIs: library, develop, composite, design, video; shared `effects` (browser, parameter editor) and `export` (photo export dialog host) | `core`, `components`, `app/state` |
 | 3 | `src/app` | Shell, global UI state, shortcuts, composition | everything |
 
 Rules: core never imports React; features do not import each other except through
@@ -255,6 +255,27 @@ layers convert the backdrop to linear Rec.2020 and reuse the develop tone/color 
 Per-layer content is cached by its inputs and evicted when unused.
 
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
+
+## Design
+
+The Design workspace (`features/design`, plan and feature list in `docs/DESIGN.md`) is a
+second editor on the same documents. A design is a `CompositeDocument` with
+`purpose: "design"` (kept by `sanitizeDocument`); it is rendered by the compositor and
+edited through the composite session, history, `CompositeView`, `LayersPanel`,
+`PropertiesPanel` and `ExportDocumentDialog`. Only one document is open at a time
+(`composite.doc`): each workspace shows and reopens its own kind (`isDesign`,
+`openLatest(design)`); `composite.documents` marks designs so Composite's list leaves
+them out. `design.home` (`features/design/state.ts`) switches between the start screen
+(`Home.tsx`: size presets drawn to scale, search, your designs with thumbnails) and the
+editor (`MakePanel` to add text styles, photos, shapes, fills and effects; a tool strip;
+Layers and Properties). "Move to Composite" and "Bring a composition here" move a
+document between the two by changing `purpose`. Photos added from the device are
+imported into the Library first, since every photo layer references an asset.
+
+Switching documents saves the one being replaced (`openDocument` flushes the pending
+save), and `pagehide` / hidden visibility flush too, so the last edits before leaving
+survive; a flush keeps the stored thumbnail, which it remembers rather than reads, so the
+write starts synchronously.
 
 ### Effects (`core/effects`)
 

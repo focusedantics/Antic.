@@ -34,6 +34,12 @@ sanitize the same way in both workspaces. Composite gains them as well.
 - The Design home (no document open) shows a size picker (cards with each size drawn to
   scale), the template gallery with category chips and a search, and recent designs.
 
+**Phase 1 notes.** On phones the Library filmstrip is not shown in Design (photos are
+added from the Add sheet, and the canvas needs the height); it stays in every other
+workspace. On computers the right column is left out on start screens that pass no
+right panel (Design's home, Composite's empty state), giving the centre the room; it
+comes back as soon as there is something to show.
+
 **Nothing is removed.** Composite's documents, dialog, toolbar and shortcuts stay.
 Design's keyboard shortcut is `B`, which is free. The top bar and the phone's workspace
 menu gain one entry. If anything has to move to make room, this section will say why
@@ -48,7 +54,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 ### Templates and starting points
 | # | Feature | How | Status |
 | --- | --- | --- | --- |
-| T1 | Size presets: Instagram post / portrait / story, TikTok, Facebook post and cover, X post and header, YouTube thumbnail and banner, LinkedIn, Pinterest pin, phone and desktop wallpaper, contact poster, profile picture, logo, flyer (Letter, A4, A5), poster, business card, invitation, postcard, presentation, custom | New: `design/presets.ts`, cards drawn to scale | ⬜ |
+| T1 | Size presets: Instagram post / portrait / story, TikTok, Facebook post and cover, X post and header, YouTube thumbnail and banner, LinkedIn, Pinterest pin, phone and desktop wallpaper, contact poster, profile picture, logo, flyer (Letter, A4, A5), poster, business card, invitation, postcard, presentation, custom | New: `design/presets.ts`, cards drawn to scale | ✅ |
 | T2 | Template gallery: categories, tags, search, one tap to start | New: original templates written as code (`design/templates/`) | ⬜ |
 | T3 | Templates with photo slots ("tap to add your photo"), replace photo | New: `slot` layer kind; replacing keeps transform, clip and mask | ⬜ |
 | T4 | Save a design as my template, in folders | New: `designAssets` store | ⬜ |

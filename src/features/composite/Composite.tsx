@@ -1,6 +1,6 @@
 import { chooseFiles, pickerAccept } from "@/lib/files";
 import { CompactActions, type DockItem, type ShellProps, TopAction } from "@/app/Shell";
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { layout } from "@/app/layout";
 import { Icon, type IconName } from "@/components/icons";
@@ -17,6 +17,7 @@ import {
   flushDocument,
   openDocument,
   openStoredDocument,
+  openLatest,
   refreshDocumentList,
   removeStoredDocument,
 } from "@/core/document/session";
@@ -155,7 +156,9 @@ async function openProjectFile() {
 }
 
 function DocumentsPanel({ onNew }: { onNew: () => void }) {
-  const docs = useStore(composite, (s) => s.documents);
+  // Designs are listed in the Design workspace.
+  const all = useStore(composite, (s) => s.documents);
+  const docs = useMemo(() => all.filter((d) => !d.design), [all]);
   const current = useStore(composite, (s) => s.doc?.id);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -222,7 +225,8 @@ function DocumentsPanel({ onNew }: { onNew: () => void }) {
   );
 }
 
-function CanvasPanel() {
+/** The open document's name, size and background (Design shows it too). */
+export function CanvasPanel() {
   const doc = useStore(composite, (s) => s.doc);
   if (!doc) return null;
   return (
@@ -375,7 +379,8 @@ function Toolbar({ onExport }: { onExport: () => void }) {
   );
 }
 
-function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
+/** The canvas editor's keys (Design uses them too). */
+export function compositeShortcuts(e: KeyboardEvent, openExport: () => void): boolean {
   const mod = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
   const { selection, doc } = composite.getState();
@@ -462,17 +467,17 @@ const compositeDock = (hasDoc: boolean): DockItem[] => [
 ];
 
 export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> }) {
-  const doc = useStore(composite, (s) => s.doc);
-  const docs = useStore(composite, (s) => s.documents);
+  const open = useStore(composite, (s) => s.doc);
+  // A design open from the Design workspace is not shown here (it is replaced as this opens).
+  const doc = open && !open.purpose ? open : null;
+  const allDocs = useStore(composite, (s) => s.documents);
+  const docs = useMemo(() => allDocs.filter((d) => !d.design), [allDocs]);
   const [dialog, setDialog] = useState<"new" | "export" | null>(null);
   useEffect(() => registerShortcuts("composite", (e) => compositeShortcuts(e, () => setDialog("export"))), []);
-  useEffect(() => () => flushDocument(), []);
-  // Reopen the most recent composition.
+  useEffect(() => () => void flushDocument(), []);
+  // Reopen the most recent composition (the open document may be a design, from the Design workspace).
   useEffect(() => {
-    if (!composite.getState().doc) void refreshDocumentList().then(() => {
-      const first = composite.getState().documents[0];
-      if (first && !composite.getState().doc) void openStoredDocument(first.id);
-    });
+    void openLatest(false);
   }, []);
   const selectionSize = useStore(ui, (s) => s.selection.size);
   return (

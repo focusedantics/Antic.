@@ -199,5 +199,7 @@ export type CompositeDocument = {
   readonly guides: readonly Guide[];
   /** Absent = defaults (3 s at 15 fps); only matters when an animated effect is present. */
   readonly animation?: DocAnimation;
+  /** "design": made and listed in the Design workspace (absent: a Composite composition). */
+  readonly purpose?: "design";
   readonly createdAt: number;
 };

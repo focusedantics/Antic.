@@ -31,6 +31,8 @@ export const LOOKS: Record<Workspace, GlowLook> = {
   develop: { color1: hex("#2ec4b6"), color2: hex("#3d7fff"), angle: -140, size: 1.15, speed: 0.7, intensity: 0.4 },
   // Violet and pink: layers and play.
   composite: { color1: hex("#9b5cff"), color2: hex("#ff3d9a"), angle: 150, size: 0.95, speed: 1, intensity: 0.6 },
+  // Lime and cyan: making things.
+  design: { color1: hex("#b8f03d"), color2: hex("#3dd6ff"), angle: 120, size: 1, speed: 1.1, intensity: 0.55 },
   // Hot red and yellow, faster: the YTP editor.
   video: { color1: hex("#ff3d5a"), color2: hex("#ffb23d"), angle: -100, size: 1.05, speed: 1.5, intensity: 0.5 },
 };

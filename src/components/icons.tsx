@@ -1,7 +1,48 @@
 /** Small line icons for the phone dock and the panel toggles (inherit the text colour). */
-export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram" | "select";
+export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram" | "select" | "design" | "text" | "image" | "shapes" | "draw" | "pen" | "palette" | "home" | "grid" | "sparkle";
 
 const paths: Record<IconName, React.ReactNode> = {
+  // A pen nib over a square: making designs.
+  design: (
+    <>
+      <path d="M12 3 7 11l5 10 5-10z" />
+      <circle cx="12" cy="11" r="1.6" />
+      <path d="M12 3v6.4" />
+    </>
+  ),
+  text: <path d="M5 6V4h14v2M12 4v16M9 20h6" />,
+  image: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.8" />
+      <path d="m3 17 5-5 4 4 3-3 6 6" />
+    </>
+  ),
+  shapes: (
+    <>
+      <circle cx="8" cy="8" r="4.5" />
+      <rect x="11" y="11" width="9" height="9" rx="1.5" />
+    </>
+  ),
+  draw: <path d="M4 20c3-1 4-4 7-6s6-2 8-6M15 4l5 5M13.5 5.5l5 5L9 20H4v-5z" />,
+  pen: (
+    <>
+      <path d="M12 21 5 14l2-8 5-3 5 3 2 8z" />
+      <path d="M12 3v8" />
+      <circle cx="12" cy="13" r="2" />
+    </>
+  ),
+  palette: (
+    <>
+      <path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 1.6-2.2-.5-1.4.4-2.8 1.9-2.8H18a3 3 0 0 0 3-3c0-5.5-4-10-9-10z" />
+      <circle cx="7.5" cy="11" r="1.2" fill="currentColor" />
+      <circle cx="10" cy="7" r="1.2" fill="currentColor" />
+      <circle cx="15" cy="7.5" r="1.2" fill="currentColor" />
+    </>
+  ),
+  home: <path d="M4 11 12 4l8 7v9h-5v-6h-6v6H4z" />,
+  grid: <path d="M4 4h16v16H4zM4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16" />,
+  sparkle: <path d="M12 3c.8 4.5 2.5 6.2 7 7-4.5.8-6.2 2.5-7 7-.8-4.5-2.5-6.2-7-7 4.5-.8 6.2-2.5 7-7zM19 16c.3 1.6.9 2.2 2.5 2.5-1.6.3-2.2.9-2.5 2.5-.3-1.6-.9-2.2-2.5-2.5 1.6-.3 2.2-.9 2.5-2.5z" />,
   presets: (
     <>
       <rect x="4" y="9" width="16" height="11" rx="2" />

@@ -23,8 +23,8 @@ import {
 
 // ─── Factories ────────────────────────────────────────────────────────────
 
-export function createDocument(width: number, height: number, name = "Untitled", background: string | null = "#ffffff"): CompositeDocument {
-  return { version: 1, id: createId("doc"), name, width, height, background, layers: [], guides: [], createdAt: Date.now() };
+export function createDocument(width: number, height: number, name = "Untitled", background: string | null = "#ffffff", purpose?: "design"): CompositeDocument {
+  return { version: 1, id: createId("doc"), name, width, height, background, layers: [], guides: [], ...(purpose ? { purpose } : {}), createdAt: Date.now() };
 }
 
 export const fullCrop: LayerCrop = { left: 0, top: 0, right: 1, bottom: 1 };
@@ -569,6 +569,7 @@ export function sanitizeDocument(v: unknown): CompositeDocument {
       .filter((g): g is Record<string, unknown> => !!g)
       .map((g) => ({ id: str(g.id, createId("guide"), 64), axis: g.axis === "y" ? ("y" as const) : ("x" as const), position: num(g.position, 0) })),
     ...(obj(d?.animation) ? { animation: sanitizeAnimation(d?.animation) } : {}),
+    ...(d?.purpose === "design" ? { purpose: "design" as const } : {}),
     createdAt: num(d?.createdAt, Date.now()),
   };
 }

@@ -30,12 +30,14 @@ import { setWorkspace, toast, ui, type Workspace } from "./state";
 
 const DevelopWorkspace = lazy(() => import("@/features/develop/Develop"));
 const CompositeWorkspace = lazy(() => import("@/features/composite/Composite"));
+const DesignWorkspace = lazy(() => import("@/features/design/Design"));
 const VideoWorkspace = lazy(() => import("@/features/video/Video"));
 
 const modules: { id: Workspace; label: string; key: string }[] = [
   { id: "library", label: "Library", key: "G" },
   { id: "develop", label: "Develop", key: "D" },
   { id: "composite", label: "Composite", key: "C" },
+  { id: "design", label: "Design", key: "B" },
   { id: "video", label: "Video", key: "" },
 ];
 
@@ -122,7 +124,7 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
         aria-haspopup="menu"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          const icons = { library: "folders", develop: "edit", composite: "layers", video: "clips" } as const;
+          const icons = { library: "folders", develop: "edit", composite: "layers", design: "design", video: "clips" } as const;
           openMenu(r.left, r.bottom + 6, modules.map((m) => ({ label: m.label, icon: icons[m.id], checked: m.id === workspace, onSelect: () => setWorkspace(m.id) })));
         }}
       >
@@ -292,6 +294,11 @@ export function App() {
       {workspace === "composite" && (
         <Suspense fallback={<div className="empty-state">Loading Composite…</div>}>
           <CompositeWorkspace Shell={Shell} />
+        </Suspense>
+      )}
+      {workspace === "design" && (
+        <Suspense fallback={<div className="empty-state">Loading Design…</div>}>
+          <DesignWorkspace Shell={Shell} />
         </Suspense>
       )}
       {workspace === "video" && (

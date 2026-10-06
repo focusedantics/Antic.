@@ -1,0 +1,78 @@
+/* Design workspace (loaded with the Design tab only). Same darkroom look as the rest
+   of the app: flat panels, thin lines, the accent for what is current. */
+
+/* ─── Home ───────────────────────────────────────────────────────────────── */
+.design-home { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 22px 24px 40px; scrollbar-width: thin; }
+.design-home > section { margin-top: 22px; }
+.design-home h1 { margin: 0; font-size: 20px; font-weight: 600; color: var(--text); }
+.design-home h2 { margin: 0 0 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.design-home-head p { margin: 4px 0 12px; }
+.design-search { width: min(100%, 480px); height: 30px; font-size: 13px; }
+
+.chip-row { display: flex; gap: 6px; margin-bottom: 10px; overflow-x: auto; scrollbar-width: none; }
+.filter-chip {
+  flex: none; height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid var(--line-strong);
+  background: var(--panel-2); color: var(--text-dim); white-space: nowrap;
+}
+.filter-chip:hover { color: var(--text); }
+.filter-chip[aria-pressed="true"] { background: #3a3222; border-color: var(--accent); color: var(--accent-strong); }
+
+/* Sizes scroll sideways on phones and wrap on computers. */
+.size-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.size-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 8px 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); text-align: center;
+}
+button.size-card:hover { background: var(--panel-2); border-color: var(--line-strong); }
+button.size-card:focus-visible { border-color: var(--accent); outline: none; }
+.size-shape { display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+.size-shape > span { border: 1.5px solid var(--text-dim); border-radius: 2px; background: var(--panel-3); }
+button.size-card:hover .size-shape > span { border-color: var(--accent); }
+.size-name { font-weight: 600; line-height: 1.25; }
+.size-dims { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.size-card.custom { gap: 6px; }
+.custom-fields { display: flex; align-items: center; gap: 4px; }
+.custom-fields .input { width: 56px; text-align: center; }
+
+.design-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.design-tile { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.design-thumb {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center; padding: 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: #0d0d0d; color: var(--text-faint);
+}
+.design-thumb:hover { border-color: var(--line-strong); }
+.design-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 1px 6px #000a; }
+.design-tile-name { padding-right: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.design-tile-more { position: absolute; right: 0; bottom: -3px; }
+
+/* ─── Editor ─────────────────────────────────────────────────────────────── */
+.toolbar-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: var(--line-strong); }
+.design-toolbar .btn .icon { opacity: 0.85; }
+
+.make-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.make-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 62px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel-2); color: var(--text-dim); font-size: 11px; line-height: 1.2; text-align: center;
+}
+.make-tile:hover:not(:disabled) { background: var(--panel-3); color: var(--text); border-color: var(--line-strong); }
+.make-tile:disabled { opacity: 0.4; }
+
+.text-styles { display: flex; flex-direction: column; gap: 4px; }
+.text-style {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+  color: var(--text); font-size: 17px; line-height: 1.2; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.text-style:hover { background: var(--panel-3); border-color: var(--line-strong); }
+
+.stack { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+
+/* ─── Phones ─────────────────────────────────────────────────────────────── */
+.workspace.compact .design-home { padding: 14px 16px 24px; }
+.workspace.compact .size-row { display: flex; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 4px; }
+.workspace.compact .size-card { flex: none; width: 128px; scroll-snap-align: start; }
+.workspace.compact .size-card.custom { width: 176px; }
+.workspace.compact .design-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workspace.compact .make-grid { grid-template-columns: repeat(4, 1fr); }
+.workspace.compact .design-search { width: 100%; height: 36px; font-size: 16px; }
+.workspace.compact .filter-chip { height: 32px; }
