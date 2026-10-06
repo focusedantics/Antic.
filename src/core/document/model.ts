@@ -210,7 +210,13 @@ export type PathStyle = {
 export type ShadowStyle = { readonly color: string; readonly opacity: number; /** degrees; 90 = straight down */ readonly angle: number; readonly distance: number; readonly blur: number; /** 0..1 */ readonly spread: number };
 export type GlowStyle = { readonly color: string; readonly opacity: number; readonly blur: number; readonly spread: number };
 export type OutlineStyle = { readonly color: string; readonly opacity: number; readonly width: number };
-export type LayerFx = { readonly shadow?: ShadowStyle; readonly glow?: GlowStyle; readonly outline?: OutlineStyle };
+export type LayerFx = {
+  readonly shadow?: ShadowStyle;
+  readonly glow?: GlowStyle;
+  readonly outline?: OutlineStyle;
+  /** Layer blur: softens the layer itself (and so its shadow and glow), canvas pixels as for shadow blur. */
+  readonly blur?: number;
+};
 
 /** How a slot's photo sits in its frame: `zoom` ≥ 1 over "cover", `x`/`y` -1..1 pan within the room left. */
 export type SlotFit = { readonly zoom: number; readonly x: number; readonly y: number };

@@ -296,7 +296,7 @@ const shadowDefault = (): ShadowStyle => ({ color: "#000000", opacity: 0.45, ang
 const glowDefault = (): GlowStyle => ({ color: "#ffe680", opacity: 0.9, blur: Math.round(docUnit() * 2.5), spread: 0.1 });
 const outlineDefault = (): OutlineStyle => ({ color: "#ffffff", opacity: 1, width: Math.max(1, Math.round(docUnit() * 0.8)) });
 
-/** Drop shadow, glow and outline: on any layer that has pixels of its own. */
+/** Layer blur, drop shadow, glow and outline: on any layer that has pixels of its own. */
 export function StylesSection({ layer }: { layer: Layer }) {
   const fx = layer.fx ?? {};
   const doc = useStore(composite, (s) => s.doc);
@@ -314,6 +314,7 @@ export function StylesSection({ layer }: { layer: Layer }) {
   return (
     <>
       <div className="subhead">Styles</div>
+      <Gesture label="Layer blur" value={Math.round(fx.blur ?? 0)} min={0} max={big} def={0} format={px} onChange={(v) => update("Layer blur", "blur", v > 0 ? v : undefined)} />
       <div className="row wrap">
         <label className="check">
           <input type="checkbox" checked={!!sh} onChange={(e) => update("Drop shadow", "shadow", e.target.checked ? shadowDefault() : undefined)} /> Shadow

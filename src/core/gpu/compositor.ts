@@ -336,6 +336,15 @@ export class Compositor {
   private styles(content: Target, layer: Layer, scale: number): Target {
     const fx = layer.fx!;
     const { width, height } = content;
+    // Layer blur first, so the shadow and glow come from the softened layer.
+    if ((fx.blur ?? 0) * scale >= 0.5) {
+      const small = this.pipeline.blur(content, (fx.blur! * scale) / 2);
+      const soft = this.pipeline.acquire(width, height);
+      this.gpu.pass("resample", C.resample, { target: soft, textures: { uInput: small } });
+      this.pipeline.release(small);
+      this.pipeline.release(content);
+      content = soft;
+    }
     const blurred = (blur: number) => (blur * scale >= 0.5 ? this.pipeline.blur(content, (blur * scale) / 2) : null);
     const shadow = fx.shadow && fx.shadow.opacity > 0 ? blurred(fx.shadow.blur) : null;
     const glow = fx.glow && fx.glow.opacity > 0 ? blurred(fx.glow.blur) : null;
@@ -552,7 +561,7 @@ function gradientUniforms(layer: GradientLayer) {
   };
 }
 
-const hasFx = (fx: LayerFx | undefined): fx is LayerFx => !!fx && ((fx.shadow?.opacity ?? 0) > 0 || (fx.glow?.opacity ?? 0) > 0 || ((fx.outline?.opacity ?? 0) > 0 && (fx.outline?.width ?? 0) > 0));
+const hasFx = (fx: LayerFx | undefined): fx is LayerFx => !!fx && ((fx.blur ?? 0) > 0 || (fx.shadow?.opacity ?? 0) > 0 || (fx.glow?.opacity ?? 0) > 0 || ((fx.outline?.opacity ?? 0) > 0 && (fx.outline?.width ?? 0) > 0));
 
 /** A path layer's fill, then its stroke (kept inside the box: the drawing is inset by half the stroke). */
 export function drawPath(ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D, layer: PathLayer, w: number, h: number) {

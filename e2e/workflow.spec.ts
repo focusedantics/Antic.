@@ -83,6 +83,8 @@ test("library → develop → persistence", async ({ page }) => {
   // Recipe saves are debounced (300 ms + 250 ms catalog flush + the IndexedDB write).
   await page.waitForTimeout(2000);
   await page.reload();
+  // The shortcut works once the catalog has loaded (pressing earlier races the app's start).
+  await expect(page.locator(".cell img")).toHaveCount(1, { timeout: 30_000 });
   await page.keyboard.press("d");
   await expect(page.getByRole("slider", { name: "Exposure" })).toHaveAttribute("aria-valuenow", "0.5");
 });

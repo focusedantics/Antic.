@@ -209,6 +209,11 @@ void main() {
 }`;
 
 /** Canvas background: solid color or transparent. */
+/** A texture drawn at the target's size (a blur computed at a fraction of it, scaled back up). */
+export const resample = `${header}
+uniform sampler2D uInput;
+void main() { outColor = texture(uInput, vUv); }`;
+
 export const solid = `${header}
 uniform vec4 uColor;
 void main() { outColor = uColor; }`;

@@ -7,6 +7,7 @@ import type { Target, Texture } from "@/core/gpu/gl";
  * preview and a full-resolution export show the same number of cells, dots or lines.
  */
 export type EffectCategory =
+  | "Blur"
   | "Light & glass"
   | "Type & code"
   | "Halftone & dither"
@@ -19,6 +20,7 @@ export type EffectCategory =
   | "Motion";
 
 export const EFFECT_CATEGORIES: EffectCategory[] = [
+  "Blur",
   "Light & glass",
   "Type & code",
   "Halftone & dither",

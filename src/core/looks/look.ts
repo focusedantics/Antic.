@@ -115,6 +115,7 @@ export function fitLayers(look: NonNullable<Look["layers"]>, width: number, heig
       ...(fx.shadow ? { shadow: { ...fx.shadow, distance: fx.shadow.distance * u, blur: fx.shadow.blur * u } } : {}),
       ...(fx.glow ? { glow: { ...fx.glow, blur: fx.glow.blur * u } } : {}),
       ...(fx.outline ? { outline: { ...fx.outline, width: fx.outline.width * u } } : {}),
+      ...(fx.blur ? { blur: fx.blur * u } : {}),
     };
   const fit = (l: Layer): Layer => {
     const base = { ...l, id: createId("layer"), ...(l.fx ? { fx: scaleFx(l.fx) } : {}) } as Layer;

@@ -686,6 +686,7 @@ function sanitizeFx(v: unknown): LayerFx | undefined {
       : {}),
     ...(gl ? { glow: { color: color(gl.color, "#ffffff"), opacity: num(gl.opacity, 0.8, 0, 1), blur: num(gl.blur, 20, 0, 2000), spread: num(gl.spread, 0, 0, 1) } } : {}),
     ...(ol ? { outline: { color: color(ol.color, "#ffffff"), opacity: num(ol.opacity, 1, 0, 1), width: num(ol.width, 8, 0, 1000) } } : {}),
+    ...(num(f.blur, 0, 0, 2000) > 0 ? { blur: num(f.blur, 0, 0, 2000) } : {}),
   };
   return Object.keys(fx).length ? fx : undefined;
 }

@@ -105,6 +105,12 @@ describe("path, frame and style layers", () => {
     expect(j1.shape).toEqual({ kind: "rectangle", points: 48, ratio: 0, round: 0 });
     expect(j1.fx).toEqual({ shadow: { color: "#000000", opacity: 1, angle: 90, distance: 10, blur: 0, spread: 0 } });
     expect(j2.paths).toEqual([{ closed: false, nodes: [{ x: 100, y: 0, in: { x: 0.5, y: 0 } }] }]);
+    // Layer blur: kept when positive, clamped, dropped when zero or junk.
+    const blurred = (fx: unknown) => (sanitizeDocument({ ...saved, layers: [{ ...star, fx }] }).layers[0] as PathLayer).fx;
+    expect(blurred({ blur: 12 })).toEqual({ blur: 12 });
+    expect(blurred({ blur: 1e9 })).toEqual({ blur: 2000 });
+    expect(blurred({ blur: 0 })).toBeUndefined();
+    expect(blurred({ blur: "soft" })).toBeUndefined();
     expect(j2.style.fill).toBe("#d9a441");
     expect(j2.style.stroke).toBeNull();
     expect(j2.style.dash).toHaveLength(8);

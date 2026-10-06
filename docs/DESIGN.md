@@ -71,7 +71,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | P5 | Extract an element from a photo and keep it for later | New: cut-out → PNG in the Library → saved element | ⬜ |
 | P6 | Curves, Color Balance, Selective Color, Tint on adjustment layers | Partly exists (the develop engine has them); New: their controls on adjustment layers, plus a tint | ⬜ |
 | P7 | Brightness, contrast, grain, vibrance, shadows/highlights | Exists (adjustment layers, grain) | ✅ |
-| P8 | Blur | New: Gaussian blur effect | ⬜ |
+| P8 | Blur | New: a Blur effect category (Gaussian, lens, motion, zoom, spin, tilt-shift) for whole designs, photos, clipped layers and video; Layer blur in Styles for one layer | ✅ |
 | P9 | No ads, no watermark | Exists (watermark is opt-in) | ✅ |
 
 ### Vector, text and logos

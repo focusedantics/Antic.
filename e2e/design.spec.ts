@@ -698,3 +698,91 @@ test.describe("phone: carousels", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });
+
+/** Pixels between red and white (a soft edge) along row `y` and column `x` of an exported PNG. */
+async function softPixels(page: Page, x: number, y: number) {
+  await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+  const dialog = page.getByRole("dialog", { name: /^Export/ });
+  const [file] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+  const png = readFileSync(await file.path()).toString("base64");
+  return page.evaluate(
+    async ([b64, px, py]) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+      const g = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      const soft = (d: Uint8ClampedArray) => {
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 25 && d[i + 1] < 230) n++;
+        return n;
+      };
+      return { row: soft(g.getImageData(0, py, bitmap.width, 1).data), col: soft(g.getImageData(px, 0, 1, bitmap.height).data) };
+    },
+    [png, x, y] as const,
+  );
+}
+
+test.describe("computer: blur", () => {
+  test("layer blur and the Blur effects (Gaussian, motion, tilt-shift, zoom, lens) soften what they should", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const left = page.locator("aside.side.left");
+    const right = page.locator("aside.side.right");
+    // A red square, 340–739 both ways, on white.
+    await left.getByRole("button", { name: "Add rectangle", exact: true }).click();
+    await right.getByRole("textbox", { name: "Fill colour" }).fill("#ff0000");
+    await right.getByRole("spinbutton", { name: "W" }).fill("400");
+    await right.getByRole("spinbutton", { name: "H" }).fill("400");
+    await right.getByRole("spinbutton", { name: "X" }).fill("540");
+    await right.getByRole("spinbutton", { name: "Y" }).fill("540");
+    const sharp = await softPixels(page, 540, 540);
+    expect(sharp.row).toBeLessThanOrEqual(4);
+    expect(sharp.col).toBeLessThanOrEqual(4);
+
+    // Layer blur softens the square itself; back to 0 it is sharp again.
+    const blur = right.getByRole("slider", { name: "Layer blur" });
+    await blur.focus();
+    await page.keyboard.press("End");
+    const soft = await softPixels(page, 540, 540);
+    expect(soft.row).toBeGreaterThan(150);
+    expect(soft.col).toBeGreaterThan(150);
+    await blur.focus();
+    await page.keyboard.press("Home");
+    expect((await softPixels(page, 540, 540)).row).toBeLessThanOrEqual(4);
+
+    // Effects from the Blur category, as a layer over everything below.
+    const pick = async (query: string, name: string) => {
+      const change = right.getByRole("button", { name: "Change…" });
+      if (await change.count()) await change.click();
+      else await left.getByRole("button", { name: "Effect…" }).click();
+      await page.getByLabel("Search effects").fill(query);
+      await page.keyboard.press("Enter");
+      await expect(layerNames(page).first()).toContainText(name);
+    };
+    await pick("gaussian", "Gaussian Blur");
+    const gauss = await softPixels(page, 540, 540);
+    expect(gauss.row).toBeGreaterThan(40);
+    expect(gauss.col).toBeGreaterThan(40);
+
+    // Motion blur at 0°: the vertical edges smear sideways, the horizontal ones stay sharp.
+    await pick("motion blur", "Motion Blur");
+    const motion = await softPixels(page, 540, 540);
+    expect(motion.row).toBeGreaterThan(80);
+    expect(motion.col).toBeLessThanOrEqual(6);
+
+    // Tilt-shift: sharp in the band around 55 % down (row 600), blurred above it (the top edge at 340).
+    await pick("tilt", "Tilt-Shift");
+    const tilt = await softPixels(page, 540, 600);
+    expect(tilt.row).toBeLessThanOrEqual(6);
+    expect(tilt.col).toBeGreaterThan(20);
+
+    // Zoom blur from the centre streaks the edges outwards; lens blur softens every edge.
+    await pick("zoom blur", "Zoom Blur");
+    expect((await softPixels(page, 540, 540)).row).toBeGreaterThan(30);
+    await pick("lens blur", "Lens Blur");
+    const lens = await softPixels(page, 540, 540);
+    expect(lens.row).toBeGreaterThan(30);
+    expect(lens.col).toBeGreaterThan(30);
+  });
+});

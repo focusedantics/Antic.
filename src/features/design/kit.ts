@@ -75,6 +75,7 @@ export function fx(k: Kit, f: LayerFx): LayerFx {
     ...(f.shadow ? { shadow: { ...f.shadow, distance: f.shadow.distance * k.s, blur: f.shadow.blur * k.s } } : {}),
     ...(f.glow ? { glow: { ...f.glow, blur: f.glow.blur * k.s } } : {}),
     ...(f.outline ? { outline: { ...f.outline, width: f.outline.width * k.s } } : {}),
+    ...(f.blur ? { blur: f.blur * k.s } : {}),
   };
 }
 

@@ -240,7 +240,7 @@ Document
  ├── assets referenced by id
  ├── layers: image (asset + recipe) · fill · gradient · text · shape · path · slot · paint · adjustment · effect · group
  │     each: visibility, lock, opacity, fill opacity, blend mode, transform, crop,
- │           mask (vector/raster), clipping, name, styles (fx: shadow, glow, outline)
+ │           mask (vector/raster), clipping, name, styles (fx: blur, shadow, glow, outline)
  └── history, snapshots
 ```
 
@@ -280,7 +280,10 @@ by rescaling alpha), the outline a dilation in halving steps (`dilate`, 12 taps 
 the steps' Minkowski sum fills the disc), all composited under the content in one pass
 (`layerStyle`). A styled layer is placed at full fill and the style pass applies fill
 opacity to the layer's own pixels only, so at 0 % fill only its styles show (as in
-Photoshop). Sizes are document pixels and scale with the view.
+Photoshop). Sizes are document pixels and scale with the view. Layer blur (`fx.blur`)
+runs first: the content is blurred (`pipeline.blur`, which may work at a fraction of the
+size) and resampled to canvas size (`resample`), so the shadow and glow come from the
+softened layer.
 
 **Paint layers** (`core/document/paint.ts`) keep brush strokes (x, y, pressure in the
 layer's unit box; brush size relative to the box width; a seed so textured brushes
@@ -385,6 +388,15 @@ mosaics and bricks stay cheap at any size. The runner also binds the shared prel
 coverage, auto-leveling) and lends pooled targets and blurs for multi-pass effects. It
 builds glyph atlases for the text effects with Canvas 2D, sorted by ink coverage for
 density ramps.
+
+The Blur category (`library/blur.ts`) works on premultiplied colour, so transparent edges
+blur without fringes, and the texture clamps, so borders don't darken. Gaussian is the
+pipeline blur resampled to full size; motion, zoom and spin are two box passes of one
+"sweep" shader (40 taps over the length, then 40 over 1/40 of it, filling the gaps, so a
+long blur stays smooth); lens blur is a 96-tap golden-angle disc that reads a mip level
+matched to the tap spacing and weighs highlights so they open into discs; tilt-shift mixes
+the sharp image with half and full blurs by distance from a band or circle. As a layer it
+blurs everything below; clipped to a layer it blurs that layer alone.
 
 The compositor treats an effect layer like an adjustment layer. It runs the effect on the
 backdrop (or on its clipping base), applies the mask and fill, then blends the result

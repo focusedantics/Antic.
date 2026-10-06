@@ -24,6 +24,15 @@ describe("effect registry", () => {
     for (const id of PICKS) expect(effectById(id)).toBeDefined();
   });
 
+  it("has a Blur category with the everyday blurs", () => {
+    const blurs = EFFECTS.filter((e) => e.category === "Blur").map((e) => e.id);
+    expect(blurs).toEqual(["blur", "lens-blur", "motion-blur", "zoom-blur", "spin-blur", "tilt-shift"]);
+    expect(EFFECT_CATEGORIES[0]).toBe("Blur");
+    // Untrusted amounts are clamped; a zero blur is allowed (and leaves the image as is).
+    expect(sanitizeEffect({ id: "blur", params: { amount: 1e6 } })!.params.amount).toBe(100);
+    expect(sanitizeEffect({ id: "tilt-shift", params: { shape: "hexagon" } })!.params.shape).toBe("band");
+  });
+
   it("covers every category", () => {
     for (const c of EFFECT_CATEGORIES) expect(EFFECTS.some((e) => e.category === c)).toBe(true);
   });
