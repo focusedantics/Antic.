@@ -183,7 +183,8 @@ async function encode(name: string, onProgress?: (done: number) => void): Promis
   const webcodecs = await pickCodec();
   if (!webcodecs?.startsWith("avc") && hme) {
     const enc = await hme.createH264MP4Encoder();
-    Object.assign(enc, { width: W, height: H, frameRate: FPS, quantizationParameter: 21, speed: 2 });
+    // Quantizer 21 by default; ?qp= trades size for quality (higher is smaller).
+    Object.assign(enc, { width: W, height: H, frameRate: FPS, quantizationParameter: Number(params.get("qp") ?? 21), speed: 2 });
     enc.initialize();
     for (let i = 0; i < total; i++) {
       await draw(i / FPS);
@@ -227,7 +228,7 @@ const config = (codec: string): VideoEncoderConfig => ({
   width: W,
   height: H,
   framerate: FPS,
-  bitrate: 16_000_000,
+  bitrate: params.has("qp") ? Math.round(16_000_000 * 0.8 ** (Number(params.get("qp")) - 21)) : 16_000_000,
   latencyMode: "quality",
   ...(codec.startsWith("avc") ? { avc: { format: "avc" } } : {}),
 });

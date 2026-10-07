@@ -42,6 +42,7 @@ Other switches:
 - `TRAILER_MOTION=reduced` renders the reduced-motion cut.
 - `TRAILER_STILLS=1.5,12,40` writes PNG frames at those times instead of a video.
 - `TRAILER_CUTS=9x16` renders one cut only.
+- `TRAILER_QP=28` writes a smaller preview copy (`…-qp28.mp4`) for sending around.
 
 The video is silent: add music in your editor. Cuts land on whole seconds, every two beats
 at 120 BPM, so a 120 BPM track lines up with them.
