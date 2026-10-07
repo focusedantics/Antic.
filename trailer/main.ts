@@ -183,7 +183,7 @@ async function encode(name: string, onProgress?: (done: number) => void): Promis
   const webcodecs = await pickCodec();
   if (!webcodecs?.startsWith("avc") && hme) {
     const enc = await hme.createH264MP4Encoder();
-    Object.assign(enc, { width: W, height: H, frameRate: FPS, quantizationParameter: 18, speed: 2 });
+    Object.assign(enc, { width: W, height: H, frameRate: FPS, quantizationParameter: 21, speed: 2 });
     enc.initialize();
     for (let i = 0; i < total; i++) {
       await draw(i / FPS);
