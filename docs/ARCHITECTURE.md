@@ -264,6 +264,24 @@ modes. Clipped layers composite "atop" their base; groups render in isolation; a
 layers convert the backdrop to linear Rec.2020 and reuse the develop tone/color shaders.
 Per-layer content is cached by its inputs and evicted when unused.
 
+Each layer is drawn only over the part of the canvas it can change: its box (cropped)
+plus how far its styles reach (`fxReach`), with the GPU's scissor; a layer outside the
+render is skipped. A plain layer (Normal, no styles, nothing clipped to it) is drawn
+straight onto the canvas with hardware "over" blending, which is Normal on premultiplied
+colour, so it costs one pass over its own area. Other layers keep a canvas-sized buffer,
+cleared, and blend inside their area after the backdrop is copied. Groups, fills,
+adjustments, effects and moving text still cover the canvas.
+
+The view renders a window: the part of the design on screen plus room for styles reaching
+in, snapped to a 128 px grid (`DevelopEngine.compositeWindow`); the compositor offsets
+every layer's mapping by the window's origin. A design with an effect layer, or mostly on
+screen, renders whole (effects work from positions in the whole image). While the view
+moves (a slide glide, pinch, pan or zoom) the render at hand is redrawn under the new
+mapping, with a lower-scale render of the whole design around it, and a sharp render
+follows once it rests. Thumbnails, the eyedropper, effect previews, exports and that
+whole-design render use a second compositor with its own caches, so they never replace
+the view's layer rasters and developed photos. See docs/PERFORMANCE.md.
+
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
 
 **Editing several layers.** Properties shows the last selected layer; its edits go

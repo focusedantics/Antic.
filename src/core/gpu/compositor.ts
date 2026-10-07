@@ -82,7 +82,7 @@ export class Compositor {
   /**
    * Renders `doc` at `scale` working pixels per document pixel, with animated
    * effects at `time` seconds into the loop: all of it, or the `window` part
-   * (document px; see `windowSafe`). The caller releases the result.
+   * (document px; see `DevelopEngine.compositeWindow`). The caller releases the result.
    */
   render(doc: CompositeDocument, scale: number, time = 0, window?: { x: number; y: number; width: number; height: number }): Target {
     this.frame++;

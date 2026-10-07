@@ -1,6 +1,6 @@
 import { unzipSync } from "fflate";
 import { readFileSync } from "node:fs";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 
@@ -1002,9 +1002,10 @@ test.describe("phone: reordering layers", () => {
 });
 
 /** Average brightness (0–255) of small squares around document points, from an exported PNG. */
-async function exportedLuma(page: Page, points: [number, number][]) {
+async function exportedLuma(page: Page, points: [number, number][], prepare?: (dialog: Locator) => Promise<void>) {
   await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
   const dialog = page.getByRole("dialog", { name: /^Export/ });
+  await prepare?.(dialog);
   const [file] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
   const png = readFileSync(await file.path()).toString("base64");
   return page.evaluate(
@@ -1148,6 +1149,102 @@ test.describe("computer: playing card template", () => {
     // Unlinked, a frame keeps its own photo.
     await right.getByRole("button", { name: "Unlink" }).click();
     await expect(right.getByText("Linked with another frame")).toBeHidden();
+  });
+});
+
+test.describe("computer: exporting every slide", () => {
+  test("each slide of a carousel arrives as its own download (not only the last)", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).click();
+    await page.getByRole("button", { name: /^Carousel square, 3 slides/ }).click();
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+    const dialog = page.getByRole("dialog", { name: /^Export/ });
+    await dialog.getByRole("radio", { name: /Every slide/ }).check();
+    await dialog.getByLabel("Export destination").selectOption("download");
+    const names: string[] = [];
+    page.on("download", (d) => names.push(d.suggestedFilename()));
+    await dialog.getByRole("button", { name: "Export 3", exact: true }).click();
+    await expect.poll(() => names.length, { timeout: 60_000 }).toBe(3);
+    expect(new Set(names).size).toBe(3);
+  });
+});
+
+/** Colours on screen at document points (the view as drawn, not an export). */
+async function viewColors(page: Page, points: [number, number][]) {
+  await page.waitForTimeout(700);
+  const at = [];
+  for (const [x, y] of points) at.push(await onScreen(page, x, y));
+  const png = (await page.screenshot()).toString("base64");
+  return page.evaluate(
+    async ([data, pts]) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+      const g = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+      g.drawImage(bitmap, 0, 0);
+      const k = bitmap.width / innerWidth;
+      return pts.map(({ x, y }) => [...g.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data.slice(0, 3)]);
+    },
+    [png, at] as const,
+  );
+}
+
+test.describe("computer: drawing only what is needed", () => {
+  test("on a carousel slide the view matches the export: opacity, Multiply, a shadow, after a pan too", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("group", { name: "Size groups" }).getByRole("button", { name: "Carousels", exact: true }).click();
+    await page.getByRole("button", { name: /^Carousel square, 3 slides/ }).click();
+    const bar = page.getByRole("toolbar", { name: "Slides" });
+    await expect(bar.getByRole("button", { name: /^Slide \d$/ })).toHaveCount(3);
+    // On slide 2: a red square at half opacity (drawn straight onto the canvas), a blue one
+    // in Multiply over part of it (blended in its own area). On slide 1: a green square with
+    // a shadow (styled: its own buffer and the shadow's reach).
+    await page.evaluate(async () => {
+      const { editDocument } = await import("/src/core/document/session.ts" as string);
+      const { pathLayer } = await import("/src/core/document/operations.ts" as string);
+      const { smartShape } = await import("/src/core/document/shapes.ts" as string);
+      type L = { transform: Record<string, unknown> };
+      const square = (doc: object, fill: string, x: number, y: number, size: number, extra: object = {}) => {
+        const l = pathLayer(doc, smartShape("rectangle"), { fill, strokeWidth: 0 }) as L;
+        return { ...l, transform: { ...l.transform, x, y, width: size, height: size }, ...extra };
+      };
+      editDocument("Squares", (d: { layers: object[] }) => ({
+        ...d,
+        layers: [
+          ...d.layers,
+          square(d, "#00c000", 540, 540, 300, { name: "Green", fx: { shadow: { color: "#000000", opacity: 1, angle: 45, distance: 60, blur: 4, spread: 0 } } }),
+          square(d, "#ff0000", 1620, 540, 400, { name: "Red", opacity: 0.5 }),
+          square(d, "#0000ff", 1760, 660, 300, { name: "Blue", blend: "multiply" }),
+        ],
+      }));
+    });
+    await expect(layerNames(page)).toHaveCount(3);
+    await bar.getByRole("button", { name: "Slide 2", exact: true }).click();
+    const points: [number, number][] = [
+      [1500, 420], // red at half opacity on white: pink
+      [1700, 620], // blue multiplied over the pink: dark blue
+      [1865, 775], // blue over white: blue
+    ];
+    const [pink, darkBlue, blue] = await viewColors(page, points);
+    const near = (c: number[], want: number[]) => c.every((v, i) => Math.abs(v - want[i]) <= 6);
+    expect(near(pink, [255, 128, 128]), `pink ${pink}`).toBe(true);
+    expect(near(darkBlue, [0, 0, 128]), `dark blue ${darkBlue}`).toBe(true);
+    expect(near(blue, [0, 0, 255]), `blue ${blue}`).toBe(true);
+    // The export (the whole design, the other compositor) has the same.
+    const lumas = await exportedLuma(page, points, (dialog) => dialog.getByRole("radio", { name: /whole carousel/ }).check());
+    const luma = (c: number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    [pink, darkBlue, blue].forEach((c, i) => expect(Math.abs(lumas[i] - luma(c)), `point ${i}: export ${lumas[i]}, view ${c}`).toBeLessThan(6));
+
+    // Slide 1, glided to: the green square and its shadow below right, drawn once the view rests.
+    await bar.getByRole("button", { name: "Slide 1", exact: true }).click();
+    const [green, shadow, white] = await viewColors(page, [
+      [540, 540],
+      [720, 720], // past the square's corner (690, 690), inside its shadow (offset 42 px each way)
+      [540, 900],
+    ]);
+    expect(near(green, [0, 192, 0]), `green ${green}`).toBe(true);
+    expect(Math.max(...shadow), `shadow ${shadow}`).toBeLessThan(40);
+    expect(Math.min(...white), `white ${white}`).toBeGreaterThan(245);
   });
 });
 

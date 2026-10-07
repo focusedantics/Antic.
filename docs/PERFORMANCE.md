@@ -203,3 +203,51 @@ moving. One benchmark run afterwards: highest point 1114 MB (was 1042–1067 MB 
 runs), GPU textures at 100 % zoom 164 MB (was 147 MB); within the run-to-run noise.
 A pinch or pan now redraws the render at hand instead of developing the photo again
 each step (e2e/immersive.spec.ts: at most one render during a 12-step pinch).
+
+## Design: speed (October 2026)
+
+Design felt slow, above all on carousels. This round is about time, not memory, and
+follows the same pattern as the Develop work: measure, change one thing per commit,
+measure again.
+
+### Measuring
+
+`npm run bench -- design.bench.ts` (`bench/design.bench.ts`) opens the "Five tips"
+carousel (five slides, 5400 × 1350, 16 layers), adds three 3000 × 2000 photos, then:
+drags a layer (12 steps, a frame each), nudges it with the arrow keys (10), taps through
+the five slides (the view glides), zooms in and out (12 steps) and pans zoomed in (12
+steps). It runs as a phone (390 × 664 at 3×, iPhone user agent) and as a computer
+(1440 × 900 at 2×). Each phase reports its wall time, the composites of the view and their
+time, the pixels composited, the longest gap between frames and the main thread's long
+tasks. A composite's time waits for the GPU by reading one pixel of the result:
+`gl.finish` returns at once in Chromium, which first made the composites look nearly free
+and their cost appear later, in whatever touched the GPU next. `BENCH_PORT` runs it
+against a second dev server, so a worktree of an older commit can be measured.
+
+The GPU is SwiftShader, which runs on the CPU: absolute times are many times a phone's,
+but the work (pixels shaded per edit) is what the changes reduce, on any GPU.
+
+### What was slow
+
+- **Every layer cost two passes over the whole design.** Each layer was placed into a
+  design-sized buffer, then blended in a second design-sized pass. The carousel at the
+  computer's view scale is 4568 × 1142 px: a text box of a few hundred pixels cost two
+  passes over 5.2 MP, about 0.6 s on SwiftShader, 12 s for one view of 19 layers.
+- **The view rendered all five slides** to show one.
+- **Thumbnails wiped the view's caches.** The autosave thumbnail (320 px for the whole
+  strip), the eyedropper, effect previews and exports used the same compositor, which
+  keeps one raster per layer: each replaced every layer's view-sized text and developed
+  photo with a tiny one, so the next edit made them all again. When an edit took longer
+  than the autosave delay (800 ms), a thumbnail ran between every two steps of a drag.
+- **Every edit re-rendered every panel**: the Design and Composite workspaces subscribed
+  to the whole document only to know whether one was open.
+
+### What changed, step by step
+
+| Step | Commit message | What it does |
+| --- | --- | --- |
+| 1 | Design speed 1: thumbnails and previews no longer wipe the view's layer caches | A second compositor, with its own caches, for every render other than the view. |
+| 2 | Design speed 2: draw each layer only over its own area | Scissor to the layer's box plus its styles' reach; skip layers outside the render; Normal layers drawn straight onto the canvas with hardware "over" blending (one pass, no buffer). |
+| 3 | Design speed 3: render only the part of the design on screen; moving reuses it | The view renders a window (one slide of a carousel); glides, pinches, pans and zooms redraw the render at hand with a whole-design render around it, sharp once the view rests. |
+| 4 | Design speed 4: an edit re-renders only the panels that show it | The workspaces subscribe to whether a document is open; layer rows are memoized. |
+
