@@ -81,6 +81,7 @@ npm test          # unit tests
 npm run e2e       # end-to-end tests in Chromium (CHROMIUM_PATH=… to use an installed browser)
 npm run typecheck
 npm run build
+npm run trailer:capture && npm run trailer:render   # the 60-second trailer (trailer/README.md)
 ```
 
 Chromium-based browsers get the most complete experience: File System Access allows
