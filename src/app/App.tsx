@@ -70,6 +70,18 @@ function Toast() {
   return (
     <div className={`toast ${t.kind}`} role={t.kind === "error" ? "alert" : "status"}>
       {t.text}
+      {t.action && (
+        <button
+          type="button"
+          className="btn small primary"
+          onClick={() => {
+            ui.setState({ toast: null });
+            t.action!.run();
+          }}
+        >
+          {t.action.label}
+        </button>
+      )}
     </div>
   );
 }

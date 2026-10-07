@@ -43,6 +43,7 @@ import { engine, player } from "./engine";
 import { formatClock } from "./format";
 import { PoopPanel, SegmentPanel, VideoEffectPanel } from "./Inspector";
 import { Timeline, zoomTimeline } from "./Timeline";
+import { reportExport } from "@/features/export/save";
 import { Viewer } from "./Viewer";
 
 
@@ -373,8 +374,8 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       setProgress({ done: 1, total: 1, label: `Saved ${count} video${count === 1 ? "" : "s"} ✓` });
       await sleep(PACE.doneBeat);
       setResult({ count, bytes, frames, lossless, copied, notes: [...notes] });
-      toast(`Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
       for (const n of notes) toast(n, "error");
+      reportExport(sink, `Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
     } catch (err) {
       if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {

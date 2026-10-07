@@ -15,7 +15,7 @@ export type UiState = {
   /** Second photo in Compare view. */
   readonly compareId: AssetId | null;
   readonly thumbSize: number;
-  readonly toast: { readonly id: number; readonly text: string; readonly kind: "info" | "error" } | null;
+  readonly toast: { readonly id: number; readonly text: string; readonly kind: "info" | "error"; readonly action?: ToastAction } | null;
 };
 
 export const ui = createStore<UiState>(() => ({
@@ -37,12 +37,18 @@ export const ui = createStore<UiState>(() => ({
 }));
 
 let toastId = 0;
-export function toast(text: string, kind: "info" | "error" = "info") {
+/** A button in a toast (it stays up longer, and goes once pressed). */
+export type ToastAction = { readonly label: string; readonly run: () => void };
+
+export function toast(text: string, kind: "info" | "error" = "info", action?: ToastAction) {
   const id = ++toastId;
-  ui.setState({ toast: { id, text, kind } });
-  setTimeout(() => {
-    if (ui.getState().toast?.id === id) ui.setState({ toast: null });
-  }, kind === "error" ? 6000 : 2800);
+  ui.setState({ toast: { id, text, kind, ...(action ? { action } : {}) } });
+  setTimeout(
+    () => {
+      if (ui.getState().toast?.id === id) ui.setState({ toast: null });
+    },
+    action ? 60_000 : kind === "error" ? 6000 : 2800,
+  );
 }
 
 export const setWorkspace = (workspace: Workspace) => ui.setState({ workspace });

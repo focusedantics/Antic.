@@ -15,6 +15,7 @@ import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/e
 import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "@/features/export/ExportParts";
 import type { MarbleMood } from "@/features/export/marble";
 import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
+import { reportExport } from "@/features/export/save";
 import { ANIMATED_FORMATS, type DocExport, type DocFormat, exportDocument, exportSize } from "./actions";
 
 let remembered: DocExport = { format: "png", scale: 1, quality: 0.92, background: "#ffffff", time: 0, dither: true, repeats: 3 };
@@ -131,7 +132,7 @@ export function ExportDocumentDialog({ onClose }: { onClose: () => void }) {
         setMood("done");
         setProgress({ done: total, total, label: `Saved ${done} image${done === 1 ? "" : "s"} ✓` });
         await sleep(PACE.doneBeat);
-        toast(`Exported ${done} image${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+        reportExport(sink, `Exported ${done} image${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
       }
       if (!controller.signal.aborted) onClose();
     } catch (error) {

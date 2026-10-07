@@ -49,7 +49,14 @@ export function fileSafe(name: string) {
 export class ExportSink {
   private used = new Set<string>();
   private zipped: Record<string, Uint8Array> = {};
+  private downloads: File[] = [];
   readonly saved: string[] = [];
+  /**
+   * Several downloads on a phone: the files, for the share sheet ("Save N Images" puts them
+   * in Photos). It needs a tap of its own (`offerToSave`), as an export outlasts the one
+   * that started it.
+   */
+  toShare: File[] | null = null;
 
   constructor(
     readonly destination: Destination,
@@ -59,7 +66,7 @@ export class ExportSink {
   async add(name: string, blob: Blob) {
     const file = uniqueName(fileSafe(name), this.used);
     const d = this.destination;
-    if (d.kind === "download") download(file, blob);
+    if (d.kind === "download") this.downloads.push(new File([blob], file, { type: blob.type }));
     else if (d.kind === "zip") this.zipped[file] = new Uint8Array(await blob.arrayBuffer());
     else {
       const handle = await d.handle.getFileHandle(file, { create: true });
@@ -71,6 +78,7 @@ export class ExportSink {
   }
 
   async finish() {
+    if (this.destination.kind === "download") return this.deliverDownloads();
     if (this.destination.kind !== "zip" || !this.saved.length) return;
     const data = await new Promise<Uint8Array>((resolve, reject) =>
       // Images and videos are already compressed: store them without recompressing.
@@ -78,6 +86,48 @@ export class ExportSink {
     );
     this.zipped = {};
     download(fileSafe(this.zipName), new Blob([data as BlobPart], { type: "application/zip" }));
+  }
+
+  /**
+   * Downloads started together are dropped by browsers but the last (Safari keeps one,
+   * Chrome asks first): several files go one after another, a moment apart, or on a
+   * phone to the share sheet.
+   */
+  private async deliverDownloads() {
+    const files = this.downloads;
+    this.downloads = [];
+    if (files.length > 1 && phoneShare(files)) {
+      this.toShare = files;
+      return;
+    }
+    for (const [i, f] of files.entries()) {
+      if (i) await new Promise((r) => setTimeout(r, 700));
+      download(f.name, f);
+    }
+  }
+}
+
+/** Phones and tablets that can hand several files to the share sheet. */
+function phoneShare(files: File[]): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.canShare !== "function") return false;
+  const touch = /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  try {
+    return touch && navigator.canShare({ files });
+  } catch {
+    return false;
+  }
+}
+
+/** Opens the share sheet with exported files; falls back to downloading them one by one. */
+export async function shareFiles(files: File[]) {
+  try {
+    await navigator.share({ files });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    for (const [i, f] of files.entries()) {
+      if (i) await new Promise((r) => setTimeout(r, 700));
+      download(f.name, f);
+    }
   }
 }
 

@@ -15,6 +15,7 @@ import { developEngine } from "@/core/gpu/develop-engine";
 import { formatBytes } from "@/features/library/format";
 import { holdAtLeast, nextPaint, PACE, sleep } from "@/lib/pacing";
 import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "./ExportParts";
+import { reportExport } from "./save";
 import type { MarbleMood } from "./marble";
 
 function ExportItem({ id, checked, onToggle }: { id: string; checked: boolean; onToggle: () => void }) {
@@ -115,7 +116,7 @@ export function ExportDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
         setMood("done");
         setProgress((p) => ({ done: chosen.length, total: chosen.length, label: `Saved ${done} photo${done === 1 ? "" : "s"} ✓`, item: p?.item }));
         await sleep(PACE.doneBeat);
-        toast(`Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
+        reportExport(sink, `Exported ${done} photo${done === 1 ? "" : "s"} to ${describeDestination(destination)}.`);
       }
     } catch (error) {
       toast(`Export failed: ${error instanceof Error ? error.message : error}`, "error");
