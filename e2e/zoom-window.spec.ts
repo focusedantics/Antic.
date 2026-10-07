@@ -92,7 +92,19 @@ test("a zoomed-in window renders like the same part of the whole photo", async (
     const { develop } = await import("/src/core/develop/session.ts" as string);
     develop.setState({ view: { fit: false, zoom: 1, centerX: 0.55, centerY: 0.45 } });
   });
-  await page.waitForTimeout(600);
+  // Once the view rests it is rendered sharp, as a window (on a software GPU that takes a few slow frames).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          const { developEngine } = await import("/src/core/gpu/develop-engine.ts" as string);
+          const e = developEngine() as any;
+          return !e.moving && e.result.window[2] < 1;
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  await page.waitForTimeout(100);
   const windowed = await shot();
   const sizes = await page.evaluate(async () => {
     const { developEngine } = await import("/src/core/gpu/develop-engine.ts" as string);
