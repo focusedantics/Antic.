@@ -5,7 +5,7 @@ import type { CompositeDocument } from "./model";
 import { sanitizeDocument, syncLinkedFrames } from "./operations";
 
 /** move: select and transform · mask: paint a layer mask · pen: draw a new path · nodes: edit a path · paint: brushes and fill. */
-export type CompositeTool = "move" | "mask" | "pen" | "nodes" | "paint";
+export type CompositeTool = "move" | "mask" | "pen" | "nodes" | "paint" | "crop";
 
 export type CompositeState = {
   readonly doc: CompositeDocument | null;

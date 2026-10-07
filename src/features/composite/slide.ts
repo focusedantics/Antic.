@@ -15,6 +15,8 @@ let heading: number | null = null;
 export const setHeadingSlide = (index: number | null) => {
   heading = index;
 };
+/** The slide a glide is heading for, while one runs. */
+export const headingSlide = () => heading;
 
 /** The slide being worked on: the one in view (or being glided to), else the selected layer's, else the one in the middle of the view. Null for a one-page design. */
 export function workingSlide(doc: CompositeDocument | null = composite.getState().doc): number | null {

@@ -98,6 +98,7 @@ paid or online feature. "Skip" means it is left out, with the reason.
 | D4 | Predictive brush: smoothing, and hold to straighten into a line, circle or rectangle | New (also triangles and polygons) | ✅ |
 | D5 | Colour fill (bucket) | New: fill operations replayed with the strokes | ✅ |
 | D6 | Mask any layer with brushes | Exists: layer masks | ✅ |
+| D7 | Free crop: double-tap a photo | New: Crop tool on the canvas (`tools/CropTool.tsx`), any edge or corner, drag inside to move, the cut part shown dimmed; Reset and Done; also "Crop on the canvas" in Properties | ✅ |
 
 ### Elements and text panels
 | # | Feature | How | Status |

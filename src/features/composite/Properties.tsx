@@ -23,6 +23,7 @@ import { CollageSection, PathSection, ReplacePhoto, SlotSection, StylesSection, 
 import { EffectParams } from "@/features/effects/EffectParams";
 import { openEffectsBrowser } from "@/features/effects/EffectsBrowser";
 import { brush } from "@/features/develop/masks/brush";
+import { croppable, startCrop } from "./tools/CropTool";
 import { mergePatch } from "@/lib/merge";
 
 
@@ -104,6 +105,14 @@ function CropSection({ layer }: { layer: Layer }) {
   return (
     <>
       <div className="subhead">Crop</div>
+      {croppable(layer) && (
+        <div className="row wrap" style={{ alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <button type="button" className="btn small" onClick={() => startCrop(layer.id)}>
+            Crop on the canvas
+          </button>
+          <span className="faint" style={{ fontSize: 10 }}>or double-tap the photo</span>
+        </div>
+      )}
       {edge("left", "Left")}
       {edge("right", "Right")}
       {edge("top", "Top")}

@@ -422,6 +422,14 @@ html.layer-reordering, html.layer-reordering * { cursor: grabbing !important; us
 .transform-svg .snap { stroke: #ff3cac; stroke-width: 1; stroke-dasharray: 4 3; }
 /* Drawing tools: an overlay that takes the pointer, and their options above the canvas. */
 .tool-overlay { position: absolute; inset: 0; z-index: 2; touch-action: none; -webkit-user-select: none; user-select: none; }
+/* Above the rulers: a photo edge at the canvas edge can still be grabbed. */
+.tool-overlay[data-tool="crop"] { cursor: move; z-index: 3; }
+.transform-svg .crop-dim { fill: #000; fill-opacity: 0.55; }
+.transform-svg .crop-area { fill: none; }
+.transform-svg .crop-frame { fill: none; stroke: #fff; stroke-width: 1.5; filter: drop-shadow(0 0 1px #0009); }
+.transform-svg .crop-thirds line { stroke: #fff; stroke-opacity: 0.45; stroke-width: 1; }
+.transform-svg .crop-hit { fill: transparent; pointer-events: auto; }
+.transform-svg .crop-handle { fill: #fff; stroke: #1a73e8; stroke-width: 1.5; pointer-events: none; }
 .tool-options {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 16px);
   display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px; padding: 6px 8px; white-space: nowrap; width: max-content;

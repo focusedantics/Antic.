@@ -1151,6 +1151,150 @@ test.describe("computer: playing card template", () => {
   });
 });
 
+/** A JPEG, left half dark grey and right half red, as a file for a picker. */
+const halves = async (page: Page) => {
+  const b64 = await page.evaluate(async () => {
+    const c = new OffscreenCanvas(1200, 800);
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#202020";
+    g.fillRect(0, 0, 600, 800);
+    g.fillStyle = "#d03030";
+    g.fillRect(600, 0, 600, 800);
+    const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.95 })).arrayBuffer());
+    let s = "";
+    for (const x of bytes) s += String.fromCharCode(x);
+    return btoa(s);
+  });
+  return { name: "halves.jpg", mimeType: "image/jpeg", buffer: Buffer.from(b64, "base64") };
+};
+
+/** Where a document point is on the screen. */
+const onScreen = (page: Page, x: number, y: number) =>
+  page.evaluate(
+    async ([dx, dy]) => {
+      const { developEngine } = await import("/src/core/gpu/develop-engine.ts" as string);
+      return developEngine().docToClient(dx, dy) as { x: number; y: number };
+    },
+    [x, y] as const,
+  );
+
+/** The first photo layer in the open design. */
+const photoLayer = (page: Page) =>
+  page.evaluate(async () => {
+    const { composite } = await import("/src/core/document/session.ts" as string);
+    const { flatten } = await import("/src/core/document/operations.ts" as string);
+    const l = flatten(composite.getState().doc.layers).find((x: { kind: string }) => x.kind === "image");
+    return JSON.parse(JSON.stringify({ transform: l.transform, crop: l.crop })) as { transform: { x: number; y: number; width: number; height: number }; crop: { left: number; top: number; right: number; bottom: number } };
+  });
+
+test.describe("computer: free crop", () => {
+  test("double-click a photo, drag an edge freely, Done: the cut part is gone, after a reload too", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.locator("aside.side.left").getByRole("button", { name: "Photo from device" }).click()]);
+    await chooser.setFiles(await halves(page));
+    await expect(layerNames(page)).toHaveCount(1, { timeout: 30_000 });
+    const { transform: t } = await photoLayer(page);
+    const centre = await onScreen(page, t.x, t.y);
+    await page.mouse.dblclick(centre.x, centre.y);
+    const options = page.getByRole("toolbar", { name: "Crop options" });
+    await expect(options).toBeVisible();
+    await expect(options.getByRole("button", { name: "Reset" })).toBeDisabled();
+
+    // The right edge's handle, dragged to the middle of the photo: only its dark half is kept.
+    const edge = await onScreen(page, t.x + t.width / 2, t.y);
+    await page.mouse.move(edge.x, edge.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(edge.x + ((centre.x - edge.x) * i) / 10, edge.y + 3 * i);
+    await page.mouse.up();
+    let crop = (await photoLayer(page)).crop;
+    expect(crop.right).toBeGreaterThan(0.47);
+    expect(crop.right).toBeLessThan(0.53);
+    // Free: the other edges stay where they were (no fixed shape).
+    expect(crop).toMatchObject({ left: 0, top: 0, bottom: 1 });
+
+    // The bottom edge alone, up a quarter.
+    const bottom = await onScreen(page, t.x - t.width / 4, t.y + t.height / 2);
+    const target = await onScreen(page, t.x - t.width / 4, t.y + t.height / 4);
+    await page.mouse.move(bottom.x, bottom.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(bottom.x, bottom.y + ((target.y - bottom.y) * i) / 10);
+    await page.mouse.up();
+    crop = (await photoLayer(page)).crop;
+    expect(crop.bottom).toBeGreaterThan(0.72);
+    expect(crop.bottom).toBeLessThan(0.78);
+    expect(crop.right).toBeLessThan(0.53);
+    await options.getByRole("button", { name: "Done" }).click();
+    await expect(options).toBeHidden();
+
+    // Exported: the dark half's top stays; where the red half and the bottom were is the white page.
+    const at = (u: number, v: number) => [Math.round(t.x - t.width / 2 + u * t.width), Math.round(t.y - t.height / 2 + v * t.height)] as [number, number];
+    const [kept, red, below] = await exportedLuma(page, [at(0.25, 0.4), at(0.75, 0.4), at(0.25, 0.9)]);
+    expect(kept).toBeLessThan(60);
+    expect(red).toBeGreaterThan(240);
+    expect(below).toBeGreaterThan(240);
+
+    // The crop is data: after a reload it is still there, and cropping again shows the whole photo to bring parts back.
+    await page.waitForTimeout(1200);
+    await page.reload();
+    await go(page, "Design");
+    await page.locator(".design-tile").first().getByRole("button", { name: /^Open/ }).click();
+    await expect(layerNames(page)).toHaveCount(1);
+    expect((await photoLayer(page)).crop).toEqual(crop);
+    const again = await onScreen(page, t.x - t.width / 4, t.y);
+    await page.mouse.dblclick(again.x, again.y);
+    await expect(options).toBeVisible();
+    await options.getByRole("button", { name: "Reset" }).click();
+    expect((await photoLayer(page)).crop).toEqual({ left: 0, top: 0, right: 1, bottom: 1 });
+    await page.keyboard.press("Enter");
+    await expect(options).toBeHidden();
+  });
+});
+
+test.describe("phone: free crop", () => {
+  test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+  test("a double tap on a photo opens the crop; an edge drags with a finger", async ({ page }) => {
+    await fresh(page);
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).tap();
+    // Add a photo from the Add sheet.
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Add" }).tap();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByTestId("sheet").getByRole("button", { name: "Photo from device" }).tap()]);
+    await chooser.setFiles(await halves(page));
+    await expect.poll(async () => (await photoLayer(page).catch(() => null))?.transform.width ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+    // Close the sheet so the canvas is clear.
+    const close = page.getByTestId("sheet").getByRole("button", { name: /^Close/ });
+    if (await close.isVisible()) await close.tap();
+    const { transform: t } = await photoLayer(page);
+    const centre = await onScreen(page, t.x, t.y);
+    await page.touchscreen.tap(centre.x, centre.y);
+    await page.touchscreen.tap(centre.x, centre.y);
+    const options = page.getByRole("toolbar", { name: "Crop options" });
+    await expect(options).toBeVisible();
+    const b = (await options.boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(390);
+
+    // A finger on the left edge, dragged a quarter of the way in.
+    const cdp = await page.context().newCDPSession(page);
+    const from = await onScreen(page, t.x - t.width / 2, t.y);
+    const to = await onScreen(page, t.x - t.width / 4, t.y);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+    for (let i = 1; i <= 10; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from.x + ((to.x - from.x) * i) / 10, y: from.y }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const crop = (await photoLayer(page)).crop;
+    expect(crop.left).toBeGreaterThan(0.2);
+    expect(crop.left).toBeLessThan(0.3);
+    expect(crop.right).toBe(1);
+    await options.getByRole("button", { name: "Done" }).tap();
+    await expect(options).toBeHidden();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+});
+
 /** The open document's layers (top-level), read from the app. */
 const docLayers = (page: Page) =>
   page.evaluate(async () => {

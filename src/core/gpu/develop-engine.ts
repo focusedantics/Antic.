@@ -18,7 +18,7 @@ import { effectById } from "@/core/effects/registry";
 import { EffectRunner } from "@/core/effects/runtime";
 import type { EffectInstance } from "@/core/effects/types";
 import { docAnimation, isAnimated } from "@/core/document/animation";
-import { documentAssets, flatten, layerAsset } from "@/core/document/operations";
+import { documentAssets, flatten, layerAsset, locate, updateLayer } from "@/core/document/operations";
 import { fontLoads, loadFonts } from "@/core/text/fonts";
 import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
@@ -128,7 +128,9 @@ export class DevelopEngine {
         // Resume from the paused frame instead of jumping.
         if (s.playing) this.animationStart = performance.now() - this.pausedTime * 1000;
       }
-      if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view || s.playing !== prev.playing)) this.requestRender();
+      // Cropping draws its photo whole: redraw when it starts, ends or moves to another layer.
+      const cropping = s.tool !== prev.tool || (s.tool === "crop" && s.selection !== prev.selection);
+      if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view || s.playing !== prev.playing || cropping)) this.requestRender();
     });
     // Text rasters wait for their font; redraw when one arrives.
     fontLoads.subscribe(() => {
@@ -834,10 +836,25 @@ export class DevelopEngine {
     return { x: rect.left + (x - m[2]) / m[0] / dpr, y: rect.top + (y - m[5]) / m[4] / dpr };
   }
 
+  private wholeWhileCropping = new WeakMap<CompositeDocument, { id: string; doc: CompositeDocument }>();
+  /** The document as drawn: a photo being cropped shows whole (the crop tool dims what is cut away). */
+  private shownDocument(doc: CompositeDocument | null): CompositeDocument | null {
+    const { tool, selection } = composite.getState();
+    const id = selection[selection.length - 1];
+    if (!doc || tool !== "crop" || !id) return doc;
+    const layer = locate(doc.layers, id)?.layer;
+    if (!layer || (layer.kind !== "image" && layer.kind !== "slot")) return doc;
+    const hit = this.wholeWhileCropping.get(doc);
+    if (hit?.id === id) return hit.doc;
+    const shown = updateLayer(doc, id, (l) => ({ ...l, crop: { left: 0, top: 0, right: 1, bottom: 1 } }));
+    this.wholeWhileCropping.set(doc, { id, doc: shown });
+    return shown;
+  }
+
   /** Draws the composite view; false when it needed rendering and `render` was false (a frame is scheduled). */
   private compositeFrame(render = true): boolean {
     const { gl } = this.gpu;
-    const { doc } = composite.getState();
+    const doc = this.shownDocument(composite.getState().doc);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(0, 0, 0, 0);

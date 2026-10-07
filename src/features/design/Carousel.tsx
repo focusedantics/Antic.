@@ -10,7 +10,7 @@ import { composite, editDocument } from "@/core/document/session";
 import { developEngine } from "@/core/gpu/develop-engine";
 import { createId } from "@/lib/id";
 import { viewDpr } from "@/lib/device";
-import { setHeadingSlide } from "@/features/composite/slide";
+import { headingSlide, setHeadingSlide } from "@/features/composite/slide";
 import { TemplatePreview } from "./Gallery";
 import { sizeLabel } from "./presets";
 import { myTemplatePages, myTemplatesForSlides, type SlidePages, templatePages, templatesForSlides } from "./slide-templates";
@@ -19,6 +19,9 @@ import { myTemplatePages, myTemplatesForSlides, type SlidePages, templatePages, 
 export function currentSlide(): number | null {
   const { doc, view } = composite.getState();
   if (!doc?.carousel || view.fit) return null;
+  // Mid-glide the view is still passing over other slides: the one tapped is current.
+  const heading = headingSlide();
+  if (heading !== null) return Math.min(heading, slideCount(doc) - 1);
   return Math.max(0, Math.min(slideCount(doc) - 1, Math.floor((view.centerX * doc.width) / slideWidth(doc))));
 }
 

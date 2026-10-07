@@ -353,8 +353,14 @@ layer, a canvas with every op but the newest (`paints`): while a stroke is drawn
 that stroke is redrawn each frame. Drawings are hit-tested by what is drawn
 (`paintExtent`), not by their canvas-sized box.
 
-**Canvas tools** (`features/composite/tools`): Move, Mask, Pen, Points and Draw share
-`composite.tool`. The pen builds a path in canvas px and `pathFromCanvas` fits a box to
+**Canvas tools** (`features/composite/tools`): Move, Mask, Pen, Points, Draw and Crop
+share `composite.tool`. A double tap on a layer (timed in `onCanvasDown`, since touch
+sends no reliable dblclick) opens Crop on a photo or filled frame and Points on a path.
+Crop edits the layer's `crop` (content space, so rotation, flips and perspective come
+free): any edge or corner drags on its own, a press near an edge takes it, a drag inside
+moves the crop. While it is on, the engine draws that layer uncropped
+(`shownDocument`) and the overlay dims what is cut away; a photo reaching past the
+screen is zoomed out to whole on entry and the view restored on Done. The pen builds a path in canvas px and `pathFromCanvas` fits a box to
 it; Points edits nodes through `pathPointToCanvas`/`canvasToPathPoint` (the stroke
 inset included) and `refitPath` refits the box after each edit, keeping every point in
 place. Draw streamlines input (`streamline`), batches document updates per animation

@@ -17,6 +17,7 @@ import { startSwipe } from "@/features/design/Carousel";
 import { slideCount, slideWidth } from "@/core/document/carousel";
 import { colorAt, eyedropper, finishPick } from "@/features/color/eyedropper";
 import { NodesOverlay, PenOptions, PenOverlay } from "./tools/PenTool";
+import { CropOptions, CropOverlay, croppable, endCrop, startCrop } from "./tools/CropTool";
 import { useSweepSelect } from "@/components/sweep";
 import { sweepLayers } from "./LayersPanel";
 
@@ -236,6 +237,8 @@ export function CompositeView() {
   // An empty photo frame tapped while already selected asks for its photo (on the click, so
   // the file picker opens from a user gesture, which phones require).
   const frameTap = useRef<string | null>(null);
+  // The last tap on a layer, for double taps (touch sends no reliable dblclick).
+  const lastTap = useRef({ t: 0, x: 0, y: 0, id: "" });
 
   const onCanvasDown = (e: ReactPointerEvent) => {
     frameTap.current = null;
@@ -243,6 +246,21 @@ export function CompositeView() {
     const p = engine.clientToDoc(e.clientX, e.clientY);
     if (tool === "mask" && maskLayerId) return paintMask(e);
     const hit = layerAt(p);
+    // A double tap (or double-click): a photo opens the crop, a drawn path its points.
+    const now = performance.now();
+    const last = lastTap.current;
+    const again = !!hit && last.id === hit.id && now - last.t < 400 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 30;
+    lastTap.current = again ? { t: 0, x: 0, y: 0, id: "" } : { t: now, x: e.clientX, y: e.clientY, id: hit?.id ?? "" };
+    if (again && tool === "move" && hit && !hit.locked) {
+      if (croppable(hit)) {
+        e.preventDefault();
+        return startCrop(hit.id);
+      }
+      if (hit.kind === "path") {
+        e.preventDefault();
+        return composite.setState({ tool: "nodes", selection: [hit.id] });
+      }
+    }
     const before = composite.getState().selection;
     if (hit?.kind === "slot" && !hit.assetId && !hit.locked && before.length === 1 && before[0] === hit.id) frameTap.current = hit.id;
     if (!hit || hit.locked) {
@@ -410,14 +428,6 @@ export function CompositeView() {
   };
 
   const onCanvasClick = (e: React.MouseEvent) => {
-    // Double-click a drawn path or shape to edit its points.
-    if (e.detail === 2 && doc && tool === "move") {
-      const hit = layerAt(engine.clientToDoc(e.clientX, e.clientY));
-      if (hit?.kind === "path" && !hit.locked) {
-        composite.setState({ tool: "nodes", selection: [hit.id] });
-        return;
-      }
-    }
     const slot = frameTap.current;
     frameTap.current = null;
     if (!slot || !doc) return;
@@ -551,6 +561,12 @@ export function CompositeView() {
         <>
           <PenOverlay toDoc={toDoc} local={local} onDone={toMove} />
           <PenOptions tool="pen" onDone={toMove} />
+        </>
+      )}
+      {doc && tool === "crop" && (
+        <>
+          <CropOverlay toDoc={toDoc} local={local} onDone={endCrop} />
+          <CropOptions onDone={endCrop} />
         </>
       )}
       {doc && tool === "nodes" && (
