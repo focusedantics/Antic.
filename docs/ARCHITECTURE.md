@@ -282,6 +282,14 @@ follows once it rests. Thumbnails, the eyedropper, effect previews, exports and 
 whole-design render use a second compositor with its own caches, so they never replace
 the view's layer rasters and developed photos. See docs/PERFORMANCE.md.
 
+Exports are sharp: the second compositor develops photos and rasterizes text at exactly
+their output size (the view rounds sizes up to steps of 2^¼ so zooming reuses them, which
+a final shrink makes slightly soft), and the geometry pass shrinks a photo with four
+samples across each output pixel from a level twice as detailed, a box filter of the
+footprint. A single sample at the footprint's own mip level blended in a copy smaller
+than the output: a photo shrunk 3× into a design kept about 40 % of its fine detail; now
+it keeps about 95 % of a high-quality downscale's (e2e "photos at full quality").
+
 PNG/WebP exports keep alpha; JPEG flattens against a chosen background.
 
 **Editing several layers.** Properties shows the last selected layer; its edits go

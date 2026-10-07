@@ -175,8 +175,8 @@ export class DevelopEngine {
     return { gpuBytes: this.gpu.textureBytes, textures: this.gpu.textureCount, sources: this.sources.size, cpuBytes: 0 };
   }
 
-  private createCompositor() {
-    return new Compositor(this.gpu, this.pipeline, this.maskRenderer, (id) => this.compositeSource(id));
+  private createCompositor(exact = false) {
+    return new Compositor(this.gpu, this.pipeline, this.maskRenderer, (id) => this.compositeSource(id), exact);
   }
 
   /** Decoded photo for a composite image layer; starts decoding (full quality) when missing. */
@@ -1023,7 +1023,8 @@ export class DevelopEngine {
 
   /** The compositor for renders other than the view, kept while in use. */
   private offscreenCompositor(): Compositor {
-    this.offscreen ??= this.createCompositor();
+    // Exports draw photos and text at exactly their output size (the sharpest result).
+    this.offscreen ??= this.createCompositor(true);
     clearTimeout(this.offscreenTimer);
     this.offscreenTimer = window.setTimeout(() => {
       this.offscreen?.dispose();

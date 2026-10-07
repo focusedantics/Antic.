@@ -1170,6 +1170,49 @@ test.describe("computer: exporting every slide", () => {
   });
 });
 
+test.describe("computer: photos at full quality in exports", () => {
+  test("a photo shrunk into the design keeps its fine detail (as a high-quality downscale does)", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
+    // A 3240 × 3240 photo of fine detail (random 3 px blocks), filling the 1080 canvas.
+    await page.evaluate(async () => {
+      const c = new OffscreenCanvas(3240, 3240);
+      const g = c.getContext("2d")!;
+      let s = 7;
+      const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      for (let y = 0; y < 3240; y += 3) for (let x = 0; x < 3240; x += 3) { const v = Math.floor(r() * 256); g.fillStyle = `rgb(${v},${(v * 7) % 256},${255 - v})`; g.fillRect(x, y, 3, 3); }
+      const blob = await c.convertToBlob({ type: "image/png" });
+      (window as unknown as { __ref: ImageBitmap }).__ref = await createImageBitmap(blob);
+      const { importFilesToLibrary, addAssetsToComposite } = await import("/src/features/composite/actions.ts" as string);
+      const [id] = await importFilesToLibrary([new File([blob], "detail.png", { type: "image/png" })]);
+      await addAssetsToComposite([id]);
+      const { editDocument } = await import("/src/core/document/session.ts" as string);
+      editDocument("fit", (d: { layers: { transform: object }[] }) => ({ ...d, layers: d.layers.map((l) => ({ ...l, transform: { ...l.transform, x: 540, y: 540, width: 1080, height: 1080, rotation: 0 } })) }));
+    });
+    await page.waitForTimeout(3000);
+    await page.getByRole("toolbar", { name: "Design tools" }).getByRole("button", { name: "Export…" }).click();
+    const dialog = page.getByRole("dialog", { name: /^Export/ });
+    const [file] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+    const png = readFileSync((await file.path())!).toString("base64");
+    const sharp = await page.evaluate(async (b64) => {
+      const bm = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+      const W = bm.width, H = bm.height;
+      const read = (src: CanvasImageSource) => { const c = new OffscreenCanvas(W, H); const g = c.getContext("2d")!; g.imageSmoothingQuality = "high"; g.drawImage(src, 0, 0, W, H); return g.getImageData(0, 0, W, H).data; };
+      const a = read(bm), b = read((window as unknown as { __ref: ImageBitmap }).__ref);
+      // Detail: mean absolute difference between neighbours (higher = sharper); and error against the reference.
+      const detail = (d: Uint8ClampedArray) => { let s = 0, n = 0; for (let y = 100; y < H - 100; y++) for (let x = 100; x < W - 101; x++) { const i = (y * W + x) * 4; s += Math.abs(d[i] - d[i + 4]); n++; } return s / n; };
+      let err = 0, n = 0;
+      for (let y = 100; y < H - 100; y++) for (let x = 100; x < W - 100; x++) { const i = (y * W + x) * 4; err += Math.abs(a[i] - b[i]); n++; }
+      return { size: `${W}x${H}`, exportDetail: detail(a), referenceDetail: detail(b), meanError: err / n };
+    }, png);
+    // The export's fine detail is close to a direct high-quality downscale of the photo (it
+    // was about 40 % of it when photos were shrunk from a smaller copy and rounded sizes).
+    expect(sharp.exportDetail, JSON.stringify(sharp)).toBeGreaterThan(sharp.referenceDetail * 0.85);
+    expect(sharp.meanError, JSON.stringify(sharp)).toBeLessThan(20);
+  });
+});
+
 /** Colours on screen at document points (the view as drawn, not an export). */
 async function viewColors(page: Page, points: [number, number][]) {
   await page.waitForTimeout(700);

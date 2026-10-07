@@ -75,8 +75,20 @@ export class Compositor {
     private readonly pipeline: DevelopPipeline,
     private readonly masks: MaskRenderer,
     private readonly sources: SourceProvider,
+    /**
+     * Content at the exact pixel size it is drawn at (exports). The view rounds sizes up to
+     * steps of 2^¼, so zooming does not raster and develop everything again at each step;
+     * that rounding is then shrunk back on the canvas, which costs a little sharpness.
+     */
+    private readonly exact = false,
   ) {
     this.effects = new EffectRunner(gpu, pipeline);
+  }
+
+  /** A content size for `v` pixels, at most `max`: exact, or rounded up to a step of 2^¼. */
+  private sized(v: number, max: number) {
+    if (this.exact) return Math.max(1, Math.min(max, Math.ceil(v - 1e-6)));
+    return Math.max(8, Math.min(max, Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, v)) * 4) / 4))));
   }
 
   /**
@@ -225,8 +237,7 @@ export class Compositor {
 
   /** Content pixel size needed to show `layer` at `scale` without upscaling. */
   private contentSize(layer: Layer, scale: number, max = 4096) {
-    const quantize = (v: number) => Math.max(8, Math.min(max, Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, v)) * 4) / 4))));
-    return { width: quantize(layer.transform.width * scale), height: quantize(layer.transform.height * scale) };
+    return { width: this.sized(layer.transform.width * scale, max), height: this.sized(layer.transform.height * scale, max) };
   }
 
   /**
@@ -398,8 +409,8 @@ export class Compositor {
     const boxW = layer.transform.width * scale;
     const boxH = layer.transform.height * scale;
     const cover = Math.max(boxW / full.width, boxH / full.height) * layer.fit.zoom;
-    const quantize = (v: number) => Math.max(8, Math.min(4096, Math.max(full.width, full.height), Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, v)) * 4) / 4))));
-    const want = { width: quantize(full.width * cover), height: quantize(full.height * cover) };
+    const most = Math.min(4096, Math.max(full.width, full.height));
+    const want = { width: this.sized(full.width * cover, most), height: this.sized(full.height * cover, most) };
     const photo = this.developed(`${layer.id}:photo`, source, recipe, want);
     // Photo size in frame widths/heights, and its centre (pan within the room left).
     const pw = (full.width * cover) / boxW;

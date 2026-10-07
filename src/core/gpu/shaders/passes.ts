@@ -87,7 +87,17 @@ void main() {
   vec2 dy = dFdy(uv) * uSrcSize;
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = vec4(0.0); return; }
   float lod = max(0.0, 0.5 * log2(max(dot(dx, dx), dot(dy, dy))) + uLodBias);
-  vec4 c = textureLod(uBase, vec2(uv.x, uv.y), lod);
+  vec4 c;
+  if (lod < 0.5) c = textureLod(uBase, uv, lod);
+  else {
+    // Shrinking: four samples across the pixel's footprint from a level twice as detailed (a
+    // box filter of the footprint). One sample at the footprint's own level blends in a
+    // copy smaller than the output and loses fine detail (about half of it at 2–3×).
+    vec2 ux = dFdx(uv) * 0.25;
+    vec2 uy = dFdy(uv) * 0.25;
+    float fine = lod - 1.0;
+    c = 0.25 * (textureLod(uBase, uv - ux - uy, fine) + textureLod(uBase, uv + ux - uy, fine) + textureLod(uBase, uv - ux + uy, fine) + textureLod(uBase, uv + ux + uy, fine));
+  }
   // A linear map, so converting after filtering equals filtering converted texels.
   if (uBaseSrgb == 1) c.rgb = SRGB_TO_REC2020 * c.rgb;
   if (uVignetting != 0.0) {
