@@ -41,7 +41,13 @@ choices are recorded in `src/core/ai/models.ts`; check a model's license before 
 ## Development dependencies
 
 vite (MIT), @vitejs/plugin-react (MIT), typescript (Apache-2.0), vitest (MIT),
-@playwright/test (Apache-2.0), fake-indexeddb (Apache-2.0), @types/* (MIT).
+@playwright/test (Apache-2.0), fake-indexeddb (Apache-2.0), @types/* (MIT),
+motion 14.0.0 (MIT; easing, springs, stagger and playback for the trailer in `trailer/`,
+not part of the app).
+
+The trailer can optionally load h264-mp4-encoder (MIT; minih264 public domain, libmp4v2
+MPL-1.1) from a path you give it, to write H.264 where the browser has no H.264 encoder.
+It is not a dependency of the project and is never bundled.
 
 ## Code adapted from reference projects
 

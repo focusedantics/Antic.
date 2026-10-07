@@ -18,5 +18,5 @@
     "types": ["vite/client"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests", "trailer/main.ts", "trailer/scenes.ts", "trailer/standin.ts", "trailer/standin-clip.ts"]
 }

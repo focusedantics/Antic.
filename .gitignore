@@ -6,3 +6,9 @@ playwright-report
 .DS_Store
 .scratch
 bench/results
+
+# Trailer: captured shots and rendered videos (made by npm run trailer:*)
+trailer/shots
+trailer/out
+trailer/kit/*
+!trailer/kit/README.md
