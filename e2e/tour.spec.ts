@@ -152,3 +152,44 @@ test("glow backdrop: on by default, shows around the photo, changes per workspac
   await expect(page.getByRole("button", { name: "Glow background" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("backdrop")).toHaveCount(0);
 });
+
+test("trailer: plays from the ? menu (16:9) and the phone's ⋯ menu (9:16), replays and closes", async ({ page }) => {
+  // The headless Chromium here has no H.264 decoder: the short test clip stands in for the trailer.
+  const served: string[] = [];
+  await page.route(/\/trailer(-vertical)?\.mp4$/, (route) => {
+    served.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ path: "tests/fixtures/clip.mp4", contentType: "video/mp4" });
+  });
+  await setPrefs(page, { backdrop: false, tourDone: true });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tour and help" }).click();
+  await page.getByRole("menuitem", { name: "Watch the trailer" }).click();
+  const dialog = page.getByRole("dialog", { name: "Focused in 60 seconds" });
+  await expect(dialog).toBeVisible();
+  const video = dialog.locator("video.trailer-video");
+  // It starts on its own and plays to the end (the clip is 2 s).
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 15_000 }).toBeGreaterThan(0.2);
+  await expect(dialog.getByRole("button", { name: "Watch again" })).toBeVisible({ timeout: 15_000 });
+  await dialog.getByRole("button", { name: "Watch again" }).click();
+  await expect(dialog.getByRole("button", { name: "Replay" })).toBeVisible();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime < 1.5)).toBe(true);
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(served).toContain("/trailer.mp4");
+
+  // A phone: the vertical cut, from the ⋯ menu; Escape closes it.
+  await page.setViewportSize({ width: 390, height: 664 });
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Watch the trailer" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(video).toHaveAttribute("data-vertical", "true");
+  await expect(video).toHaveAttribute("src", /\/trailer-vertical\.mp4$/);
+  await expect.poll(() => served, { timeout: 10_000 }).toContain("/trailer-vertical.mp4");
+  const box = (await video.boundingBox())!;
+  expect(box.height).toBeGreaterThan(box.width * 1.5);
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.y + box.height).toBeLessThanOrEqual(664);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});

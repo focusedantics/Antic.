@@ -47,6 +47,18 @@ Other switches:
 The video is silent: add music in your editor. Cuts land on whole seconds, every two beats
 at 120 BPM, so a 120 BPM track lines up with them.
 
+## In the app
+
+The app plays the trailer from the **?** menu ("Watch the trailer"; on phones, the ⋯ menu):
+`public/trailer.mp4` (16:9) on computers, `public/trailer-vertical.mp4` (9:16) on phones,
+both 720p and loaded only when the player opens. After re-rendering, update them with:
+
+```sh
+TRAILER_SCALE=0.6667 TRAILER_QP=32 npm run trailer:render
+cp trailer/out/trailer-16x9-qp32-720.mp4 public/trailer.mp4
+cp trailer/out/trailer-9x16-qp32-720.mp4 public/trailer-vertical.mp4
+```
+
 ## Your own media
 
 Put your photos and clip in `trailer/kit/` (see its README) and run both steps again.

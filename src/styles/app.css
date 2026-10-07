@@ -548,6 +548,10 @@ html.layer-reordering, html.layer-reordering * { cursor: grabbing !important; us
 .export-list img, .export-list .ph { width: 36px; height: 26px; object-fit: cover; border-radius: 2px; background: #0d0d0d; flex: none; }
 .export-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dialog.wide { width: min(620px, calc(100vw - 32px)); }
+/* The trailer: 16:9 as wide as fits; on phones the 9:16 cut, as tall as fits. */
+.dialog:has(.trailer-video) { width: min(960px, calc(100vw - 32px)); }
+.trailer-video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); }
+.trailer-video[data-vertical] { aspect-ratio: 9 / 16; width: auto; max-width: 100%; height: calc(100dvh - 150px); margin: 0 auto; }
 
 /* ─── Looks ───────────────────────────────────────────────────────────── */
 .looks-save { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }

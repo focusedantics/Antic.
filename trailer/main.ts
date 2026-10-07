@@ -19,8 +19,12 @@ const W = vertical ? 1080 : 1920;
 const H = vertical ? 1920 : 1080;
 const reduced = params.get("motion") === "reduced" || (params.get("motion") !== "full" && matchMedia("(prefers-reduced-motion: reduce)").matches);
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
-canvas.width = W;
-canvas.height = H;
+// The film is laid out at 1920 × 1080 (or 1080 × 1920); ?scale=0.6667 renders it smaller (720p).
+const scale = Number(params.get("scale") ?? 1);
+const PW = Math.round((W * scale) / 2) * 2;
+const PH = Math.round((H * scale) / 2) * 2;
+canvas.width = PW;
+canvas.height = PH;
 const g = canvas.getContext("2d", { alpha: false })!;
 // Served by the dev server next to this page.
 const shots = new URL("shots/", location.href);
@@ -96,6 +100,7 @@ const ready = loadAssets();
 async function draw(t: number) {
   const { assets, prepare } = await ready;
   await prepare(t);
+  g.setTransform(PW / W, 0, 0, PH / H, 0, 0);
   render({ g, W, H, vertical, reduced, t, a: assets });
 }
 
@@ -184,11 +189,11 @@ async function encode(name: string, onProgress?: (done: number) => void): Promis
   if (!webcodecs?.startsWith("avc") && hme) {
     const enc = await hme.createH264MP4Encoder();
     // Quantizer 21 by default; ?qp= trades size for quality (higher is smaller).
-    Object.assign(enc, { width: W, height: H, frameRate: FPS, quantizationParameter: Number(params.get("qp") ?? 21), speed: 2 });
+    Object.assign(enc, { width: PW, height: PH, frameRate: FPS, quantizationParameter: Number(params.get("qp") ?? 21), speed: 2 });
     enc.initialize();
     for (let i = 0; i < total; i++) {
       await draw(i / FPS);
-      enc.addFrameRgba(g.getImageData(0, 0, W, H).data);
+      enc.addFrameRgba(g.getImageData(0, 0, PW, PH).data);
       onProgress?.(i + 1);
     }
     enc.finalize();
@@ -198,7 +203,7 @@ async function encode(name: string, onProgress?: (done: number) => void): Promis
   } else {
     if (!webcodecs) throw new Error("This browser can't encode video.");
     const avc = webcodecs.startsWith("avc");
-    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: avc ? "avc" : "vp9", width: W, height: H, frameRate: FPS }, fastStart: "in-memory" });
+    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: avc ? "avc" : "vp9", width: PW, height: PH, frameRate: FPS }, fastStart: "in-memory" });
     let failure: unknown = null;
     const encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (failure = e) });
     encoder.configure(config(webcodecs));
@@ -225,10 +230,11 @@ async function encode(name: string, onProgress?: (done: number) => void): Promis
 
 const config = (codec: string): VideoEncoderConfig => ({
   codec,
-  width: W,
-  height: H,
+  width: PW,
+  height: PH,
   framerate: FPS,
-  bitrate: params.has("qp") ? Math.round(16_000_000 * 0.8 ** (Number(params.get("qp")) - 21)) : 16_000_000,
+  // 16 Mb/s at 1080p, less for a higher ?qp= or a smaller ?scale=.
+  bitrate: Math.round(16_000_000 * scale * scale * 0.8 ** (Number(params.get("qp") ?? 21) - 21)),
   latencyMode: "quality",
   ...(codec.startsWith("avc") ? { avc: { format: "avc" } } : {}),
 });
@@ -239,4 +245,4 @@ async function pickCodec(): Promise<string | null> {
   return null;
 }
 
-Object.assign(window, { trailer: { ready, draw, encode, duration: DURATION, fps: FPS, width: W, height: H } });
+Object.assign(window, { trailer: { ready, draw, encode, duration: DURATION, fps: FPS, width: PW, height: PH } });

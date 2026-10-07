@@ -3,6 +3,7 @@ import { useStore } from "@/app/hooks";
 import { prefs, setPrefs } from "@/app/prefs";
 import { openMenu } from "@/components/Menu";
 import { CHAPTERS } from "./steps";
+import { watchTrailer } from "./Trailer";
 import { startTour, startTourIfNew, tour } from "./tour";
 
 const Tour = lazy(() => import("./Tour"));
@@ -43,11 +44,12 @@ export function TopbarTools() {
         className="tool-btn"
         aria-label="Tour and help"
         aria-haspopup="menu"
-        title="Replay the tour"
+        title="Tour and trailer"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           openMenu(r.right, r.bottom + 4, [
-            { label: "Replay the tour", onSelect: () => startTour(1) },
+            { label: "Watch the trailer", icon: "play", onSelect: watchTrailer },
+            { label: "Replay the tour", icon: "info", onSelect: () => startTour(1) },
             "separator",
             ...CHAPTERS.slice(1).map((name, i) => ({ label: `${i + 1} · ${name}`, onSelect: () => startTour(i + 1) })),
           ]);

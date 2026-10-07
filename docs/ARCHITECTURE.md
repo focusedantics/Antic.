@@ -790,6 +790,9 @@ return blank or stale pixels without any error.
   usable during the tour. ←/→/Enter/Esc drive the tour (captured before app
   shortcuts); other keys reach the app. The welcome card opens once for a new visitor;
   the top bar's ? button replays the tour or any chapter, and ◐ toggles the glow.
+  The ? menu (and the phone's ⋯ menu) also plays the 60-second trailer
+  (`Trailer.tsx`): `public/trailer.mp4`, or `trailer-vertical.mp4` on phones, made by
+  `trailer/` and fetched only when the player opens.
 
 ## Sweep selection (`components/sweep.ts`)
 

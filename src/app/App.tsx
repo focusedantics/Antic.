@@ -10,6 +10,7 @@ import { ExportHost } from "@/features/export/host";
 import { LooksHost } from "@/features/looks/LooksDialog";
 import { Backdrop } from "@/features/backdrop/Backdrop";
 import { TopbarTools, TourHost } from "@/features/tour/TourHost";
+import { TrailerHost, watchTrailer } from "@/features/tour/Trailer";
 import { importProgress, itemsFromDataTransfer } from "@/core/catalog/import";
 import { catalog, loadCatalogIntoStore } from "@/core/catalog/store";
 import { pulseActivity } from "@/lib/activity";
@@ -172,6 +173,7 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
               : []),
             ...(workspace !== "video" ? [{ label: showFilmstrip ? "Hide the filmstrip" : "Show the filmstrip", icon: "panel-bottom" as const, onSelect: () => setPrefs({ showFilmstrip: !showFilmstrip }) }] : []),
             { label: backdrop ? "Glow background: on" : "Glow background: off", icon: "animate", onSelect: () => setPrefs({ backdrop: !backdrop }) },
+            { label: "Watch the trailer", icon: "play", onSelect: watchTrailer },
             { label: "Replay the tour", icon: "info", onSelect: () => startTour(1) },
           ]);
         }}
@@ -326,6 +328,7 @@ export function App() {
       <ExportHost />
       <LooksHost />
       <TourHost />
+      <TrailerHost />
       <MenuHost />
     </div>
   );
