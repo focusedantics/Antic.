@@ -2,7 +2,7 @@ import { device } from "@/lib/device";
 import { originalRecipeFor, recipeFor } from "@/core/develop/session";
 import { outputSize } from "@/core/develop/geometry";
 import type { DevelopRecipe, Mask } from "@/core/develop/recipe";
-import { canvasToContent, layerPaths } from "@/core/document/operations";
+import { canvasToContent, layerBounds, layerPaths } from "@/core/document/operations";
 import { tracePaths, shapePaths } from "@/core/document/shapes";
 import { drawOps } from "@/core/document/paint";
 import { tipLoads } from "@/core/document/brush-tips";
@@ -35,6 +35,18 @@ const hexToRgb = (hex: string): [number, number, number] => [parseInt(hex.slice(
 
 type Cached = { key: string; texture: Texture; used: number };
 
+/** A rectangle in a render target's pixels (rows count from the document's top, as gl_FragCoord does). */
+type Rect = { x: number; y: number; width: number; height: number };
+
+/** How far (document px) a layer's styles reach past its box: blur, shadow, glow, outline. */
+export function fxReach(fx: LayerFx | undefined): number {
+  if (!fx) return 0;
+  const shadow = fx.shadow && fx.shadow.opacity > 0 ? fx.shadow.blur * 3 + fx.shadow.distance : 0;
+  const glow = fx.glow && fx.glow.opacity > 0 ? fx.glow.blur * 3 : 0;
+  const outline = fx.outline && fx.outline.opacity > 0 ? fx.outline.width : 0;
+  return (fx.blur ?? 0) * 3 + Math.max(shadow, glow, outline);
+}
+
 /** Provides decoded photos; returns null while one is still loading. */
 export type SourceProvider = (assetId: string) => GpuSource | null;
 
@@ -51,6 +63,8 @@ export class Compositor {
    */
   private paints = new Map<string, { width: number; height: number; ops: readonly PaintOp[]; tips: string; base: OffscreenCanvas; out: OffscreenCanvas; scratch: OffscreenCanvas; used: number }>();
   private frame = 0;
+  /** Document position of the render's top-left corner (a window renders part of the document). */
+  private origin = { x: 0, y: 0 };
   /** Seconds into the document's animation loop for the render in progress. */
   private time = 0;
   private loop = DEFAULT_ANIMATION.duration;
@@ -67,20 +81,27 @@ export class Compositor {
 
   /**
    * Renders `doc` at `scale` working pixels per document pixel, with animated
-   * effects at `time` seconds into the loop. The caller releases the result.
+   * effects at `time` seconds into the loop: all of it, or the `window` part
+   * (document px; see `windowSafe`). The caller releases the result.
    */
-  render(doc: CompositeDocument, scale: number, time = 0): Target {
+  render(doc: CompositeDocument, scale: number, time = 0, window?: { x: number; y: number; width: number; height: number }): Target {
     this.frame++;
     this.loop = docAnimation(doc).duration;
     this.time = time;
-    const width = Math.max(1, Math.round(doc.width * scale));
-    const height = Math.max(1, Math.round(doc.height * scale));
+    const area = window ?? { x: 0, y: 0, width: doc.width, height: doc.height };
+    this.origin = { x: area.x, y: area.y };
+    const width = Math.max(1, Math.round(area.width * scale));
+    const height = Math.max(1, Math.round(area.height * scale));
     const backdrop = this.pipeline.acquire(width, height);
     const bg = doc.background ? [...hexToRgb(doc.background), 1] : [0, 0, 0, 0];
     this.gpu.pass("solid", C.solid, { target: backdrop, uniforms: { uColor: bg } });
-    const result = this.renderList(doc.layers, backdrop, scale, doc);
-    this.evict();
-    return result;
+    try {
+      return this.renderList(doc.layers, backdrop, scale, doc);
+    } finally {
+      this.scissor(null);
+      this.origin = { x: 0, y: 0 };
+      this.evict();
+    }
   }
 
   private renderList(layers: readonly Layer[], backdrop: Target, scale: number, doc: CompositeDocument): Target {
@@ -100,8 +121,19 @@ export class Compositor {
         current = this.effect(current, layer, scale, doc, false);
         continue;
       }
+      // Only the part of the canvas the layer (and its styles) can touch is drawn; a layer
+      // wholly outside the render (another slide, off screen) costs nothing.
+      const reach = this.reach(layer, scale, current.width, current.height);
+      if (reach === "none") continue;
       const styled = hasFx(layer.fx);
-      let content = this.layerContent(layer, current.width, current.height, scale, doc, styled);
+      // A plain layer (Normal, no styles, nothing clipped to it) is drawn straight onto the
+      // canvas with the GPU's own blending: one pass over its area instead of two over the
+      // whole canvas and a canvas-sized buffer. Normal blending is exactly that "over".
+      if (layer.blend === "normal" && !styled && layer.kind !== "group" && !clipped.some((c) => c.visible)) {
+        this.layerContent(layer, current.width, current.height, scale, doc, false, reach, current);
+        continue;
+      }
+      let content = this.layerContent(layer, current.width, current.height, scale, doc, styled, reach);
       if (!content) continue;
       for (const c of clipped) {
         if (!c.visible) continue;
@@ -113,20 +145,63 @@ export class Compositor {
           content = this.effect(content, c, scale, doc, true);
           continue;
         }
-        const cc = this.layerContent(c, current.width, current.height, scale, doc);
+        // Clipped layers only show where their base is.
+        const cc = this.layerContent(c, current.width, current.height, scale, doc, false, reach);
         if (!cc) continue;
-        content = this.blend(content, cc, c, true);
+        content = this.blend(content, cc, c, true, reach);
       }
       if (styled) content = this.styles(content, layer, scale);
-      current = this.blend(current, content, layer, false);
+      current = this.blend(current, content, layer, false, reach);
     }
     return current;
   }
 
-  /** Blends `source` onto `backdrop` (both premultiplied), releasing both inputs. */
-  private blend(backdrop: Target, source: Target, layer: Layer, atop: boolean): Target {
+  /**
+   * The part of a `width × height` render a layer can change: its box (cropped) and how far
+   * its styles reach, in target pixels. Null when that is not known (groups, fills, moving
+   * text); "none" when it is outside the render.
+   */
+  private reach(layer: Layer, scale: number, width: number, height: number): Rect | null | "none" {
+    if (layer.kind === "group" || layer.kind === "fill" || layer.kind === "adjustment" || layer.kind === "effect") return null;
+    if (layer.kind === "text" && layer.style.motion && layer.style.motion.kind !== "none") return null;
+    const b = layerBounds(layer);
+    const m = fxReach(layer.fx);
+    const x0 = Math.max(0, Math.floor((b.x - m - this.origin.x) * scale) - 2);
+    const y0 = Math.max(0, Math.floor((b.y - m - this.origin.y) * scale) - 2);
+    const x1 = Math.min(width, Math.ceil((b.x + b.width + m - this.origin.x) * scale) + 2);
+    const y1 = Math.min(height, Math.ceil((b.y + b.height + m - this.origin.y) * scale) + 2);
+    if (!(x1 > x0 && y1 > y0)) return "none";
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  }
+
+  /** Limits the passes that follow to `rect` (null: the whole target). */
+  private scissor(rect: Rect | null) {
+    const { gl } = this.gpu;
+    if (!rect) return gl.disable(gl.SCISSOR_TEST);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(rect.x, rect.y, rect.width, rect.height);
+  }
+
+  /** Copies `from` into `to` (same size and format). */
+  private copy(from: Target, to: Target) {
+    const { gl } = this.gpu;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from.framebuffer);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to.framebuffer);
+    gl.blitFramebuffer(0, 0, from.width, from.height, 0, 0, to.width, to.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  /**
+   * Blends `source` onto `backdrop` (both premultiplied), releasing both inputs. With `rect`
+   * the source is empty outside it: the backdrop is copied and only the rect is blended.
+   */
+  private blend(backdrop: Target, source: Target, layer: Layer, atop: boolean, rect: Rect | null = null): Target {
     const out = this.pipeline.acquire(backdrop.width, backdrop.height);
     const special = SPECIAL.has(layer.blend);
+    if (rect) {
+      this.copy(backdrop, out);
+      this.scissor(rect);
+    }
     this.gpu.pass("blend", C.blend, {
       target: out,
       textures: { uBackdrop: backdrop, uSource: source },
@@ -137,6 +212,7 @@ export class Compositor {
         uAtop: atop ? 1 : 0,
       },
     });
+    this.scissor(null);
     this.pipeline.release(backdrop);
     this.pipeline.release(source);
     return out;
@@ -144,7 +220,7 @@ export class Compositor {
 
   /** Working px → document px → content uv. */
   private toContent(layer: Layer, scale: number): Mat3 {
-    return mul3(canvasToContent(layer.transform), [1 / scale, 0, 0, 0, 1 / scale, 0, 0, 0, 1]);
+    return mul3(canvasToContent(layer.transform), [1 / scale, 0, this.origin.x, 0, 1 / scale, this.origin.y, 0, 0, 1]);
   }
 
   /** Content pixel size needed to show `layer` at `scale` without upscaling. */
@@ -153,8 +229,12 @@ export class Compositor {
     return { width: quantize(layer.transform.width * scale), height: quantize(layer.transform.height * scale) };
   }
 
-  /** One layer rendered into a canvas-sized premultiplied target, or null while loading. */
-  private layerContent(layer: Layer, width: number, height: number, scale: number, doc: CompositeDocument, fullFill = false): Target | null {
+  /**
+   * One layer rendered into a canvas-sized premultiplied target, or null while loading.
+   * `rect`: the part it can cover (the rest is cleared, not drawn). `onto`: draw it straight
+   * onto that target with its opacity ("over", for Normal layers) instead, and return it.
+   */
+  private layerContent(layer: Layer, width: number, height: number, scale: number, doc: CompositeDocument, fullFill = false, rect: Rect | null = null, onto: Target | null = null): Target | null {
     const toContent = this.toContent(layer, scale);
     let texture: Texture | null = null;
     let kind = 0;
@@ -198,7 +278,9 @@ export class Compositor {
         return null;
     }
     const mask = layer.mask?.enabled && layer.mask.components.length ? this.layerMask(layer, texture, scale) : null;
-    const out = this.pipeline.acquire(width, height);
+    const out = onto ?? this.pipeline.acquire(width, height);
+    if (rect && !onto) this.gpu.clear(out);
+    this.scissor(rect);
     if (groupTarget) {
       // Groups: the group's mask applies in canvas space (its content box is the canvas).
       this.gpu.pass("place", C.place, {
@@ -227,11 +309,14 @@ export class Compositor {
           uMaskInvert: layer.mask?.invert ? 1 : 0,
           uMaskDensity: layer.mask?.density ?? 1,
           // Styled layers take their fill opacity in the style pass (styles don't fade with it).
-          uFill: SPECIAL.has(layer.blend) || fullFill ? 1 : layer.fillOpacity,
+          // Drawn straight onto the canvas, the layer's opacity applies here too.
+          uFill: (SPECIAL.has(layer.blend) || fullFill ? 1 : layer.fillOpacity) * (onto ? layer.opacity : 1),
           ...uniforms,
         },
+        blend: onto ? "over" : "none",
       });
     }
+    this.scissor(null);
     if (mask) this.pipeline.release(mask as Target);
     return out;
   }
