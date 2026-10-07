@@ -78,6 +78,14 @@ export class DevelopEngine {
   /** Which workspace the canvas currently shows. */
   mode: "develop" | "composite" = "develop";
   compositor: Compositor;
+  /**
+   * A second compositor for renders other than the view (thumbnails, the eyedropper, effect
+   * previews, exports). Its layer caches are its own: a small thumbnail no longer replaces
+   * every layer's view-sized raster and developed photo, which then had to be made again.
+   * Freed a few seconds after its last use.
+   */
+  private offscreen: Compositor | null = null;
+  private offscreenTimer = 0;
   private compositeResult: { target: Target; key: unknown[] } | null = null;
   private loadingSources = new Set<AssetId>();
   private previewEffects: EffectRunner | null = null;
@@ -186,6 +194,7 @@ export class DevelopEngine {
     renderer.onRasterLoaded = () => {
       // Rasters load asynchronously: cached renders made without them are stale.
       this.compositor?.dispose();
+      this.offscreen?.dispose();
       this.invalidate();
       this.requestRender();
     };
@@ -199,6 +208,7 @@ export class DevelopEngine {
     this.pipeline = new DevelopPipeline(this.gpu);
     this.maskRenderer = this.createMaskRenderer();
     this.compositor = this.createCompositor();
+    this.offscreen = null;
     this.previewEffects = null;
     this.result = this.before = null;
     this.compositeResult = null;
@@ -929,9 +939,20 @@ export class DevelopEngine {
     };
   }
 
+  /** The compositor for renders other than the view, kept while in use. */
+  private offscreenCompositor(): Compositor {
+    this.offscreen ??= this.createCompositor();
+    clearTimeout(this.offscreenTimer);
+    this.offscreenTimer = window.setTimeout(() => {
+      this.offscreen?.dispose();
+      this.offscreen = null;
+    }, 5000);
+    return this.offscreen;
+  }
+
   /** Renders a document for export or thumbnails: display-encoded, straight alpha. */
   renderDocument(doc: CompositeDocument, scale: number, time = 0): ImageData {
-    const target = this.compositor.render(doc, scale, time);
+    const target = this.offscreenCompositor().render(doc, scale, time);
     const out = this.pipeline.acquire(target.width, target.height, "rgba8");
     this.gpu.pass("unpremultiply", unpremultiply, { target: out, textures: { uInput: target } });
     const image = this.gpu.readImage(out);
@@ -978,7 +999,7 @@ export class DevelopEngine {
     }
     if (this.lost || generation !== this.previewGeneration) return;
     const scale = Math.min(1, longSide / Math.max(doc.width, doc.height));
-    const base = this.compositor.render(doc, scale);
+    const base = this.offscreenCompositor().render(doc, scale);
     await this.runPreviews(generation, base, (Math.max(doc.width, doc.height) * scale) / 1000, effects, onPreview);
   }
 
@@ -1018,6 +1039,8 @@ export class DevelopEngine {
     this.pipeline.release(this.compositeResult?.target);
     this.compositeResult = null;
     this.compositor.dispose();
+    this.offscreen?.dispose();
+    this.offscreen = null;
     this.previewEffects?.dispose();
     this.previewEffects = null;
     this.pipeline.trim();
