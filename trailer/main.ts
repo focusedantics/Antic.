@@ -22,7 +22,8 @@ const canvas = document.getElementById("stage") as HTMLCanvasElement;
 canvas.width = W;
 canvas.height = H;
 const g = canvas.getContext("2d", { alpha: false })!;
-const shots = new URL("./shots/", import.meta.url);
+// Served by the dev server next to this page.
+const shots = new URL("shots/", location.href);
 
 const fetchBlob = async (name: string) => {
   const res = await fetch(new URL(name, shots));

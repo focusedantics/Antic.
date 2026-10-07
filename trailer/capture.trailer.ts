@@ -163,7 +163,7 @@ test("capture the photo shots", async ({ page }) => {
     editRecipe("Sky", (r: never) => {
       const { recipe, mask } = addMask(r, { kind: "linear", start: { x: 0.5, y: 0.08 }, end: { x: 0.5, y: 0.47 } }, "Sky");
       queueMicrotask(() => develop.setState({ activeMaskId: mask.id, activeComponentId: mask.components[0].id, tool: "mask", maskOverlay: true }));
-      return updateMask(recipe, mask.id, (m: { adjustments: object }) => ({ ...m, adjustments: { ...m.adjustments, temperature: 35, exposure: -0.25, contrast: 20, dehaze: 25, saturation: 45 } }));
+      return updateMask(recipe, mask.id, (m: { adjustments: object }) => ({ ...m, adjustments: { ...m.adjustments, temperature: 70, tint: 15, exposure: -0.35, contrast: 30, dehaze: 40, saturation: 70 } }));
     });
   });
   await pause(page, 2500);
@@ -213,7 +213,7 @@ test("capture the photo shots", async ({ page }) => {
     const { updateLayer } = await import("/src/core/document/operations.ts" as string);
     const doc = composite.getState().doc as { layers: { id: string; name: string }[] };
     const back = doc.layers.find((l) => /landscape/.test(l.name))!;
-    editDocument("Hide", (d: never) => updateLayer(d, back.id, (l: object) => ({ ...l, visible: false })));
+    editDocument("Hide", (d: { background: string | null }) => ({ ...updateLayer(d, back.id, (l: object) => ({ ...l, visible: false })), background: null }));
   });
   await save(page, "balloon", await docPng(page, 1920));
   await page.evaluate(async () => {

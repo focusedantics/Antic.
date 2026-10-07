@@ -1,5 +1,5 @@
 import { test } from "@playwright/test";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 
 /**
  * Renders the trailer from trailer/shots/ (`npm run trailer:render`): trailer/out/trailer-16x9.mp4
@@ -27,8 +27,12 @@ for (const cut of cuts) {
     const suffix = motion === "reduced" ? "-reduced" : "";
     if (stills) {
       for (const t of stills) {
-        await page.evaluate((at) => (window as unknown as { trailer: { draw(t: number): Promise<void> } }).trailer.draw(at), t);
-        await page.locator("#stage").screenshot({ path: `${OUT}/still-${cut}${suffix}-${t.toFixed(2)}.png` });
+        // The canvas's own pixels (a screenshot of it can come back black when headless).
+        const png = await page.evaluate(async (at) => {
+          await (window as unknown as { trailer: { draw(t: number): Promise<void> } }).trailer.draw(at);
+          return (document.getElementById("stage") as HTMLCanvasElement).toDataURL("image/png").split(",")[1];
+        }, t);
+        writeFileSync(`${OUT}/still-${cut}${suffix}-${t.toFixed(2)}.png`, Buffer.from(png, "base64"));
       }
       return;
     }

@@ -603,8 +603,8 @@ function stutter(f: Frame) {
   let punch = 0;
   for (const hit of hits) if (t >= hit) punch = 1 - sprung(t, hit, PUNCH);
   const stare = at(t, CUT_AT + ((plan.repeats - 1) * plan.repeat) / plan.fps + 2, 4.5, easeInOut);
-  const zoom = f.reduced ? 1 : 1 + punch * 0.05 + stare * 0.3;
-  picture(f, clip(k), { region: CLIP_PICTURE, zoom, fx: 0.47, fy: 0.42 });
+  const zoom = f.reduced ? 1 : 1 + punch * 0.05 + stare * (vertical ? 0.12 : 0.3);
+  picture(f, clip(k), { region: CLIP_PICTURE, zoom, fx: 0.47, fy: 0.3 });
   // Letterbox for the stare-down.
   const bars = at(t, held - 1.4, 0.8) * (vertical ? 0.08 : 0.1) * H;
   if (bars > 0) {
@@ -757,7 +757,7 @@ function ending(f: Frame) {
   });
   g.restore();
   // The promise, then what to do.
-  const lineSize = unit * 0.036;
+  const lineSize = unit * (vertical ? 0.05 : 0.036);
   const words = (text: string, y: number, start: number, color: string, weight: number) => {
     g.save();
     g.font = `${weight} ${lineSize}px ${TEXT}`;
@@ -780,9 +780,9 @@ function ending(f: Frame) {
     g.restore();
   };
   if (vertical) {
-    words("In your browser.", cy + unit * 0.2, 53.6, INK, 500);
-    words("Nothing is uploaded.", cy + unit * 0.26, 54.0, INK, 500);
-    words("Start with Chapter 1.", cy + unit * 0.4, 55.2, ACCENT, 600);
+    words("In your browser.", cy + unit * 0.22, 53.6, INK, 500);
+    words("Nothing is uploaded.", cy + unit * 0.3, 54.0, INK, 500);
+    words("Start with Chapter 1.", cy + unit * 0.46, 55.2, ACCENT, 600);
   } else {
     words("In your browser. Nothing is uploaded.", cy + unit * 0.16, 53.6, INK, 500);
     words("Start with Chapter 1.", cy + unit * 0.25, 55.2, ACCENT, 600);
