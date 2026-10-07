@@ -56,9 +56,14 @@ export class DevelopEngine {
   private result: { target: Target; key: unknown[]; content: unknown[]; window: number[] } | null = null;
   /** A render of the whole photo kept while the view shows a zoomed-in window: shown around it while moving. */
   private overview: { target: Target; content: unknown[] } | null = null;
-  /** Until when view changes count as motion (pinch, pan, glide): drawn from the renders at hand, sharpened after. */
-  private motionUntil = 0;
-  private settleTimer = 0;
+  /** The view is moving (pinch, pan, glide): drawn from the renders at hand, sharpened once it rests (see `motion`). */
+  private moving = false;
+  /** When the view last changed. */
+  private motionAt = 0;
+  /** How long frames take while the view moves (slow ones count in full, see `settle`). */
+  private frameMs = 0;
+  private lastTick = 0;
+  private settleFrame = 0;
   private overviewTimer = 0;
   /** Phones: the photo alone, edge to edge (tap to hide the interface). */
   private immersive = false;
@@ -499,10 +504,34 @@ export class DevelopEngine {
    * pass, like Lightroom's), then a sharp render replaces them.
    */
   private motion() {
-    this.motionUntil = performance.now() + SETTLE_MS;
-    clearTimeout(this.settleTimer);
-    this.settleTimer = window.setTimeout(() => this.requestRender(), SETTLE_MS + 16);
+    this.moving = true;
+    this.motionAt = performance.now();
+    if (this.settleFrame) return;
+    this.frameMs = 0;
+    this.lastTick = 0;
+    this.settleFrame = requestAnimationFrame(this.settle);
   }
+
+  /**
+   * Resting is no view change for SETTLE_MS, or for SETTLE_FRAMES frames where frames are
+   * slower than that (a slow or software GPU): there the next touch of a pinch arrives
+   * frames later, and a sharp render in between would hold the GPU longer still, so that
+   * every step of the pinch would render sharp.
+   */
+  private settle = (now: number) => {
+    if (this.lastTick) {
+      const dt = now - this.lastTick;
+      this.frameMs = dt > this.frameMs ? dt : this.frameMs * 0.9 + dt * 0.1;
+    }
+    this.lastTick = now;
+    if (now - this.motionAt < Math.max(SETTLE_MS, SETTLE_FRAMES * this.frameMs)) {
+      this.settleFrame = requestAnimationFrame(this.settle);
+      return;
+    }
+    this.settleFrame = 0;
+    this.moving = false;
+    this.requestRender();
+  };
 
   /** Starts a pending glide: the canvas is moved and scaled so the photo sits where it was, then eases into place. */
   private glide() {
@@ -658,7 +687,7 @@ export class DevelopEngine {
 
     // Moving (pinch, pan, a glide): the same picture under a new mapping. Draw what is
     // rendered (the window, and the whole photo around it) and sharpen once it rests.
-    if (this.result && !comparing && sameKey(this.result.content, content) && !sameKey(this.result.key, key) && performance.now() < this.motionUntil) {
+    if (this.result && !comparing && sameKey(this.result.content, content) && !sameKey(this.result.key, key) && this.moving) {
       const overview = this.overview && sameKey(this.overview.content, content) ? this.overview.target : null;
       this.present(regions, recipe, this.result.target, this.result.window, null, overview, overlayMode);
       return;
@@ -897,7 +926,7 @@ export class DevelopEngine {
     const overview = () => (this.compositeOverview && sameKey(this.compositeOverview.content, content) ? this.compositeOverview.target : null);
     // Moving (a glide, pinch, pan or zoom): the same design under a new mapping. Draw what
     // is rendered (and the whole design around it) and render sharp once it rests.
-    if (this.compositeResult && sameKey(this.compositeResult.content, content) && !sameKey(this.compositeResult.key, key) && performance.now() < this.motionUntil) {
+    if (this.compositeResult && sameKey(this.compositeResult.content, content) && !sameKey(this.compositeResult.key, key) && this.moving) {
       this.presentComposite(doc, this.compositeResult.target, this.compositeResult.area, overview());
       return true;
     }
@@ -1198,6 +1227,8 @@ export class DevelopEngine {
     }
     this.histogramTimer = setTimeout(() => {
       this.histogramTimer = null;
+      // Nor while the view moves: the wait would hold up the next touch of a pinch.
+      if (this.moving) return this.scheduleHistogram(whole);
       if (!this.result || this.lost) return;
       if (!whole) return develop.setState({ histogram: this.histogram(this.result.target) });
       const size = outputSize(whole.source.size, whole.recipe.geometry);
@@ -1479,8 +1510,9 @@ function smallCopy(canvas: OffscreenCanvas, longSide: number): ImageData {
   return ctx.getImageData(0, 0, w, h);
 }
 
-/** How long the view must rest after moving before it is rendered sharp again. */
+/** How long the view must rest after moving before it is rendered sharp again: in ms, and in frames where they are slower. */
 const SETTLE_MS = 140;
+const SETTLE_FRAMES = 3;
 /** The photo's glide into and out of the tap-to-hide view. */
 const GLIDE_MS = 260;
 

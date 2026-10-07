@@ -195,12 +195,15 @@ pipeline renders at reduced resolution and re-renders at full view resolution on
 
 **Moving views** (`DevelopEngine.motion`). A pinch, a pan, a panel or the viewer
 resizing, or the tap-to-hide glide changes only how the photo maps to the screen. Until
-the view rests for 140 ms, frames redraw the render at hand under the new mapping (one
-display pass, as Lightroom does) instead of developing the photo again; then a sharp
-render of what is on screen replaces it. While zoomed in, a render of the whole photo
-(`overview`: the fit render kept on zooming in, or rendered shortly after an edit) is
-shown where the window does not reach, so panning never shows a blank edge. The
-histogram is not worked out while the interface is hidden.
+the view rests for 140 ms (or three frames, where frames take longer than that: on a
+slow or software GPU the next touch of a pinch only arrives frames later), frames redraw
+the render at hand under the new mapping (one display pass, as Lightroom does) instead
+of developing the photo again; then a sharp render of what is on screen replaces it.
+While zoomed in, a render of the whole photo (`overview`: the fit render kept on zooming
+in, or rendered shortly after an edit) is shown where the window does not reach, so
+panning never shows a blank edge. The histogram reads its render back from the GPU,
+which waits for the render to finish, so it is not worked out while the view moves or
+the interface is hidden.
 
 **Windows** (`RenderOptions.window`). A render can cover just part of the output: every
 pass then works in the whole output's coordinates (the geometry and masks through the
