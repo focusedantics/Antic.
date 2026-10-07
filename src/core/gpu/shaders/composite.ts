@@ -228,9 +228,16 @@ export const solid = `${header}
 uniform vec4 uColor;
 void main() { outColor = uColor; }`;
 
-/** Shows the composite on screen: zoom/pan, checkerboard under transparency, pasteboard around the canvas. */
+/**
+ * Shows the composite on screen: zoom/pan, checkerboard under transparency, pasteboard
+ * around the canvas. uImage holds the uWindow part of the document; uOverview (if any)
+ * all of it, shown where the window does not reach (while the view moves).
+ */
 export const compositeDisplay = `${header}
 uniform sampler2D uImage;
+uniform sampler2D uOverview;
+uniform int uHasOverview;
+uniform vec4 uWindow;        // document px: x, y, width, height of uImage
 uniform mat3 uScreenToDoc;   // screen device px → document px
 uniform vec2 uDocSize;
 uniform vec2 uCanvasSize;
@@ -242,7 +249,12 @@ void main() {
   vec2 gx = (uScreenToDoc[0].xy - d * uScreenToDoc[0].z) / h.z / uDocSize;
   vec2 gy = -(uScreenToDoc[1].xy - d * uScreenToDoc[1].z) / h.z / uDocSize;
   if (d.x < 0.0 || d.y < 0.0 || d.x > uDocSize.x || d.y > uDocSize.y) { outColor = vec4(0.0); return; }
-  vec4 c = textureGrad(uImage, d / uDocSize, gx, gy);
+  vec2 w = (d - uWindow.xy) / uWindow.zw;
+  vec2 k = uDocSize / uWindow.zw;
+  vec4 c;
+  if (w.x >= 0.0 && w.y >= 0.0 && w.x <= 1.0 && w.y <= 1.0) c = textureGrad(uImage, w, gx * k, gy * k);
+  else if (uHasOverview == 1) c = textureGrad(uOverview, d / uDocSize, gx, gy);
+  else c = vec4(0.0);
   vec2 cell = floor(px / 8.0);
   vec3 checker = mod(cell.x + cell.y, 2.0) < 1.0 ? vec3(0.8) : vec3(0.62);
   outColor = vec4(c.rgb + checker * (1.0 - c.a), 1.0);

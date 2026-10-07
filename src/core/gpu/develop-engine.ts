@@ -22,11 +22,14 @@ import { documentAssets, flatten, layerAsset, locate, updateLayer } from "@/core
 import { fontLoads, loadFonts } from "@/core/text/fonts";
 import { composite } from "@/core/document/session";
 import { type Mat3, toGlMat3 } from "@/lib/math";
-import { Compositor } from "./compositor";
+import { Compositor, fxReach } from "./compositor";
 import { Gpu, type Target } from "./gl";
 import * as CS from "./shaders/composite";
 import { MaskRenderer } from "./masks";
 import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
+
+/** A rectangle in document px. */
+type Rect = { x: number; y: number; width: number; height: number };
 import * as S from "./shaders/passes";
 
 type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered" };
@@ -82,11 +85,15 @@ export class DevelopEngine {
    * A second compositor for renders other than the view (thumbnails, the eyedropper, effect
    * previews, exports). Its layer caches are its own: a small thumbnail no longer replaces
    * every layer's view-sized raster and developed photo, which then had to be made again.
-   * Freed a few seconds after its last use.
+   * Freed 20 seconds after its last use.
    */
   private offscreen: Compositor | null = null;
   private offscreenTimer = 0;
-  private compositeResult: { target: Target; key: unknown[] } | null = null;
+  /** The view's composite: `area` is the part of the document it holds (document px). */
+  private compositeResult: { target: Target; key: unknown[]; content: unknown[]; area: Rect } | null = null;
+  /** The whole design at a lower scale, shown around a windowed render while the view moves. */
+  private compositeOverview: { target: Target; content: unknown[] } | null = null;
+  private compositeOverviewTimer = 0;
   private loadingSources = new Set<AssetId>();
   private previewEffects: EffectRunner | null = null;
   private previewGeneration = 0;
@@ -138,6 +145,8 @@ export class DevelopEngine {
       }
       // Cropping draws its photo whole: redraw when it starts, ends or moves to another layer.
       const cropping = s.tool !== prev.tool || (s.tool === "crop" && s.selection !== prev.selection);
+      // A pan, zoom or glide only moves what is already rendered; it sharpens once it rests.
+      if (this.mode === "composite" && s.view !== prev.view) this.motion();
       if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view || s.playing !== prev.playing || cropping)) this.requestRender();
     });
     // Text rasters wait for their font; redraw when one arrives.
@@ -145,6 +154,8 @@ export class DevelopEngine {
       if (this.mode === "composite") {
         this.pipeline.release(this.compositeResult?.target);
         this.compositeResult = null;
+        this.pipeline.release(this.compositeOverview?.target);
+        this.compositeOverview = null;
         this.requestRender();
       }
     });
@@ -212,6 +223,7 @@ export class DevelopEngine {
     this.previewEffects = null;
     this.result = this.before = null;
     this.compositeResult = null;
+    this.compositeOverview = null;
     // Nothing decoded is kept on the CPU: photos still needed are read again from their originals.
     const wanted = [...this.sources.keys()];
     this.sources.clear();
@@ -376,6 +388,8 @@ export class DevelopEngine {
     this.pipeline.release(this.result?.target);
     this.pipeline.release(this.before?.target);
     this.pipeline.release(this.compositeResult?.target);
+    this.pipeline.release(this.compositeOverview?.target);
+    this.compositeOverview = null;
     this.result = this.before = this.compositeResult = null;
   }
 
@@ -877,25 +891,93 @@ export class DevelopEngine {
       return id ? `${id}:${assets.get(id)?.developRevision}:${this.sources.get(id)?.quality}` : "";
     });
     const time = this.viewTime(doc);
-    const key = [doc, scale, revisions.join("|"), this.sources.size, time];
+    const content = [doc, revisions.join("|"), this.sources.size, time];
+    const win = this.compositeWindow(doc, scale);
+    const key = [...content, scale, win?.x, win?.y, win?.width, win?.height];
+    const overview = () => (this.compositeOverview && sameKey(this.compositeOverview.content, content) ? this.compositeOverview.target : null);
+    // Moving (a glide, pinch, pan or zoom): the same design under a new mapping. Draw what
+    // is rendered (and the whole design around it) and render sharp once it rests.
+    if (this.compositeResult && sameKey(this.compositeResult.content, content) && !sameKey(this.compositeResult.key, key) && performance.now() < this.motionUntil) {
+      this.presentComposite(doc, this.compositeResult.target, this.compositeResult.area, overview());
+      return true;
+    }
     if (!this.compositeResult || !sameKey(this.compositeResult.key, key)) {
       if (!render) {
         this.requestRender();
         return false;
       }
-      this.pipeline.release(this.compositeResult?.target);
-      this.compositeResult = { target: this.compositor.render(doc, scale, time), key };
+      const previous = this.compositeResult;
+      const area = win ?? { x: 0, y: 0, width: doc.width, height: doc.height };
+      this.compositeResult = { target: this.compositor.render(doc, scale, time, win ?? undefined), key, content, area };
+      const whole = previous && previous.area.width === doc.width && previous.area.height === doc.height;
+      if (win && whole && sameKey(previous.content, content)) {
+        // Zooming in: the render of the whole design stays, to show around the window while moving.
+        this.pipeline.release(this.compositeOverview?.target);
+        this.compositeOverview = { target: previous.target, content };
+      } else this.pipeline.release(previous?.target);
+      if (!win) {
+        this.pipeline.release(this.compositeOverview?.target);
+        this.compositeOverview = null;
+      } else if (!overview()) this.scheduleCompositeOverview();
     }
+    this.presentComposite(doc, this.compositeResult.target, this.compositeResult.area, overview());
+    return true;
+  }
+
+  private presentComposite(doc: CompositeDocument, image: Target, area: Rect, overview: Target | null) {
     this.gpu.pass("composite-display", CS.compositeDisplay, {
       target: null,
-      textures: { uImage: this.compositeResult.target },
+      textures: { uImage: image, uOverview: overview ?? image },
       uniforms: {
         uScreenToDoc: toGlMat3(this.screenToDoc()),
         uDocSize: [doc.width, doc.height],
         uCanvasSize: [this.canvas.width, this.canvas.height],
+        uWindow: [area.x, area.y, area.width, area.height],
+        uHasOverview: overview ? 1 : 0,
       },
     });
-    return true;
+  }
+
+  /**
+   * The part of the design to render for the view (document px): what the canvas shows,
+   * with room for layer styles that reach in from outside it, snapped to a 128 px grid so
+   * small pans reuse the render. Null (render all of it) when most of it shows anyway, or
+   * when it has an effect layer: effects work from positions in the whole image (noise,
+   * the image's average brightness), so a window would change how they look. On a
+   * carousel, editing one slide renders about one slide instead of the whole strip.
+   */
+  private compositeWindow(doc: CompositeDocument, scale: number): Rect | null {
+    const layers = flatten(doc.layers);
+    if (layers.some((l) => l.kind === "effect" && l.visible)) return null;
+    const m = this.screenToDoc();
+    const margin = Math.max(0, ...layers.map((l) => (l.visible ? fxReach(l.fx) : 0))) + 4 / scale;
+    const grid = 128 / scale;
+    const x0 = Math.max(0, Math.floor((m[2] - margin) / grid) * grid);
+    const y0 = Math.max(0, Math.floor((m[5] - margin) / grid) * grid);
+    const x1 = Math.min(doc.width, Math.ceil((m[0] * this.canvas.width + m[2] + margin) / grid) * grid);
+    const y1 = Math.min(doc.height, Math.ceil((m[4] * this.canvas.height + m[5] + margin) / grid) * grid);
+    if (!(x1 > x0 && y1 > y0)) return null;
+    if ((x1 - x0) * (y1 - y0) > 0.7 * doc.width * doc.height) return null;
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  }
+
+  /**
+   * After the design rests on a windowed render: renders all of it at a lower scale (with
+   * the second compositor, so the view's layer caches stay), for the next glide or pan to
+   * show around the window.
+   */
+  private scheduleCompositeOverview() {
+    clearTimeout(this.compositeOverviewTimer);
+    this.compositeOverviewTimer = window.setTimeout(() => {
+      const result = this.compositeResult;
+      const doc = this.shownDocument(composite.getState().doc);
+      if (!result || !doc || this.lost || this.mode !== "composite" || result.content[0] !== doc) return;
+      if (this.compositeOverview && sameKey(this.compositeOverview.content, result.content)) return;
+      const scale = Math.min(this.compositeScale(), 1, 2048 / Math.max(doc.width, doc.height));
+      const target = this.offscreenCompositor().render(doc, scale, result.content[3] as number);
+      this.pipeline.release(this.compositeOverview?.target);
+      this.compositeOverview = { target, content: result.content };
+    }, 250);
   }
 
   /**
@@ -946,7 +1028,7 @@ export class DevelopEngine {
     this.offscreenTimer = window.setTimeout(() => {
       this.offscreen?.dispose();
       this.offscreen = null;
-    }, 5000);
+    }, 20_000);
     return this.offscreen;
   }
 
@@ -1038,6 +1120,8 @@ export class DevelopEngine {
   freeMemory() {
     this.pipeline.release(this.compositeResult?.target);
     this.compositeResult = null;
+    this.pipeline.release(this.compositeOverview?.target);
+    this.compositeOverview = null;
     this.compositor.dispose();
     this.offscreen?.dispose();
     this.offscreen = null;
