@@ -251,3 +251,49 @@ but the work (pixels shaded per edit) is what the changes reduce, on any GPU.
 | 3 | Design speed 3: render only the part of the design on screen; moving reuses it | The view renders a window (one slide of a carousel); glides, pinches, pans and zooms redraw the render at hand with a whole-design render around it, sharp once the view rests. |
 | 4 | Design speed 4: an edit re-renders only the panels that show it | The workspaces subscribe to whether a document is open; layer rows are memoized. |
 
+
+### Results
+
+One run each, `acc88b4` (before) against `f5e76a7` (after), on SwiftShader. Times are wall
+time per phase; a composite is one render of the view (the GPU waited for).
+
+**Phone (390 × 664 at 3×)**
+
+| Phase | Time s before | after | Composites before | after | Composite time s before | after | MP composited before | after | Longest frame s before | after |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| open the template | 3.6 | 2.4 | 3 | 2 | 1.5 | 0.3 | 0.5 | 0.4 | 1.2 | 0.4 |
+| add 3 photos | 58.8 | 1.7 | 5 | 2 | 58.1 | 1.2 | 21.7 | 2.7 | 15.3 | 1.3 |
+| drag a layer (12 steps) | 183.7 | 3.5 | 24 | 12 | 181.7 | 1.5 | 65.2 | 16.1 | 15.3 | 0.4 |
+| nudge with arrows (10) | 150.3 | 2.3 | 17 | 10 | 149.1 | 1.5 | 54.3 | 13.4 | 15.4 | 0.2 |
+| tap through 5 slides | 3.7 | 5.3 | 0 | 5 | 0.0 | 1.9 | 0 | 7.2 | 0.1 | 0.6 |
+| zoom in and out (12 steps) | 45.9 | 1.6 | 2 | 0 | 44.4 | 0.0 | 12.7 | 0 | 30.0 | 0.1 |
+| pan zoomed in (12 steps) | 29.8 | 2.4 | 1 | 2 | 28.3 | 1.0 | 7.3 | 1.5 | 28.3 | 0.6 |
+
+**Computer (1440 × 900 at 2×)**
+
+| Phase | Time s before | after | Composites before | after | Composite time s before | after | MP composited before | after | Longest frame s before | after |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| open the template | 5.3 | 2.1 | 3 | 2 | 3.5 | 0.3 | 1.4 | 1.3 | 3.0 | 0.4 |
+| add 3 photos | 47.8 | 0.5 | 5 | 1 | 46.8 | 0.3 | 20.9 | 1.6 | 12.7 | 0.3 |
+| drag a layer (12 steps) | 160.9 | 7.6 | 24 | 14 | 157.6 | 4.0 | 62.9 | 22.5 | 13.3 | 0.7 |
+| nudge with arrows (10) | 128.6 | 4.1 | 19 | 10 | 127.3 | 2.7 | 52.4 | 16.1 | 13.3 | 0.4 |
+| tap through 5 slides | 3.3 | 5.6 | 0 | 6 | 0.0 | 2.8 | 0 | 11.8 | 0.3 | 0.8 |
+| zoom in and out (12 steps) | 32.2 | 3.5 | 2 | 4 | 30.3 | 2.2 | 12.5 | 4.8 | 17.8 | 0.8 |
+| pan zoomed in (12 steps) | 19.6 | 3.6 | 1 | 4 | 17.4 | 2.2 | 7.3 | 4.2 | 17.4 | 0.7 |
+
+- **Editing** (drag, arrow keys) went from 13–15 s per frame to under 0.7 s: each composite
+  shades about a quarter of the pixels (one slide, and each layer only over its own area),
+  and the autosave thumbnail no longer forces every layer to be rasterized and every photo
+  developed again between steps (which also roughly halved the number of composites).
+- **Adding photos, zooming and panning** went from 30–60 s to 0.5–3.5 s. Zoom and pan steps
+  redraw the render at hand; the phone's zoom needed no composite at all.
+- **Tapping through slides got slower here** (3.3–3.7 s → 5.3–5.6 s): before, the whole
+  strip was already rendered at the view's scale, so a glide only moved it; now each
+  slide's window is rendered once the glide rests (about 0.4 s each on SwiftShader, a
+  fraction of the old whole-strip render). The glide itself shows the render at hand and
+  the whole-design overview, so it stays smooth; only the sharpening after it costs.
+- The longest frame anywhere went from 12–30 s to under 1 s.
+
+Not verified here: the numbers are from SwiftShader on a CPU. On an iPhone's GPU every
+pass is far faster, but the work removed (pixels shaded, rasters remade, photos
+developed again) is the same work.
