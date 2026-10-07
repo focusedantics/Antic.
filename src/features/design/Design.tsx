@@ -91,7 +91,8 @@ function alignMenu(e: React.MouseEvent<HTMLElement>, selection: readonly string[
 
 /** The strip above the canvas: the things a design is made of, then view and history. */
 function DesignToolbar({ onExport, onSave }: { onExport: () => void; onSave: (kind: "template" | "element") => void }) {
-  const doc = useStore(composite, (s) => s.doc);
+  const hasDoc = useStore(composite, (s) => !!s.doc);
+  const animated = useStore(composite, (s) => !!s.doc && isAnimated(s.doc));
   const selection = useStore(composite, (s) => s.selection);
   const snap = useStore(composite, (s) => s.snap);
   const showGuides = useStore(composite, (s) => s.showGuides);
@@ -100,12 +101,11 @@ function DesignToolbar({ onExport, onSave }: { onExport: () => void; onSave: (ki
   const tool = useStore(composite, (s) => s.tool);
   const compact = useStore(layout, (s) => s.compact);
   const history = compositeHistory();
-  const animated = !!doc && isAnimated(doc);
   const actions = (
     <CompactActions>
       <TopAction icon="undo" label="Undo" disabled={!history?.status().canUndo} onClick={() => history?.undo()} />
       <TopAction icon="redo" label="Redo" disabled={!history?.status().canRedo} onClick={() => history?.redo()} />
-      <TopAction icon="export" label="Export" primary disabled={!doc} onClick={onExport} />
+      <TopAction icon="export" label="Export" primary disabled={!hasDoc} onClick={onExport} />
     </CompactActions>
   );
   if (compact)
@@ -189,7 +189,7 @@ function DesignToolbar({ onExport, onSave }: { onExport: () => void; onSave: (ki
       <button type="button" className="btn small icon wide-only" disabled={!history?.status().canRedo} onClick={() => history?.redo()} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
         <Icon name="redo" size={14} />
       </button>
-      <button type="button" className="btn small primary wide-only" disabled={!doc} onClick={onExport} title="Export (Ctrl+Shift+E)">
+      <button type="button" className="btn small primary wide-only" disabled={!hasDoc} onClick={onExport} title="Export (Ctrl+Shift+E)">
         Export…
       </button>
       {actions}
@@ -260,9 +260,10 @@ const editorDock: DockItem[] = [
 
 export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) {
   const home = useStore(design, (s) => s.home);
-  const open = useStore(composite, (s) => s.doc);
-  const doc = isDesign(open) ? open : null;
-  const editing = !home && !!doc;
+  // Whether a design is open, not the design itself: this component holds every panel, and
+  // subscribing to the document re-rendered all of them on every edit.
+  const open = useStore(composite, (s) => isDesign(s.doc));
+  const editing = !home && open;
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState<"template" | "element" | null>(null);
   const managing = useStore(manager, (st) => st.open);

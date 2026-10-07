@@ -526,9 +526,9 @@ const compositeDock = (hasDoc: boolean): DockItem[] => [
 ];
 
 export default function Composite({ Shell }: { Shell: ComponentType<ShellProps> }) {
-  const open = useStore(composite, (s) => s.doc);
   // A design open from the Design workspace is not shown here (it is replaced as this opens).
-  const doc = open && !open.purpose ? open : null;
+  // Only whether one is open: subscribing to the document re-rendered every panel per edit.
+  const doc = useStore(composite, (s) => !!s.doc && !s.doc.purpose);
   const allDocs = useStore(composite, (s) => s.documents);
   const docs = useMemo(() => allDocs.filter((d) => !d.design), [allDocs]);
   const [dialog, setDialog] = useState<"new" | "export" | null>(null);

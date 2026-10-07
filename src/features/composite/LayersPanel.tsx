@@ -1,4 +1,4 @@
-import { type DragEvent, useRef, useState } from "react";
+import { type DragEvent, memo, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { openMenu } from "@/components/Menu";
 import { Panel } from "@/components/Panel";
@@ -179,7 +179,8 @@ export function layerMenu(layer: Layer, x: number, y: number) {
   ]);
 }
 
-function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
+/** One row; rows whose layer did not change skip re-rendering (layers are immutable). */
+const LayerRow = memo(function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
   const selected = useStore(composite, (s) => s.selection.includes(layer.id));
   const [over, setOver] = useState<"above" | "below" | "into" | null>(null);
   const select = (e: React.MouseEvent) => {
@@ -307,7 +308,7 @@ function LayerRow({ layer, depth }: { layer: Layer; depth: number }) {
       {layer.kind === "group" && layer.expanded && [...layer.children].reverse().map((c) => <LayerRow key={c.id} layer={c} depth={depth + 1} />)}
     </>
   );
-}
+});
 
 /** Sweep selection over layers, then the batch menu. Shared by the layer list and the canvas. */
 export const sweepLayers = {
