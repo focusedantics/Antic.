@@ -1,5 +1,6 @@
 import { type AudioPiece, type Channels, SAMPLE_RATE, type SegmentAudioJob } from "./dsp";
 import { device } from "@/lib/device";
+import { audible } from "./pcm";
 import { type Demuxed, type DemuxedAudio, SampleReader } from "./demux";
 import type { VideoEdit } from "./model";
 import type { ClipInfo, Plan } from "./timeline";
@@ -132,10 +133,16 @@ export async function decodeClipAudio(media: Demuxed): Promise<Channels | null> 
   const audio = media.audio;
   if (!audio) return null;
   const context = new OfflineAudioContext(2, 1, SAMPLE_RATE);
-  const nonEmpty = (c: Channels | null) => (c && c.length && c[0].length ? c : null);
+  // A way that decodes to pure silence is treated as failing (a decoder that
+  // misreads the track can do that), unless every way does: then the clip is silent.
+  let quiet: Channels | null = null;
   const attempt = async (decode: () => Promise<Channels | null>) => {
     try {
-      return nonEmpty(await decode());
+      const c = await decode();
+      if (!c || !c.length || !c[0].length) return null;
+      if (audible(c)) return c;
+      quiet ??= c;
+      return null;
     } catch {
       return null;
     }
@@ -149,11 +156,13 @@ export async function decodeClipAudio(media: Demuxed): Promise<Channels | null> 
         return adts ? channelsOf(await context.decodeAudioData(adts.buffer as ArrayBuffer), audio.skip) : null;
       })) ??
       (await attempt(() => decodeTrackWithWebCodecs(audio))) ??
-      (await whole())
+      (await whole()) ??
+      quiet
     );
   }
-  return (await whole()) ?? (await attempt(() => decodeTrackWithWebCodecs(audio)));
+  return (await whole()) ?? (await attempt(() => decodeTrackWithWebCodecs(audio))) ?? quiet;
 }
+
 
 /** The audio jobs of a compiled plan: one per segment, positioned on the timeline. */
 export function audioParts(edit: VideoEdit, plan: Plan, ownClip: string, infoOf: (clip: string) => ClipInfo | undefined): { start: number; job: SegmentAudioJob }[] {

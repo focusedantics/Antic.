@@ -81,7 +81,7 @@ export type Segment = {
 export type Resolution = "original" | "2160" | "1440" | "1080" | "720" | "480" | "360";
 
 /**
- * - `mkv-lossless`: VP9 at quantizer 0 (mathematically lossless) + uncompressed float PCM audio. Truly lossless.
+ * - `mkv-lossless`: VP9 at quantizer 0 (mathematically lossless) + uncompressed 24-bit PCM audio. Truly lossless.
  * - `mp4-lossless`: the same lossless VP9 video in MP4, with transparent high-bitrate audio (AAC 320k or Opus 510k).
  * - `mp4-h264`: H.264 at near-lossless constant quality: plays everywhere (QuickTime, phones, Discord).
  * An MP4 of an untouched clip is copied from the original, bit for bit.

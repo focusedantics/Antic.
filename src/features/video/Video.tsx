@@ -319,7 +319,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
   const [firstFrames, setFirstFrames] = useState<Record<string, ExportPreview>>({});
   const [item, setItem] = useState(0);
   const [mood, setMood] = useState<MarbleMood>("idle");
-  const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean; notes: string[] } | null>(null);
+  const [result, setResult] = useState<{ count: number; bytes: number; frames: number; lossless: boolean; copied: boolean; sounds: string[]; notes: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => () => controllerRef.current?.abort(), []);
@@ -338,6 +338,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
     let frames = 0;
     let lossless = true;
     let copied = true;
+    const sounds = new Set<string>();
     const notes = new Set<string>();
     setError(null);
     const started = performance.now();
@@ -364,6 +365,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         frames += out.frames;
         lossless &&= out.lossless;
         copied &&= out.copied;
+        sounds.add(out.sound ?? "no sound");
         if (out.note) notes.add(chosen.length > 1 ? `${clip.name}: ${out.note}` : out.note);
       }
       setProgress({ done: 1, total: 1, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
@@ -373,7 +375,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
       setMood("done");
       setProgress({ done: 1, total: 1, label: `Saved ${count} video${count === 1 ? "" : "s"} ✓` });
       await sleep(PACE.doneBeat);
-      setResult({ count, bytes, frames, lossless, copied, notes: [...notes] });
+      setResult({ count, bytes, frames, lossless, copied, sounds: [...sounds], notes: [...notes] });
       for (const n of notes) toast(n, "error");
       reportExport(sink, `Exported ${count} video${count === 1 ? "" : "s"} (${formatBytes(bytes)}) to ${describeDestination(destination)}.`);
     } catch (err) {
@@ -435,6 +437,8 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         <p data-testid="export-result">
           Saved {result.count} video{result.count === 1 ? "" : "s"} · {result.frames} frames, none dropped · {formatBytes(result.bytes)} · {describeDestination(destination)}
           {result.copied ? " · original frames copied bit for bit" : result.lossless ? " · lossless" : ""}
+          {/* What sound the file carries, so a silent file is never a surprise. */}
+          {` · ${result.sounds.map((s) => (s === "no sound" ? s : `sound: ${s}`)).join(", ")}`}
           {result.notes.map((n) => (
             <span key={n} style={{ display: "block", color: "var(--danger)" }}>
               {n}

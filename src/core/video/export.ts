@@ -13,6 +13,7 @@ import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
 import { aacAudioSpecificConfig, aacObjectType } from "./aac";
+import { audible, pcm24 } from "./pcm";
 import { audioParts, decodeClipAudio, Soundtrack } from "./soundtrack";
 import { type ClipInfo, compile, frameAt, isUntouched } from "./timeline";
 import { i420Frame, rotateI420, visibleI420 } from "./yuv";
@@ -26,6 +27,8 @@ export type ExportResult = {
   readonly copied: boolean;
   /** Said to the user with the result: the clip has sound this device couldn't decode, so the file has none. */
   readonly note?: string;
+  /** The file's sound, as shown with the result ("AAC", "24-bit PCM", …), or null when it has none. */
+  readonly sound: string | null;
 };
 
 const MICRO = 1e6;
@@ -138,7 +141,7 @@ async function run(
     const copied = await copyVideo(own.media, edit.output.audio ? own.media.audio : null);
     if (copied) {
       onProgress({ done: 1, total: 1, stage: "Copying the original frames…" });
-      return { blob: copied, extension: "mp4", frames: plan.frames, lossless: true, copied: true };
+      return { blob: copied, extension: "mp4", frames: plan.frames, lossless: true, copied: true, sound: edit.output.audio && own.media.audio ? `${soundName(own.media.audio.codec)} (original)` : null };
     }
   }
 
@@ -165,6 +168,8 @@ async function run(
     signal.throwIfAborted();
     // Sound the clips have but nothing here could decode: never a quietly silent file.
     if (!soundtrack && [...clips.values()].some((m) => m.media.audio)) note = "The sound couldn't be decoded on this device, so the video was saved without it.";
+    // Decoded, but nothing to hear where the edit doesn't mute it: say so rather than save a mute file unannounced.
+    else if (soundtrack && edit.segments.some((s) => !s.mute) && !audible(soundtrack)) note = "The sound decoded as silence on this device, so the video has no audible sound.";
   }
 
   // ── Muxer ────────────────────────────────────────────────────────────────
@@ -197,7 +202,9 @@ async function run(
           type: "matroska",
           firstTimestampBehavior: "offset",
           video: { codec: "V_VP9", width: size.width, height: size.height, frameRate: fps },
-          ...(audioCodec ? { audio: { codec: "A_PCM/FLOAT/IEEE", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitDepth: 32 } } : {}),
+          // 24-bit integer PCM: lossless for this sound, and read by every player that reads MKV
+          // (32-bit float is not: Windows' players and many editors show the picture and stay silent).
+          ...(audioCodec ? { audio: { codec: "A_PCM/INT/LIT", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitDepth: 24 } } : {}),
         })
       : null;
   const mp4 =
@@ -321,12 +328,7 @@ async function run(
       if (audioCodec.kind === "pcm") {
         for (let i = 0; i < l.length; i += block) {
           const n = Math.min(block, l.length - i);
-          const interleaved = new Float32Array(n * 2);
-          for (let j = 0; j < n; j++) {
-            interleaved[j * 2] = l[i + j];
-            interleaved[j * 2 + 1] = r[i + j];
-          }
-          mkv!.addAudioChunkRaw(new Uint8Array(interleaved.buffer), "key", Math.round((i / SAMPLE_RATE) * MICRO));
+          mkv!.addAudioChunkRaw(pcm24(l.subarray(i, i + n), r.subarray(i, i + n)), "key", Math.round((i / SAMPLE_RATE) * MICRO));
         }
       } else {
         let audioFailure: unknown = null;
@@ -358,16 +360,18 @@ async function run(
     }
     if (mkv) {
       mkv.finalize();
-      return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false, note };
+      return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false, note, sound: audioCodec ? "24-bit PCM" : null };
     }
     mp4!.finalize();
-    return { blob: new Blob([mp4Target.buffer], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note };
+    return { blob: new Blob([mp4Target.buffer], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
   } finally {
     for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();
     renderer.dispose();
   }
 }
+
+const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec.toUpperCase());
 
 const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [
   [/^avc[13]\./, "avc"],

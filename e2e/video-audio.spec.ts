@@ -143,3 +143,43 @@ test("an MP4's AAC sound is described correctly even when the encoder describes 
   });
   expect(result).toEqual({ esds: true, asc: [0x11, 0x90], note: null, copied: false });
 });
+
+test("both lossless formats keep the sound, in a form every player reads, and say what sound the file has", async ({ page }) => {
+  await openVideo(page, clip());
+  // Play a little first, as people do, then cut and stutter so the clip is re-encoded.
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(600);
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("s");
+  await page.getByRole("button", { name: "Stutter", exact: true }).click();
+  for (const [format, sound] of [
+    ["mkv-lossless", "sound: 24-bit PCM"],
+    ["mp4-lossless", "sound: Opus"],
+  ] as const) {
+    await page.getByLabel("Format").selectOption(format);
+    await page.getByRole("button", { name: "Export…" }).click();
+    const dialog = page.getByRole("dialog");
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+    await expect(dialog.getByTestId("export-result")).toContainText(sound);
+    await dialog.getByRole("button", { name: "Done" }).click();
+    const bytes = readFileSync((await download.path())!);
+    // The MKV's audio is integer PCM (A_PCM/INT/LIT), not float, which many players leave silent.
+    if (format === "mkv-lossless") {
+      expect(bytes.includes(Buffer.from("A_PCM/INT/LIT"))).toBe(true);
+      expect(bytes.includes(Buffer.from("A_PCM/FLOAT"))).toBe(false);
+    }
+    const heard = await page.evaluate(async (data) => {
+      const blob = await (await fetch(`data:application/octet-stream;base64,${data}`)).blob();
+      const buffer = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(await blob.arrayBuffer());
+      const l = buffer.getChannelData(0);
+      let energy = 0;
+      for (const v of l) energy += v * v;
+      return { seconds: buffer.duration, energy };
+    }, bytes.toString("base64"));
+    // 2 s of clip plus three 120 ms stutter repeats, with real sound in it.
+    expect(heard.seconds).toBeGreaterThan(2.2);
+    expect(heard.energy).toBeGreaterThan(100);
+  }
+});

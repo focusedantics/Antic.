@@ -646,12 +646,16 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   returns exactly the YUV that went in. Frames shown as they are go to the encoder in the
   decoder's own YUV, cropped, converted from NV12 and rotated exactly (`yuv.ts`), so they
   come out bit-identical to the source. Treated frames are rendered on the GPU first.
-- The MKV (webm-muxer, Matroska) carries uncompressed float PCM audio. The MP4 carries
+- The MKV (webm-muxer, Matroska) carries uncompressed 24-bit integer PCM audio
+  (`A_PCM/INT/LIT`; 32-bit float PCM leaves Windows' players and many editors silent).
+  The MP4 carries
   AAC 320k or Opus 510k. For AAC the export writes its own AudioSpecificConfig into the
   `esds` (`core/video/aac.ts`) instead of the encoder's: Safari's AAC AudioEncoder
   reports a wrong one (WebKit bug 302253, reading as 22050 Hz with no channels), and
   an MP4 carrying it plays silent. A clip whose sound can't be decoded here exports
-  without it and says so (`ExportResult.note`), never quietly.
+  without it and says so (`ExportResult.note`), never quietly; so does a soundtrack that
+  decodes to pure silence (a decoding way that returns only silence is skipped for the
+  next). The result line names the file's sound (`ExportResult.sound`) or says "no sound".
 - The Compatible format is near-lossless H.264 (`encoder.ts`).
 - Every timeline frame is encoded exactly once, in order, with bounded queues. The export
   fails, rather than saving, if the encoder returns a different number of frames.
