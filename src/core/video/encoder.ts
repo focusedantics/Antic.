@@ -61,6 +61,9 @@ function candidates(width: number, height: number, bitrate: number): { codec: st
   return [
     { codec: `avc1.6400${avcLevel}`, mux: "avc", extra: avc },
     { codec: `avc1.4d00${avcLevel}`, mux: "avc", extra: avc },
+    // Constrained Baseline: Firefox (and Zen and other Firefox-based browsers) encode H.264
+    // with OpenH264, which makes nothing else. Any H.264 plays where VP9 and HEVC don't.
+    { codec: `avc1.42e0${avcLevel}`, mux: "avc", extra: avc },
     { codec: "hvc1.1.6.L123.B0", mux: "hevc", extra: { hevc: { format: "hevc" } } as Partial<VideoEncoderConfig> },
     { codec: "vp09.00.41.08", mux: "vp9" },
     { codec: "av01.0.08M.08", mux: "av1" },

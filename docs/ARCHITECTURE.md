@@ -663,7 +663,11 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   without it and says so (`ExportResult.note`), never quietly; so does a soundtrack that
   decodes to pure silence (a decoding way that returns only silence is skipped for the
   next). The result line names the file's sound (`ExportResult.sound`) or says "no sound".
-- The Compatible format is near-lossless H.264 (`encoder.ts`).
+- The Compatible format is near-lossless H.264 (`encoder.ts`): High, else Main, else
+  Constrained Baseline (all Firefox-based browsers make, through OpenH264). Encoders that
+  return Annex B H.264 whatever is asked (no description, SPS/PPS in the frames) are
+  rewritten to avc samples with an avcC built from the stream's own SPS/PPS (`avc.ts`):
+  an MP4 without avcC doesn't play.
 - Every timeline frame is encoded exactly once, in order, with bounded queues. The export
   fails, rather than saving, if the encoder returns a different number of frames.
 

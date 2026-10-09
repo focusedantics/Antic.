@@ -13,6 +13,7 @@ import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
 import { aacAudioSpecificConfig, aacObjectType } from "./aac";
+import { AvcFixer } from "./avc";
 import { encodeFlac, flacSampleEntry, relabelOpusTrack } from "./flac";
 import { encodeMp3, MP3_FRAME, mp3SampleEntry } from "./mp3";
 import { audible, pcm24 } from "./pcm";
@@ -223,11 +224,16 @@ async function run(
   // ── Video ────────────────────────────────────────────────────────────────
   let failure: unknown = null;
   let chunks = 0;
+  const avcFixer = new AvcFixer();
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => {
       chunks++;
       if (mkv) mkv.addVideoChunk(chunk, meta);
-      else mp4!.addVideoChunk(chunk, meta);
+      else if (encoder.mux === "avc") {
+        // Some browsers (Firefox) hand back Annex B H.264 whatever is asked: make it avc.
+        const fixed = avcFixer.fix(chunk, meta);
+        mp4!.addVideoChunkRaw(fixed.data, chunk.type, chunk.timestamp, chunk.duration as number, fixed.meta);
+      } else mp4!.addVideoChunk(chunk, meta);
     },
     error: (e) => {
       failure = e;
