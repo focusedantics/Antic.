@@ -276,8 +276,8 @@ export function flacSampleEntry(streamInfo: Uint8Array, sampleRate: number, chan
 const CONTAINERS = new Set(["moov", "trak", "mdia", "minf", "stbl"]);
 
 /**
- * Swaps an MP4's `Opus` sample entry for another (`fLaC`, or `mp4a` for MP3: the muxer
- * knows neither, so their frames go into an Opus-shaped track): rewrites the sample
+ * Swaps an MP4's `Opus` sample entry for another (`fLaC`: the muxer doesn't know it, so
+ * the frames go into an Opus-shaped track): rewrites the sample
  * description, the sizes of the boxes around it, and the chunk offsets the size change moves.
  */
 export function relabelOpusTrack(mp4: Uint8Array, entry: Uint8Array): Uint8Array {

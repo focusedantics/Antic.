@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { createFile, MP4BoxBuffer } from "mp4box";
+import { decodeAac } from "../tests/fixtures/aac-decoder";
 import { moovAtEnd, quickTimeAac } from "../tests/fixtures/moov";
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
@@ -20,6 +21,32 @@ async function openVideo(page: Page, file: { name: string; mimeType: string; buf
 }
 
 const clip = () => ({ name: "clip.mp4", mimeType: "video/mp4", buffer: readFileSync("tests/fixtures/clip.mp4") });
+
+/**
+ * An MP4's AAC sound, decoded with the reference decoder (this test browser has no AAC
+ * decoder): its codec ("mp4a.40.2" is AAC-LC in an MPEG-4 audio esds), length and the
+ * left channel's energy.
+ */
+function aacSound(bytes: Buffer) {
+  const file = createFile();
+  let codec = "";
+  const frames: Uint8Array[] = [];
+  file.onReady = (info) => {
+    const track = info.audioTracks[0];
+    codec = track?.codec ?? "";
+    if (track) file.setExtractionOptions(track.id, null, { nbSamples: 1e6 });
+    file.start();
+  };
+  file.onSamples = (_id, _user, samples) => {
+    for (const s of samples) frames.push(new Uint8Array(s.data!));
+  };
+  file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 0));
+  file.flush();
+  const [l] = decodeAac(frames);
+  let energy = 0;
+  for (const v of l) energy += v * v;
+  return { codec, seconds: l.length / 48000, energy };
+}
 
 test("decoding the audio track sample by sample (no whole-file read) matches the browser's own decode", async ({ page }) => {
   await openVideo(page, clip());
@@ -160,8 +187,8 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
   for (const [format, sound] of [
     ["mkv-lossless", "sound: 24-bit PCM"],
     ["mp4-lossless", "sound: FLAC (lossless)"],
-    // This browser has no AAC encoder: the shareable format falls back to MP3, never FLAC or Opus.
-    ["mp4-h264", "sound: MP3 320k"],
+    // This browser has no AAC encoder: the shareable format uses ours, never MP3, FLAC or Opus.
+    ["mp4-h264", "sound: AAC"],
   ] as const) {
     await page.getByLabel("Format").selectOption(format);
     await page.getByRole("button", { name: "Export…" }).click();
@@ -175,12 +202,13 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
       expect(bytes.includes(Buffer.from("A_PCM/INT/LIT"))).toBe(true);
       expect(bytes.includes(Buffer.from("A_PCM/FLOAT"))).toBe(false);
     } else if (format === "mp4-h264") {
-      // MP3 in an mp4a sample entry: esds with object type 0x6B (MPEG-1 audio).
       expect(bytes.includes(Buffer.from("Opus"))).toBe(false);
-      const esds = bytes.indexOf(Buffer.from("esds"));
-      expect(esds).toBeGreaterThan(0);
-      const config = bytes.indexOf(0x04, esds + 8);
-      expect(bytes[config + 2]).toBe(0x6b);
+      const sound = aacSound(bytes);
+      expect(sound.codec).toBe("mp4a.40.2");
+      // 2 s of clip plus three 120 ms stutter repeats, with real sound in it.
+      expect(sound.seconds).toBeGreaterThan(2.2);
+      expect(sound.energy).toBeGreaterThan(100);
+      continue;
     } else {
       // FLAC, not Opus: an MP4's Opus plays silent in Windows' players, QuickTime and on iPhones.
       expect(bytes.includes(Buffer.from("fLaC"))).toBe(true);
@@ -238,62 +266,6 @@ test("the FLAC encoder is lossless: the browser's own decoder returns every 16-b
   expect(r.misses).toBe(0);
 });
 
-test("the MP3 encoder: the browser's decoder returns the sound at the same level and time, cleanly", async ({ page }) => {
-  await page.goto("/");
-  const r = await page.evaluate(async () => {
-    const { encodeMp3 } = await import("/src/core/video/mp3.ts" as string);
-    // Music-like: a few tones with a varying envelope, a little noise, and a click to time by.
-    const n = 48000 * 3;
-    const l = new Float32Array(n);
-    const r = new Float32Array(n);
-    let seed = 5;
-    const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
-    for (let i = 0; i < n; i++) {
-      const t = i / 48000;
-      const env = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.7 * t);
-      l[i] = env * (0.3 * Math.sin(2 * Math.PI * 220 * t) + 0.15 * Math.sin(2 * Math.PI * 660 * t) + 0.08 * Math.sin(2 * Math.PI * 1760 * t)) + 0.01 * noise();
-      r[i] = 0.4 * Math.sin(2 * Math.PI * 330 * t) * env + 0.01 * noise();
-    }
-    for (let i = 72000; i < 72040; i++) l[i] += 0.5;
-    const frames: Uint8Array[] = encodeMp3(l, r);
-    const file = new Uint8Array(frames.reduce((a, f) => a + f.length, 0));
-    let at = 0;
-    for (const f of frames) {
-      file.set(f, at);
-      at += f.length;
-    }
-    const d = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(file.buffer.slice(0) as ArrayBuffer);
-    const out = d.getChannelData(0);
-    // Timing: where the decoded sound best lines up with the source.
-    let lag = 0;
-    let bestCorr = -Infinity;
-    for (let k = -40; k <= 40; k++) {
-      let s = 0;
-      for (let i = 60000; i < 90000; i++) s += l[i] * out[i + k];
-      if (s > bestCorr) {
-        bestCorr = s;
-        lag = k;
-      }
-    }
-    let sd = 0;
-    let ss = 0;
-    let err = 0;
-    for (let i = 24000; i < 120000; i++) {
-      sd += l[i] * out[i];
-      ss += l[i] * l[i];
-      err += (out[i] - l[i]) ** 2;
-    }
-    return { frames: frames.length, bytes: file.length, decoded: d.length, n, lag, gain: sd / ss, snr: 10 * Math.log10(ss / err) };
-  });
-  // 320 kb/s: 960 bytes a frame of 1152 samples, enough frames for all of the sound.
-  expect(r.bytes).toBe(r.frames * 960);
-  expect(r.decoded).toBeGreaterThanOrEqual(r.n);
-  expect(r.lag).toBe(0);
-  expect(r.gain).toBeGreaterThan(0.97);
-  expect(r.gain).toBeLessThan(1.03);
-  expect(r.snr).toBeGreaterThan(30);
-});
-
 test("Compatible under a size limit: the file fits, with its sound", async ({ page }) => {
   await openVideo(page, clip());
   await page.keyboard.press("Home");
@@ -305,17 +277,10 @@ test("Compatible under a size limit: the file fits, with its sound", async ({ pa
   await page.getByRole("button", { name: "Export…" }).click();
   const dialog = page.getByRole("dialog");
   const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
-  await expect(dialog.getByTestId("export-result")).toContainText("sound: MP3");
+  await expect(dialog.getByTestId("export-result")).toContainText("sound: AAC");
   const bytes = readFileSync((await download.path())!);
   expect(bytes.length).toBeLessThan(10e6);
-  const energy = await page.evaluate(async (data) => {
-    const blob = await (await fetch(`data:application/octet-stream;base64,${data}`)).blob();
-    const buffer = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(await blob.arrayBuffer());
-    let e = 0;
-    for (const v of buffer.getChannelData(0)) e += v * v;
-    return e;
-  }, bytes.toString("base64"));
-  expect(energy).toBeGreaterThan(100);
+  expect(aacSound(bytes).energy).toBeGreaterThan(100);
   // The setting is kept with the edit.
   await page.waitForTimeout(800);
   await page.reload();

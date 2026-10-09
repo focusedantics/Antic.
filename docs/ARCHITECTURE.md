@@ -650,12 +650,17 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   (`A_PCM/INT/LIT`; 32-bit float PCM leaves Windows' players and many editors silent).
   The lossless MP4 carries FLAC (lossless; our own encoder,
   `core/video/flac.ts`, muxed as an Opus-shaped track and relabelled `fLaC`/`dfLa` after
-  the muxer finishes). The Compatible MP4 carries AAC 320k where the browser can encode
-  it, else MP3 320k from our own encoder (`core/video/mp3.ts`: MPEG-1 Layer III, long
-  blocks, no psychoacoustic model, tables in `mp3-tables.ts` derived from minimp3 (CC0)
-  and the standard window; relabelled `mp4a`/esds 0x6B the same way). Not FLAC there:
-  Discord's apps play no FLAC, and iPhones no VP9, so sharing needs H.264 with AAC or
-  MP3; a Compatible export from a browser without H.264 says so. Never Opus in an MP4:
+  the muxer finishes). The Compatible MP4 carries AAC-LC 320k: from the browser's
+  AudioEncoder where it has one, else from our own encoder in a worker
+  (`core/video/aac-encoder.ts`, `aac.worker.ts`; Chrome and Firefox on Linux have no AAC
+  encoder). Ours is long blocks with the sine window and a fast MDCT (`mdct.ts`), one
+  quantizer per frame (the finest that fits, unused bits carried forward), codebooks per
+  band merged into sections by a trellis; frame i's block starts at sample 1024·i, so the
+  sound lines up with the picture without an edit list. Its codebooks (`aac-tables.ts`)
+  were recovered by decoding probe frames. Not FLAC or MP3 there: Discord's apps play
+  neither from an MP4 (MP3 plays in browsers but stays silent on Discord), and iPhones
+  play no VP9, so sharing needs H.264 with AAC; a Compatible export from a browser
+  without H.264 says so. Never Opus in an MP4:
   Windows' players, QuickTime and iPhones show its picture and stay silent. For AAC the export writes its own AudioSpecificConfig into the
   `esds` (`core/video/aac.ts`) instead of the encoder's: Safari's AAC AudioEncoder
   reports a wrong one (WebKit bug 302253, reading as 22050 Hz with no channels), and
@@ -670,7 +675,7 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   an MP4 without avcC doesn't play.
 - The Compatible format has a file size: Best quality (near-lossless, large), or under
   10, 25 or 50 MB (Discord's limits). `sizePlan` (model.ts) spends 92% of the limit, at
-  most 15% on sound (AAC or MP3 at 96–320 kb/s), steps the frame down from Original while
+  most 15% on sound (AAC at 96–320 kb/s), steps the frame down from Original while
   the picture would get under 0.05 bits per pixel, and the export encodes at that bitrate;
   if the encoder overshoots, it encodes again with proportionally fewer bits (twice at most).
 - Every timeline frame is encoded exactly once, in order, with bounded queues. The export

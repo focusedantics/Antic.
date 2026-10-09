@@ -83,7 +83,7 @@ export type Resolution = "original" | "2160" | "1440" | "1080" | "720" | "480" |
 /**
  * - `mkv-lossless`: VP9 at quantizer 0 (mathematically lossless) + uncompressed 24-bit PCM audio. Truly lossless.
  * - `mp4-lossless`: the same lossless VP9 video in MP4, with lossless FLAC sound (core/video/flac.ts).
- * - `mp4-h264`: H.264 at near-lossless constant quality, with AAC sound (MP3 where the browser has no AAC encoder).
+ * - `mp4-h264`: H.264 at near-lossless constant quality, with AAC sound (the browser's encoder, else ours).
  */
 export type ExportFormat = "mkv-lossless" | "mp4-lossless" | "mp4-h264";
 
@@ -120,7 +120,7 @@ export const FORMATS: { id: ExportFormat; label: string; extension: "mkv" | "mp4
     extension: "mp4",
     detail: "Lossless VP9 frames with lossless FLAC sound, for editing and YouTube. Doesn't play on iPhones or in Discord: to share, choose Compatible.",
   },
-  { id: "mp4-h264", label: "Compatible (.mp4, H.264)", extension: "mp4", detail: "Near-lossless H.264 with AAC (or MP3) sound: plays everywhere, iPhones and Discord included. Not bit-exact." },
+  { id: "mp4-h264", label: "Compatible (.mp4, H.264)", extension: "mp4", detail: "Near-lossless H.264 with AAC sound: plays everywhere, iPhones and Discord included. Not bit-exact." },
 ];
 
 export const SIZES: { id: OutputSize; label: string; bytes: number }[] = [
@@ -293,7 +293,7 @@ export function outputSize(width: number, height: number, resolution: Resolution
   return { width: even(width * scale), height: even(height * scale) };
 }
 
-/** Sound bitrates (kb/s) a size-limited export picks from: what AAC and our MP3 encoder both make. */
+/** Sound bitrates (kb/s) a size-limited export picks from. */
 const SOUND_KBPS = [320, 256, 192, 160, 128, 96] as const;
 
 export type SizePlan = { readonly resolution: Resolution; readonly videoBitrate: number; readonly audioKbps: (typeof SOUND_KBPS)[number] };

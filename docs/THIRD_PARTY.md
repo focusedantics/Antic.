@@ -51,10 +51,13 @@ It is not a dependency of the project and is never bundled.
 
 ## Data from other projects
 
-- `src/core/video/mp3-tables.ts`: the MP3 Huffman codes, derived from the decoding
-  tables of minimp3 (https://github.com/lieff/minimp3, CC0 1.0) by decoding every bit
-  pattern; and the MPEG-1 audio synthesis window as listed in jsmpeg (MIT,
-  https://github.com/phoboslab/jsmpeg). The encoder itself is ours.
+- `src/core/video/aac-tables.ts`: AAC's spectral Huffman codebooks (ISO/IEC 14496-3).
+  They were recovered by experiment: candidate bit strings were placed in one-band AAC
+  frames, decoded with the faad2 decoder (through @wasm-audio-decoders/aac, used only on
+  the development machine and never part of the project), and the decoded spectrum was
+  read back with an MDCT. No decoder source or tables were copied. The encoder itself is
+  ours, and `tests/fixtures/aac-decoder.ts` (a test-only reference decoder) is written
+  from the standard; it matches faad2's output to within float rounding.
 
 ## Code adapted from reference projects
 

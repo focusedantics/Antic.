@@ -13,9 +13,10 @@ import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, SIZES, sizePlan, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
 import { aacAudioSpecificConfig, aacObjectType } from "./aac";
+import { AAC_FRAME } from "./aac-encoder";
+import type { AacWorkerRequest, AacWorkerResponse } from "./aac.worker";
 import { AvcFixer } from "./avc";
 import { encodeFlac, flacSampleEntry, relabelOpusTrack } from "./flac";
-import { encodeMp3, MP3_FRAME, mp3SampleEntry } from "./mp3";
 import { audible, pcm24 } from "./pcm";
 import { audioParts, decodeClipAudio, Soundtrack } from "./soundtrack";
 import { type ClipInfo, compile, frameAt, isUntouched } from "./timeline";
@@ -201,21 +202,22 @@ async function run(
   }
 
   // ── Muxer ────────────────────────────────────────────────────────────────
-  // MKV: uncompressed PCM. Lossless MP4: FLAC. Compatible MP4: AAC where the browser can
-  // encode it, else FLAC (our own encoder, so every browser has it). Never Opus in an MP4:
-  // Windows' players, QuickTime and iPhones play the picture of one and stay silent.
-  let audioCodec: { kind: "pcm" } | { kind: "flac" } | { kind: "mp3" } | { kind: "aac"; config: AudioEncoderConfig } | null = null;
+  // MKV: uncompressed PCM. Lossless MP4: FLAC. Compatible MP4: AAC, from the browser's
+  // encoder where it has one, else ours (aac-encoder.ts; Chrome and Firefox on Linux have
+  // none). Never Opus in an MP4: Windows' players, QuickTime and iPhones play the picture of
+  // one and stay silent. Nor MP3 or FLAC in this one: Discord's apps play neither from an MP4.
+  // `config` null means our encoder.
+  let audioCodec: { kind: "pcm" } | { kind: "flac" } | { kind: "aac"; config: AudioEncoderConfig | null } | null = null;
   if (soundtrack) {
     if (format.extension === "mkv") audioCodec = { kind: "pcm" };
     else if (lossless) audioCodec = { kind: "flac" };
     else {
       const aac = { kind: "aac" as const, config: { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: (sized?.audioKbps ?? 320) * 1000 } };
       const supported = typeof AudioEncoder !== "undefined" && (await AudioEncoder.isConfigSupported(aac.config).then((r) => r.supported, () => false));
-      // MP3 rather than FLAC here: this format is for sharing, and Discord's apps play no FLAC.
-      audioCodec = supported ? aac : { kind: "mp3" };
+      audioCodec = supported ? aac : { kind: "aac", config: null };
     }
   }
-  // FLAC and MP3 go into an Opus-shaped track (the muxer knows neither), relabelled after finalize().
+  // FLAC goes into an Opus-shaped track (the muxer doesn't know it), relabelled after finalize().
   let relabelEntry: Uint8Array | null = null;
   const mkvTarget = new MkvTarget();
   const mp4Target = new Mp4Target();
@@ -359,13 +361,13 @@ async function run(
           const n = Math.min(block, l.length - i);
           mkv!.addAudioChunkRaw(pcm24(l.subarray(i, i + n), r.subarray(i, i + n)), "key", Math.round((i / SAMPLE_RATE) * MICRO));
         }
-      } else if (audioCodec.kind === "mp3") {
-        const kbps = sized?.audioKbps ?? 320;
-        relabelEntry = mp3SampleEntry(kbps);
-        for (const [i, f] of encodeMp3(l, r, kbps).entries()) {
-          const meta = i === 0 ? { decoderConfig: { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 } } : undefined;
-          mp4!.addAudioChunkRaw(f, "key", ((i * MP3_FRAME) / SAMPLE_RATE) * MICRO, (MP3_FRAME / SAMPLE_RATE) * MICRO, meta);
-        }
+      } else if (audioCodec.kind === "aac" && !audioCodec.config) {
+        const decoderConfig = { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, description: aacAudioSpecificConfig(SAMPLE_RATE, 2) };
+        const frames = await encodeAacOffThread(l, r, sized?.audioKbps ?? 320, signal, (part) =>
+          onProgress({ done: plan.frames, total: plan.frames, stage: `Writing audio… ${Math.round(part * 100)}%` }),
+        );
+        for (const [i, f] of frames.entries())
+          mp4!.addAudioChunkRaw(f, "key", ((i * AAC_FRAME) / SAMPLE_RATE) * MICRO, (AAC_FRAME / SAMPLE_RATE) * MICRO, i === 0 ? { decoderConfig } : undefined);
       } else if (audioCodec.kind === "flac") {
         const flac = encodeFlac(l, r, SAMPLE_RATE);
         relabelEntry = flacSampleEntry(flac.streamInfo, SAMPLE_RATE);
@@ -379,7 +381,7 @@ async function run(
         let audioFailure: unknown = null;
         // AAC: the AudioSpecificConfig is ours, not the encoder's (see aac.ts: Safari's is
         // wrong, and the MP4 it makes plays silent).
-        const config = audioCodec.config;
+        const config = audioCodec.config!;
         const objectType = aacObjectType(config.codec);
         const asc = objectType !== null ? aacAudioSpecificConfig(SAMPLE_RATE, 2, objectType) : null;
         const output = (chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => {
@@ -387,7 +389,7 @@ async function run(
           mp4!.addAudioChunk(chunk, meta);
         };
         const audioEncoder = new AudioEncoder({ output, error: (e) => (audioFailure = e) });
-        audioEncoder.configure(audioCodec.config);
+        audioEncoder.configure(config);
         for (let i = 0; i < l.length; i += block) {
           const n = Math.min(block, l.length - i);
           const planar = new Float32Array(n * 2);
@@ -411,7 +413,7 @@ async function run(
     const bytes = relabelEntry ? relabelOpusTrack(new Uint8Array(mp4Target.buffer), relabelEntry) : mp4Target.buffer;
     // The Compatible format without H.264 (a browser that can't encode it): say what that means.
     if (!lossless && encoder.mux !== "avc") note = [note, `This browser can't make H.264 video, so the picture is ${PICTURE[encoder.mux]}: it won't play on iPhones (Discord's phone app included). Export from Chrome, Edge or Safari for a file that plays everywhere.`].filter(Boolean).join(" ");
-    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, picture: PICTURE[encoder.mux], sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind === "mp3" ? `mp3${sized?.audioKbps ?? 320}` : audioCodec.kind) : null };
+    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, picture: PICTURE[encoder.mux], sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
   } finally {
     for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();
@@ -419,7 +421,37 @@ async function run(
   }
 }
 
-const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec.startsWith("mp3") ? `MP3 ${codec.slice(3) || 320}k` : codec.toUpperCase());
+const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec.toUpperCase());
+
+/** Encodes the soundtrack with our AAC encoder in a worker, reporting the share done. */
+function encodeAacOffThread(left: Float32Array, right: Float32Array, kbps: number, signal: AbortSignal, onPart: (part: number) => void): Promise<Uint8Array[]> {
+  const worker = new Worker(new URL("./aac.worker.ts", import.meta.url), { type: "module", name: "aac" });
+  let cleanup = () => {};
+  return new Promise<Uint8Array[]>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    cleanup = () => signal.removeEventListener("abort", abort);
+    worker.onmessage = (e: MessageEvent<AacWorkerResponse>) => {
+      const m = e.data;
+      if (m.type === "progress") return onPart(m.done / m.total);
+      if (m.type === "error") return reject(new Error(`The sound couldn't be encoded: ${m.message}`));
+      const frames: Uint8Array[] = [];
+      let at = 0;
+      for (const size of m.sizes) {
+        frames.push(new Uint8Array(m.bytes, at, size));
+        at += size;
+      }
+      resolve(frames);
+    };
+    worker.onerror = (e) => reject(new Error(e.message || "The sound encoder stopped."));
+    // Copies: the soundtrack stays usable here.
+    const request: AacWorkerRequest = { left: left.slice(), right: right.slice(), kbps };
+    worker.postMessage(request, [request.left.buffer, request.right.buffer]);
+  }).finally(() => {
+    cleanup();
+    worker.terminate();
+  });
+}
 const PICTURE: Record<string, string> = { avc: "H.264", hevc: "HEVC", vp9: "VP9", av1: "AV1" };
 
 const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [
