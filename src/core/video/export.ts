@@ -10,7 +10,7 @@ import { chooseEncoder, encodeOptions, type EncoderChoice } from "./encoder";
 import { cpuFrame, type CpuFrame, cpuStore, type Frames, openFrames } from "./frames";
 import { device } from "@/lib/device";
 import type { ClipMedia } from "./media";
-import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
+import { FORMATS, hasPlainPictures, outputSize, SIZES, sizePlan, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
 import { aacAudioSpecificConfig, aacObjectType } from "./aac";
 import { AvcFixer } from "./avc";
@@ -104,8 +104,22 @@ export function exportEdit(
   watermark?: Watermark,
   frame?: ExportFrame,
 ): Promise<ExportResult> {
-  return track(run(own, edit, loadClip, onProgress, signal, watermark, frame));
+  return track(
+    (async () => {
+      // A size limit: encode, and if the encoder overshot, again with fewer bits (twice at most).
+      const limit = SIZES.find((s) => s.id === edit.output.size)?.bytes ?? 0;
+      let shrink = 1;
+      for (let attempt = 0; ; attempt++) {
+        const out = await run(own, edit, loadClip, onProgress, signal, watermark, frame, shrink);
+        if (!limit || edit.output.format !== "mp4-h264" || out.blob.size <= limit || attempt >= 2) return out;
+        shrink *= (limit / out.blob.size) * 0.95;
+        onProgress({ done: 0, total: 1, stage: `${formatSize(out.blob.size)} is over the limit: saving smaller…` });
+      }
+    })(),
+  );
 }
+
+const formatSize = (bytes: number) => `${(bytes / 1e6).toFixed(1)} MB`;
 
 async function run(
   own: ClipMedia,
@@ -115,6 +129,7 @@ async function run(
   signal: AbortSignal,
   watermark?: Watermark,
   frame?: ExportFrame,
+  shrink = 1,
 ): Promise<ExportResult> {
   // Video takes solid frames over the picture's edges (stamped like the watermark); glass needs the picture under it.
   const framed = !!frame?.enabled && frame.style !== "glass";
@@ -138,11 +153,14 @@ async function run(
   if (!plan.frames) throw new Error("The timeline is empty.");
   signal.throwIfAborted();
 
-  const size = outputSize(own.info.width, own.info.height, edit.output.resolution);
+  // The Compatible format under a size limit: the bitrates (and maybe a smaller frame) that fit it.
+  const limit = lossless ? 0 : (SIZES.find((s) => s.id === edit.output.size)?.bytes ?? 0);
+  const sized = limit ? sizePlan(limit, plan.frames / fps, own.info.width, own.info.height, fps, edit.output.resolution, edit.output.audio, shrink) : null;
+  const size = outputSize(own.info.width, own.info.height, sized?.resolution ?? edit.output.resolution);
   const keepsSize = size.width === own.info.width && size.height === own.info.height;
 
-  // An untouched clip saved as MP4: copy the original frames.
-  if (format.extension === "mp4" && keepsSize && !stamped && isUntouched(edit, own.info)) {
+  // An untouched clip saved as MP4: copy the original frames (unless it must fit a size).
+  if (format.extension === "mp4" && keepsSize && !stamped && !sized && isUntouched(edit, own.info)) {
     const copied = await copyVideo(own.media, edit.output.audio ? own.media.audio : null);
     if (copied) {
       onProgress({ done: 1, total: 1, stage: "Copying the original frames…" });
@@ -151,7 +169,11 @@ async function run(
     }
   }
 
-  const encoder = lossless ? await losslessEncoder(size.width, size.height, fps) : await chooseEncoder(size.width, size.height, Math.min(200e6, size.width * size.height * fps * 0.5), fps, 1);
+  const encoder = lossless
+    ? await losslessEncoder(size.width, size.height, fps)
+    : sized
+      ? await chooseEncoder(size.width, size.height, sized.videoBitrate, fps)
+      : await chooseEncoder(size.width, size.height, Math.min(200e6, size.width * size.height * fps * 0.5), fps, 1);
   if (!encoder) throw new Error("This browser can't encode lossless VP9 video. Use Chrome, Edge or Firefox, or choose the Compatible (H.264) format.");
 
   // ── Audio ────────────────────────────────────────────────────────────────
@@ -187,7 +209,7 @@ async function run(
     if (format.extension === "mkv") audioCodec = { kind: "pcm" };
     else if (lossless) audioCodec = { kind: "flac" };
     else {
-      const aac = { kind: "aac" as const, config: { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: 320_000 } };
+      const aac = { kind: "aac" as const, config: { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: (sized?.audioKbps ?? 320) * 1000 } };
       const supported = typeof AudioEncoder !== "undefined" && (await AudioEncoder.isConfigSupported(aac.config).then((r) => r.supported, () => false));
       // MP3 rather than FLAC here: this format is for sharing, and Discord's apps play no FLAC.
       audioCodec = supported ? aac : { kind: "mp3" };
@@ -338,8 +360,9 @@ async function run(
           mkv!.addAudioChunkRaw(pcm24(l.subarray(i, i + n), r.subarray(i, i + n)), "key", Math.round((i / SAMPLE_RATE) * MICRO));
         }
       } else if (audioCodec.kind === "mp3") {
-        relabelEntry = mp3SampleEntry();
-        for (const [i, f] of encodeMp3(l, r).entries()) {
+        const kbps = sized?.audioKbps ?? 320;
+        relabelEntry = mp3SampleEntry(kbps);
+        for (const [i, f] of encodeMp3(l, r, kbps).entries()) {
           const meta = i === 0 ? { decoderConfig: { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 } } : undefined;
           mp4!.addAudioChunkRaw(f, "key", ((i * MP3_FRAME) / SAMPLE_RATE) * MICRO, (MP3_FRAME / SAMPLE_RATE) * MICRO, meta);
         }
@@ -388,7 +411,7 @@ async function run(
     const bytes = relabelEntry ? relabelOpusTrack(new Uint8Array(mp4Target.buffer), relabelEntry) : mp4Target.buffer;
     // The Compatible format without H.264 (a browser that can't encode it): say what that means.
     if (!lossless && encoder.mux !== "avc") note = [note, `This browser can't make H.264 video, so the picture is ${PICTURE[encoder.mux]}: it won't play on iPhones (Discord's phone app included). Export from Chrome, Edge or Safari for a file that plays everywhere.`].filter(Boolean).join(" ");
-    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, picture: PICTURE[encoder.mux], sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
+    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, picture: PICTURE[encoder.mux], sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind === "mp3" ? `mp3${sized?.audioKbps ?? 320}` : audioCodec.kind) : null };
   } finally {
     for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();
@@ -396,7 +419,7 @@ async function run(
   }
 }
 
-const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec === "mp3" ? "MP3 320k" : codec.toUpperCase());
+const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec.startsWith("mp3") ? `MP3 ${codec.slice(3) || 320}k` : codec.toUpperCase());
 const PICTURE: Record<string, string> = { avc: "H.264", hevc: "HEVC", vp9: "VP9", av1: "AV1" };
 
 const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [

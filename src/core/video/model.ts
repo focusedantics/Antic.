@@ -87,10 +87,14 @@ export type Resolution = "original" | "2160" | "1440" | "1080" | "720" | "480" |
  */
 export type ExportFormat = "mkv-lossless" | "mp4-lossless" | "mp4-h264";
 
+/** The Compatible format's file size: the best quality, or under a limit (Discord's 10 MB, Nitro Basic's 50 MB…). */
+export type OutputSize = "best" | "10" | "25" | "50";
+
 export type VideoOutput = {
   readonly format: ExportFormat;
   readonly resolution: Resolution;
   readonly audio: boolean;
+  readonly size: OutputSize;
 };
 
 export type VideoEdit = {
@@ -119,6 +123,13 @@ export const FORMATS: { id: ExportFormat; label: string; extension: "mkv" | "mp4
   { id: "mp4-h264", label: "Compatible (.mp4, H.264)", extension: "mp4", detail: "Near-lossless H.264 with AAC (or MP3) sound: plays everywhere, iPhones and Discord included. Not bit-exact." },
 ];
 
+export const SIZES: { id: OutputSize; label: string; bytes: number }[] = [
+  { id: "best", label: "Best quality (large)", bytes: 0 },
+  { id: "10", label: "Under 10 MB (Discord)", bytes: 10e6 },
+  { id: "25", label: "Under 25 MB", bytes: 25e6 },
+  { id: "50", label: "Under 50 MB (Discord Nitro Basic)", bytes: 50e6 },
+];
+
 export const RESOLUTIONS: { id: Resolution; label: string; lines: number }[] = [
   { id: "original", label: "Original", lines: 0 },
   { id: "2160", label: "4K (2160p)", lines: 2160 },
@@ -131,7 +142,7 @@ export const RESOLUTIONS: { id: Resolution; label: string; lines: number }[] = [
 
 export const defaultAudioFx: AudioFx = { earrape: 0, echo: 0, echoTime: 0.25, reverb: 0, chorus: 0, vibrato: 0, sus: 0, bitcrush: 0 };
 export const defaultVisualFx: VisualFx = { mirror: false, flip: false, invert: false, hue: 0, rainbow: false, zoom: 1, shake: 0, contrast: 0 };
-export const defaultOutput: VideoOutput = { format: "mkv-lossless", resolution: "original", audio: true };
+export const defaultOutput: VideoOutput = { format: "mkv-lossless", resolution: "original", audio: true, size: "best" };
 
 export function newSegment(clip: string | null, start: number, end: number): Segment {
   return {
@@ -267,6 +278,7 @@ export function sanitizeEdit(v: unknown, duration: number, durationOf: (clip: st
       format: oneOf(o.format, FORMATS, defaultOutput.format),
       resolution: oneOf(o.resolution, RESOLUTIONS, defaultOutput.resolution),
       audio: o.audio !== false,
+      size: oneOf(o.size, SIZES, defaultOutput.size),
     },
   };
 }
@@ -279,6 +291,34 @@ export function outputSize(width: number, height: number, resolution: Resolution
   const short = Math.min(width, height);
   const scale = lines && lines < short ? lines / short : 1;
   return { width: even(width * scale), height: even(height * scale) };
+}
+
+/** Sound bitrates (kb/s) a size-limited export picks from: what AAC and our MP3 encoder both make. */
+const SOUND_KBPS = [320, 256, 192, 160, 128, 96] as const;
+
+export type SizePlan = { readonly resolution: Resolution; readonly videoBitrate: number; readonly audioKbps: (typeof SOUND_KBPS)[number] };
+
+/**
+ * How a size-limited export spends its bytes: 92% of the limit (container and the
+ * encoder's overshoot take the rest), times `shrink` when a first try came out too big;
+ * the sound gets at most 15% of it; the picture the rest. With the Original resolution,
+ * the frame steps down (1080p, 720p, 480p…) while the picture would get under 0.05 bits
+ * per pixel, where it turns to blocks; a resolution chosen by hand is kept.
+ */
+export function sizePlan(bytes: number, seconds: number, width: number, height: number, fps: number, resolution: Resolution, sound: boolean, shrink = 1): SizePlan {
+  const total = (bytes * 0.92 * shrink * 8) / Math.max(0.1, seconds);
+  const audioKbps = SOUND_KBPS.find((k) => k * 1000 <= total * 0.15) ?? 96;
+  const videoBitrate = Math.max(100_000, Math.round(total - (sound ? audioKbps * 1000 : 0)));
+  let chosen = resolution;
+  if (resolution === "original") {
+    const steps = RESOLUTIONS.filter((r) => r.lines && r.lines < Math.min(width, height));
+    for (const r of [{ id: "original" as Resolution }, ...steps.filter((r) => r.lines <= 1080)]) {
+      chosen = r.id;
+      const s = outputSize(width, height, r.id);
+      if (videoBitrate / (s.width * s.height * fps) >= 0.05) break;
+    }
+  }
+  return { resolution: chosen, videoBitrate, audioKbps };
 }
 
 /** Bits per pixel per frame of a source track (its size over its duration). */

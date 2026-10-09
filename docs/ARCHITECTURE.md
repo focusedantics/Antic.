@@ -668,6 +668,11 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   return Annex B H.264 whatever is asked (no description, SPS/PPS in the frames) are
   rewritten to avc samples with an avcC built from the stream's own SPS/PPS (`avc.ts`):
   an MP4 without avcC doesn't play.
+- The Compatible format has a file size: Best quality (near-lossless, large), or under
+  10, 25 or 50 MB (Discord's limits). `sizePlan` (model.ts) spends 92% of the limit, at
+  most 15% on sound (AAC or MP3 at 96–320 kb/s), steps the frame down from Original while
+  the picture would get under 0.05 bits per pixel, and the export encodes at that bitrate;
+  if the encoder overshoots, it encodes again with proportionally fewer bits (twice at most).
 - Every timeline frame is encoded exactly once, in order, with bounded queues. The export
   fails, rather than saving, if the encoder returns a different number of frames.
 

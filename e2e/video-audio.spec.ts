@@ -293,3 +293,32 @@ test("the MP3 encoder: the browser's decoder returns the sound at the same level
   expect(r.gain).toBeLessThan(1.03);
   expect(r.snr).toBeGreaterThan(30);
 });
+
+test("Compatible under a size limit: the file fits, with its sound", async ({ page }) => {
+  await openVideo(page, clip());
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("s");
+  await page.getByLabel("Format").selectOption("mp4-h264");
+  await page.getByLabel("File size").selectOption("10");
+  await expect(page.getByText(/under \d/)).toBeVisible();
+  await page.getByRole("button", { name: "Export…" }).click();
+  const dialog = page.getByRole("dialog");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 120_000 }), dialog.getByRole("button", { name: "Export", exact: true }).click()]);
+  await expect(dialog.getByTestId("export-result")).toContainText("sound: MP3");
+  const bytes = readFileSync((await download.path())!);
+  expect(bytes.length).toBeLessThan(10e6);
+  const energy = await page.evaluate(async (data) => {
+    const blob = await (await fetch(`data:application/octet-stream;base64,${data}`)).blob();
+    const buffer = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(await blob.arrayBuffer());
+    let e = 0;
+    for (const v of buffer.getChannelData(0)) e += v * v;
+    return e;
+  }, bytes.toString("base64"));
+  expect(energy).toBeGreaterThan(100);
+  // The setting is kept with the edit.
+  await page.waitForTimeout(800);
+  await page.reload();
+  await page.getByRole("button", { name: "Video", exact: true }).click();
+  await expect(page.getByLabel("File size")).toHaveValue("10", { timeout: 30_000 });
+});

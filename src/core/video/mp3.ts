@@ -1,23 +1,25 @@
 import { PAIR_TABLES, QUAD_A, QUAD_B, WINDOW_X2 } from "./mp3-tables";
 
 /**
- * A small MP3 encoder (MPEG-1 Layer III, 48 kHz stereo, 320 kb/s constant bitrate) for
- * video exports in browsers that have no AAC encoder. MP3 in an MP4 plays everywhere a
+ * A small MP3 encoder (MPEG-1 Layer III, 48 kHz stereo, constant bitrate) for
+ * video exports in browsers that have no AAC encoder (96–320 kb/s). MP3 in an MP4 plays everywhere a
  * video is watched, Discord's apps and iPhones included, where Opus and FLAC do not; its
  * patents have expired.
  *
- * Long blocks only, no psychoacoustic model: at 320 kb/s every frame has room to spare,
+ * Long blocks only, no psychoacoustic model: at these bitrates every frame has room to spare,
  * so each granule takes the finest quantizer whose code fits its share of the frame
  * (ISO/IEC 11172-3 for the bitstream; tables in mp3-tables.ts).
  */
 
 export const MP3_FRAME = 1152;
 const RATE = 48000;
-const KBPS = 320;
+/** Bitrates (kb/s) and their header index; at 48 kHz each frame is a whole number of bytes. */
+export const MP3_BITRATES = [96, 112, 128, 160, 192, 224, 256, 320] as const;
+export type Mp3Kbps = (typeof MP3_BITRATES)[number];
+const BITRATE_INDEX: Record<Mp3Kbps, number> = { 96: 7, 112: 8, 128: 9, 160: 10, 192: 11, 224: 12, 256: 13, 320: 14 };
 /** Bytes of one frame: 144 × bitrate / sample rate (exact at 48 kHz, so never padded). */
-const FRAME_BYTES = (144 * KBPS * 1000) / RATE;
+const frameBytes = (kbps: Mp3Kbps) => (144 * kbps * 1000) / RATE;
 const SIDE_BYTES = 32;
-const MAIN_BITS = (FRAME_BYTES - 4 - SIDE_BYTES) * 8;
 
 /** Long-block scalefactor band edges at 48 kHz. */
 const SFB = [0, 4, 8, 12, 16, 20, 24, 30, 36, 42, 50, 60, 72, 88, 106, 128, 156, 190, 230, 276, 330, 384, 576];
@@ -306,7 +308,9 @@ function writeGranule(w: Bits, g: Granule) {
  * of it. The filterbanks delay the decoded sound by `MP3_DELAY` samples; the encoder reads
  * that far ahead so the sound lines up with the video (losing its first 22 ms).
  */
-export function encodeMp3(left: Float32Array, right: Float32Array): Uint8Array[] {
+export function encodeMp3(left: Float32Array, right: Float32Array, kbps: Mp3Kbps = 320): Uint8Array[] {
+  const FRAME_BYTES = frameBytes(kbps);
+  const MAIN_BITS = (FRAME_BYTES - 4 - SIDE_BYTES) * 8;
   const channels = [new Channel(), new Channel()];
   const inputs = [left, right];
   const total = left.length;
@@ -324,9 +328,9 @@ export function encodeMp3(left: Float32Array, right: Float32Array): Uint8Array[]
         remaining--;
       }
     const w = new Bits(FRAME_BYTES);
-    // Header: MPEG-1 Layer III, no CRC, 320 kb/s, 48 kHz, stereo.
+    // Header: MPEG-1 Layer III, no CRC, the bitrate, 48 kHz, stereo.
     w.put(0xfffb, 16);
-    w.put(0b1110, 4);
+    w.put(BITRATE_INDEX[kbps], 4);
     w.put(0b01, 2);
     w.put(0, 2);
     w.put(0, 8);
@@ -377,8 +381,9 @@ const u32 = (v: number) => [(v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0x
 const box = (type: string, body: number[]) => [...u32(8 + body.length), ...[...type].map((c) => c.charCodeAt(0)), ...body];
 
 /** The `mp4a` sample entry for MP3 (an `esds` with object type 0x6B, MPEG-1 audio). */
-export function mp3SampleEntry(): Uint8Array {
-  const bitrate = u32(KBPS * 1000);
+export function mp3SampleEntry(kbps: Mp3Kbps = 320): Uint8Array {
+  const FRAME_BYTES = frameBytes(kbps);
+  const bitrate = u32(kbps * 1000);
   const decoderConfig = [0x04, 13, 0x6b, 0x15, 0, (FRAME_BYTES >> 8) & 0xff, FRAME_BYTES & 0xff, ...bitrate, ...bitrate];
   const sl = [0x06, 1, 0x02];
   const es = [0x03, 3 + decoderConfig.length + sl.length, 0, 1, 0, ...decoderConfig, ...sl];

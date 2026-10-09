@@ -15,7 +15,7 @@ import { type ExportFrame, rememberedFrame } from "@/core/export/frame";
 import { rememberedWatermark, rememberWatermark, type Watermark } from "@/core/export/watermark";
 import { exportEdit, losslessEncoder } from "@/core/video/export";
 import { type ClipMedia, loadClipMedia } from "@/core/video/media";
-import { type ExportFormat, FORMATS, outputSize, type Resolution, RESOLUTIONS, sanitizeEdit, type VideoEdit } from "@/core/video/model";
+import { type ExportFormat, FORMATS, type OutputSize, outputSize, type Resolution, RESOLUTIONS, SIZES, sanitizeEdit, sizePlan, type VideoEdit } from "@/core/video/model";
 import { editVideo, flushVideo, importVideos, openClip, refreshClips, removeClip, video, videoHistory } from "@/core/video/session";
 import { DestinationPicker, ExportHero, type ExportPreview, initialDestination, WatermarkEditor } from "@/features/export/ExportParts";
 import { EffectsBrowserHost } from "@/features/effects/EffectsBrowser";
@@ -252,10 +252,13 @@ function OutputPanel({ onExport }: { onExport: () => void }) {
   if (!clip) return null;
   const o = edit.output;
   const format = FORMATS.find((f) => f.id === o.format)!;
-  const size = outputSize(clip.width, clip.height, o.resolution);
+  const limit = format.id === "mp4-h264" ? (SIZES.find((x) => x.id === o.size)?.bytes ?? 0) : 0;
+  // Under a size limit the frame may step down to keep the picture clean (sizePlan).
+  const planned = limit ? sizePlan(limit, frames / fps, clip.width, clip.height, fps, o.resolution, o.audio) : null;
+  const size = outputSize(clip.width, clip.height, planned?.resolution ?? o.resolution);
   const set = (label: string, patch: Partial<typeof o>) => editVideo(label, (e) => ({ ...e, output: { ...e.output, ...patch } }));
   // Lossless VP9 of typical footage: roughly 0.6 bytes per pixel per frame.
-  const estimate = format.id === "mp4-h264" ? size.width * size.height * frames * 0.06 : size.width * size.height * frames * 0.6;
+  const estimate = limit ? limit * 0.92 : format.id === "mp4-h264" ? size.width * size.height * frames * 0.06 : size.width * size.height * frames * 0.6;
   const unsupported = format.id !== "mp4-h264" && lossless === false;
   return (
     <Panel id="vid-output" title="Output">
@@ -272,6 +275,18 @@ function OutputPanel({ onExport }: { onExport: () => void }) {
       <p className="faint" style={{ fontSize: 11, marginTop: 0 }}>
         {format.detail}
       </p>
+      {format.id === "mp4-h264" && (
+        <label className="field" style={{ marginBottom: 6 }}>
+          <span>File size</span>
+          <select className="input" aria-label="File size" value={o.size} onChange={(e) => set("File size", { size: e.target.value as OutputSize })}>
+            {SIZES.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="field" style={{ marginBottom: 6 }}>
         <span>Resolution</span>
         <select className="input" value={o.resolution} onChange={(e) => set("Resolution", { resolution: e.target.value as Resolution })}>
@@ -290,8 +305,13 @@ function OutputPanel({ onExport }: { onExport: () => void }) {
         <input type="checkbox" checked={o.audio} onChange={(e) => set(e.target.checked ? "Keep audio" : "Remove audio", { audio: e.target.checked })} /> Audio
       </label>
       <p className="dim num" style={{ margin: "6px 0" }}>
-        {size.width}×{size.height} · {Math.round(fps * 100) / 100} fps · {frames} frames · {formatClock(frames / fps)} · ≈ {formatBytes(estimate)}
+        {size.width}×{size.height} · {Math.round(fps * 100) / 100} fps · {frames} frames · {formatClock(frames / fps)} · {limit ? "under" : "≈"} {formatBytes(estimate)}
       </p>
+      {planned && planned.resolution !== o.resolution && (
+        <p className="faint" style={{ fontSize: 11 }}>
+          Saved at {size.height < size.width ? size.height : size.width}p so the picture stays clean at this size. Choose a resolution to keep it instead.
+        </p>
+      )}
       {format.id !== "mp4-h264" && o.resolution === "original" && (
         <p className="faint" style={{ fontSize: 11 }}>
           Lossless: every frame you didn't treat comes out bit-identical to the original, and none are dropped.
