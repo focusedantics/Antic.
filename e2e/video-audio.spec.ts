@@ -142,7 +142,9 @@ test("an MP4's AAC sound is described correctly even when the encoder describes 
       }
     return { esds: true, asc: [] as number[], note: out.note ?? null, copied: out.copied };
   });
-  expect(result).toEqual({ esds: true, asc: [0x11, 0x90], note: null, copied: false });
+  expect(result).toMatchObject({ esds: true, asc: [0x11, 0x90], copied: false });
+  // No note about the sound (this test browser can't make H.264, which gets a note of its own).
+  expect(result.note ?? "").not.toMatch(/sound/i);
 });
 
 test("both lossless formats keep the sound, in a form every player reads, and say what sound the file has", async ({ page }) => {
@@ -158,6 +160,8 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
   for (const [format, sound] of [
     ["mkv-lossless", "sound: 24-bit PCM"],
     ["mp4-lossless", "sound: FLAC (lossless)"],
+    // This browser has no AAC encoder: the shareable format falls back to MP3, never FLAC or Opus.
+    ["mp4-h264", "sound: MP3 320k"],
   ] as const) {
     await page.getByLabel("Format").selectOption(format);
     await page.getByRole("button", { name: "Export…" }).click();
@@ -170,6 +174,13 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
     if (format === "mkv-lossless") {
       expect(bytes.includes(Buffer.from("A_PCM/INT/LIT"))).toBe(true);
       expect(bytes.includes(Buffer.from("A_PCM/FLOAT"))).toBe(false);
+    } else if (format === "mp4-h264") {
+      // MP3 in an mp4a sample entry: esds with object type 0x6B (MPEG-1 audio).
+      expect(bytes.includes(Buffer.from("Opus"))).toBe(false);
+      const esds = bytes.indexOf(Buffer.from("esds"));
+      expect(esds).toBeGreaterThan(0);
+      const config = bytes.indexOf(0x04, esds + 8);
+      expect(bytes[config + 2]).toBe(0x6b);
     } else {
       // FLAC, not Opus: an MP4's Opus plays silent in Windows' players, QuickTime and on iPhones.
       expect(bytes.includes(Buffer.from("fLaC"))).toBe(true);
@@ -225,4 +236,60 @@ test("the FLAC encoder is lossless: the browser's own decoder returns every 16-b
   });
   expect(r.length).toBe(r.n);
   expect(r.misses).toBe(0);
+});
+
+test("the MP3 encoder: the browser's decoder returns the sound at the same level and time, cleanly", async ({ page }) => {
+  await page.goto("/");
+  const r = await page.evaluate(async () => {
+    const { encodeMp3 } = await import("/src/core/video/mp3.ts" as string);
+    // Music-like: a few tones with a varying envelope, a little noise, and a click to time by.
+    const n = 48000 * 3;
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    let seed = 5;
+    const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+    for (let i = 0; i < n; i++) {
+      const t = i / 48000;
+      const env = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.7 * t);
+      l[i] = env * (0.3 * Math.sin(2 * Math.PI * 220 * t) + 0.15 * Math.sin(2 * Math.PI * 660 * t) + 0.08 * Math.sin(2 * Math.PI * 1760 * t)) + 0.01 * noise();
+      r[i] = 0.4 * Math.sin(2 * Math.PI * 330 * t) * env + 0.01 * noise();
+    }
+    for (let i = 72000; i < 72040; i++) l[i] += 0.5;
+    const frames: Uint8Array[] = encodeMp3(l, r);
+    const file = new Uint8Array(frames.reduce((a, f) => a + f.length, 0));
+    let at = 0;
+    for (const f of frames) {
+      file.set(f, at);
+      at += f.length;
+    }
+    const d = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(file.buffer.slice(0) as ArrayBuffer);
+    const out = d.getChannelData(0);
+    // Timing: where the decoded sound best lines up with the source.
+    let lag = 0;
+    let bestCorr = -Infinity;
+    for (let k = -40; k <= 40; k++) {
+      let s = 0;
+      for (let i = 60000; i < 90000; i++) s += l[i] * out[i + k];
+      if (s > bestCorr) {
+        bestCorr = s;
+        lag = k;
+      }
+    }
+    let sd = 0;
+    let ss = 0;
+    let err = 0;
+    for (let i = 24000; i < 120000; i++) {
+      sd += l[i] * out[i];
+      ss += l[i] * l[i];
+      err += (out[i] - l[i]) ** 2;
+    }
+    return { frames: frames.length, bytes: file.length, decoded: d.length, n, lag, gain: sd / ss, snr: 10 * Math.log10(ss / err) };
+  });
+  // 320 kb/s: 960 bytes a frame of 1152 samples, enough frames for all of the sound.
+  expect(r.bytes).toBe(r.frames * 960);
+  expect(r.decoded).toBeGreaterThanOrEqual(r.n);
+  expect(r.lag).toBe(0);
+  expect(r.gain).toBeGreaterThan(0.97);
+  expect(r.gain).toBeLessThan(1.03);
+  expect(r.snr).toBeGreaterThan(30);
 });

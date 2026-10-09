@@ -13,7 +13,8 @@ import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
 import { aacAudioSpecificConfig, aacObjectType } from "./aac";
-import { encodeFlac, flacSampleEntry, opusTrackToFlac } from "./flac";
+import { encodeFlac, flacSampleEntry, relabelOpusTrack } from "./flac";
+import { encodeMp3, MP3_FRAME, mp3SampleEntry } from "./mp3";
 import { audible, pcm24 } from "./pcm";
 import { audioParts, decodeClipAudio, Soundtrack } from "./soundtrack";
 import { type ClipInfo, compile, frameAt, isUntouched } from "./timeline";
@@ -30,6 +31,8 @@ export type ExportResult = {
   readonly note?: string;
   /** The file's sound, as shown with the result ("AAC", "24-bit PCM", …), or null when it has none. */
   readonly sound: string | null;
+  /** The file's picture ("H.264", "VP9", …), as shown with the result. */
+  readonly picture: string;
 };
 
 const MICRO = 1e6;
@@ -142,7 +145,8 @@ async function run(
     const copied = await copyVideo(own.media, edit.output.audio ? own.media.audio : null);
     if (copied) {
       onProgress({ done: 1, total: 1, stage: "Copying the original frames…" });
-      return { blob: copied, extension: "mp4", frames: plan.frames, lossless: true, copied: true, sound: edit.output.audio && own.media.audio ? `${soundName(own.media.audio.codec)} (original)` : null };
+      const picture = PICTURE[COPY_MUX.find(([re]) => re.test(own.media.video.config.codec))?.[1] ?? "avc"];
+      return { blob: copied, extension: "mp4", frames: plan.frames, lossless: true, copied: true, picture, sound: edit.output.audio && own.media.audio ? `${soundName(own.media.audio.codec)} (original)` : null };
     }
   }
 
@@ -177,17 +181,19 @@ async function run(
   // MKV: uncompressed PCM. Lossless MP4: FLAC. Compatible MP4: AAC where the browser can
   // encode it, else FLAC (our own encoder, so every browser has it). Never Opus in an MP4:
   // Windows' players, QuickTime and iPhones play the picture of one and stay silent.
-  let audioCodec: { kind: "pcm" } | { kind: "flac" } | { kind: "aac"; config: AudioEncoderConfig } | null = null;
+  let audioCodec: { kind: "pcm" } | { kind: "flac" } | { kind: "mp3" } | { kind: "aac"; config: AudioEncoderConfig } | null = null;
   if (soundtrack) {
     if (format.extension === "mkv") audioCodec = { kind: "pcm" };
     else if (lossless) audioCodec = { kind: "flac" };
     else {
       const aac = { kind: "aac" as const, config: { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: 320_000 } };
       const supported = typeof AudioEncoder !== "undefined" && (await AudioEncoder.isConfigSupported(aac.config).then((r) => r.supported, () => false));
-      audioCodec = supported ? aac : { kind: "flac" };
+      // MP3 rather than FLAC here: this format is for sharing, and Discord's apps play no FLAC.
+      audioCodec = supported ? aac : { kind: "mp3" };
     }
   }
-  let flacEntry: Uint8Array | null = null;
+  // FLAC and MP3 go into an Opus-shaped track (the muxer knows neither), relabelled after finalize().
+  let relabelEntry: Uint8Array | null = null;
   const mkvTarget = new MkvTarget();
   const mp4Target = new Mp4Target();
   const mkv =
@@ -210,7 +216,6 @@ async function run(
           firstTimestampBehavior: "offset",
           // The MP4 time base must be a whole number: one that makes every frame duration exact.
           video: { codec: encoder.mux, width: size.width, height: size.height, frameRate: mp4Timescale(fps) },
-          // FLAC goes into an Opus-shaped track (the muxer knows no FLAC), relabelled after finalize().
           ...(audioCodec && audioCodec.kind !== "pcm" ? { audio: { codec: audioCodec.kind === "aac" ? ("aac" as const) : ("opus" as const), numberOfChannels: 2, sampleRate: SAMPLE_RATE } } : {}),
         })
       : null;
@@ -326,9 +331,15 @@ async function run(
           const n = Math.min(block, l.length - i);
           mkv!.addAudioChunkRaw(pcm24(l.subarray(i, i + n), r.subarray(i, i + n)), "key", Math.round((i / SAMPLE_RATE) * MICRO));
         }
+      } else if (audioCodec.kind === "mp3") {
+        relabelEntry = mp3SampleEntry();
+        for (const [i, f] of encodeMp3(l, r).entries()) {
+          const meta = i === 0 ? { decoderConfig: { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 } } : undefined;
+          mp4!.addAudioChunkRaw(f, "key", ((i * MP3_FRAME) / SAMPLE_RATE) * MICRO, (MP3_FRAME / SAMPLE_RATE) * MICRO, meta);
+        }
       } else if (audioCodec.kind === "flac") {
         const flac = encodeFlac(l, r, SAMPLE_RATE);
-        flacEntry = flacSampleEntry(flac.streamInfo, SAMPLE_RATE);
+        relabelEntry = flacSampleEntry(flac.streamInfo, SAMPLE_RATE);
         let at = 0;
         for (const [i, f] of flac.frames.entries()) {
           const meta = i === 0 ? { decoderConfig: { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 } } : undefined;
@@ -365,11 +376,13 @@ async function run(
     }
     if (mkv) {
       mkv.finalize();
-      return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false, note, sound: audioCodec ? "24-bit PCM" : null };
+      return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false, note, picture: PICTURE[encoder.mux], sound: audioCodec ? "24-bit PCM" : null };
     }
     mp4!.finalize();
-    const bytes = flacEntry ? opusTrackToFlac(new Uint8Array(mp4Target.buffer), flacEntry) : mp4Target.buffer;
-    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
+    const bytes = relabelEntry ? relabelOpusTrack(new Uint8Array(mp4Target.buffer), relabelEntry) : mp4Target.buffer;
+    // The Compatible format without H.264 (a browser that can't encode it): say what that means.
+    if (!lossless && encoder.mux !== "avc") note = [note, `This browser can't make H.264 video, so the picture is ${PICTURE[encoder.mux]}: it won't play on iPhones (Discord's phone app included). Export from Chrome, Edge or Safari for a file that plays everywhere.`].filter(Boolean).join(" ");
+    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, picture: PICTURE[encoder.mux], sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
   } finally {
     for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();
@@ -377,7 +390,8 @@ async function run(
   }
 }
 
-const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec.toUpperCase());
+const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec === "mp3" ? "MP3 320k" : codec.toUpperCase());
+const PICTURE: Record<string, string> = { avc: "H.264", hevc: "HEVC", vp9: "VP9", av1: "AV1" };
 
 const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [
   [/^avc[13]\./, "avc"],

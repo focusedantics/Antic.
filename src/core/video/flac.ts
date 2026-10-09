@@ -276,11 +276,11 @@ export function flacSampleEntry(streamInfo: Uint8Array, sampleRate: number, chan
 const CONTAINERS = new Set(["moov", "trak", "mdia", "minf", "stbl"]);
 
 /**
- * Swaps an MP4's `Opus` sample entry for `fLaC` (the muxer writes FLAC frames into an
- * Opus-shaped track, as it knows no FLAC): rewrites the sample description, the sizes
- * of the boxes around it, and the chunk offsets the size change moves.
+ * Swaps an MP4's `Opus` sample entry for another (`fLaC`, or `mp4a` for MP3: the muxer
+ * knows neither, so their frames go into an Opus-shaped track): rewrites the sample
+ * description, the sizes of the boxes around it, and the chunk offsets the size change moves.
  */
-export function opusTrackToFlac(mp4: Uint8Array, entry: Uint8Array): Uint8Array {
+export function relabelOpusTrack(mp4: Uint8Array, entry: Uint8Array): Uint8Array {
   const view = new DataView(mp4.buffer, mp4.byteOffset, mp4.byteLength);
   const type = (at: number) => String.fromCharCode(mp4[at + 4], mp4[at + 5], mp4[at + 6], mp4[at + 7]);
   // Find the Opus entry and the boxes it sits in.
@@ -299,7 +299,7 @@ export function opusTrackToFlac(mp4: Uint8Array, entry: Uint8Array): Uint8Array 
     }
   };
   walk(0, mp4.length, []);
-  if (!found || moov < 0) throw new Error("The MP4 has no Opus track to turn into FLAC.");
+  if (!found || moov < 0) throw new Error("The MP4 has no Opus track to relabel.");
   const { at, size, parents } = found as { at: number; size: number; parents: number[] };
   const delta = entry.length - size;
   const out = new Uint8Array(mp4.length + delta);

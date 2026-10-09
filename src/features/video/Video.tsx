@@ -365,7 +365,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
         frames += out.frames;
         lossless &&= out.lossless;
         copied &&= out.copied;
-        sounds.add(out.sound ?? "no sound");
+        sounds.add(`${out.picture} · ${out.sound ? `sound: ${out.sound}` : "no sound"}`);
         if (out.note) notes.add(chosen.length > 1 ? `${clip.name}: ${out.note}` : out.note);
       }
       setProgress({ done: 1, total: 1, label: destination.kind === "zip" ? "Packing the ZIP…" : "Finishing…" });
@@ -438,7 +438,7 @@ function ExportVideoDialog({ onClose }: { onClose: () => void }) {
           Saved {result.count} video{result.count === 1 ? "" : "s"} · {result.frames} frames, none dropped · {formatBytes(result.bytes)} · {describeDestination(destination)}
           {result.copied ? " · original frames copied bit for bit" : result.lossless ? " · lossless" : ""}
           {/* What sound the file carries, so a silent file is never a surprise. */}
-          {` · ${result.sounds.map((s) => (s === "no sound" ? s : `sound: ${s}`)).join(", ")}`}
+          {` · ${result.sounds.join(", ")}`}
           {result.notes.map((n) => (
             <span key={n} style={{ display: "block", color: "var(--danger)" }}>
               {n}

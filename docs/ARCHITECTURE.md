@@ -651,8 +651,12 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   The lossless MP4 carries FLAC (lossless; our own encoder,
   `core/video/flac.ts`, muxed as an Opus-shaped track and relabelled `fLaC`/`dfLa` after
   the muxer finishes). The Compatible MP4 carries AAC 320k where the browser can encode
-  it, else FLAC. Never Opus in an MP4: Windows' players, QuickTime and iPhones show its
-  picture and stay silent. For AAC the export writes its own AudioSpecificConfig into the
+  it, else MP3 320k from our own encoder (`core/video/mp3.ts`: MPEG-1 Layer III, long
+  blocks, no psychoacoustic model, tables in `mp3-tables.ts` derived from minimp3 (CC0)
+  and the standard window; relabelled `mp4a`/esds 0x6B the same way). Not FLAC there:
+  Discord's apps play no FLAC, and iPhones no VP9, so sharing needs H.264 with AAC or
+  MP3; a Compatible export from a browser without H.264 says so. Never Opus in an MP4:
+  Windows' players, QuickTime and iPhones show its picture and stay silent. For AAC the export writes its own AudioSpecificConfig into the
   `esds` (`core/video/aac.ts`) instead of the encoder's: Safari's AAC AudioEncoder
   reports a wrong one (WebKit bug 302253, reading as 22050 Hz with no channels), and
   an MP4 carrying it plays silent. A clip whose sound can't be decoded here exports

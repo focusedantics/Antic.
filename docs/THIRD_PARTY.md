@@ -49,6 +49,13 @@ The trailer can optionally load h264-mp4-encoder (MIT; minih264 public domain, l
 MPL-1.1) from a path you give it, to write H.264 where the browser has no H.264 encoder.
 It is not a dependency of the project and is never bundled.
 
+## Data from other projects
+
+- `src/core/video/mp3-tables.ts`: the MP3 Huffman codes, derived from the decoding
+  tables of minimp3 (https://github.com/lieff/minimp3, CC0 1.0) by decoding every bit
+  pattern; and the MPEG-1 audio synthesis window as listed in jsmpeg (MIT,
+  https://github.com/phoboslab/jsmpeg). The encoder itself is ours.
+
 ## Code adapted from reference projects
 
 | Source | License | What | Where |
