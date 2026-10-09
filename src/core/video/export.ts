@@ -13,6 +13,7 @@ import type { ClipMedia } from "./media";
 import { FORMATS, hasPlainPictures, outputSize, type VideoEdit } from "./model";
 import { VideoRenderer } from "./renderer";
 import { aacAudioSpecificConfig, aacObjectType } from "./aac";
+import { encodeFlac, flacSampleEntry, opusTrackToFlac } from "./flac";
 import { audible, pcm24 } from "./pcm";
 import { audioParts, decodeClipAudio, Soundtrack } from "./soundtrack";
 import { type ClipInfo, compile, frameAt, isUntouched } from "./timeline";
@@ -173,26 +174,20 @@ async function run(
   }
 
   // ── Muxer ────────────────────────────────────────────────────────────────
-  let audioCodec: { kind: "pcm" } | { kind: "aac" | "opus"; config: AudioEncoderConfig } | null = null;
+  // MKV: uncompressed PCM. Lossless MP4: FLAC. Compatible MP4: AAC where the browser can
+  // encode it, else FLAC (our own encoder, so every browser has it). Never Opus in an MP4:
+  // Windows' players, QuickTime and iPhones play the picture of one and stay silent.
+  let audioCodec: { kind: "pcm" } | { kind: "flac" } | { kind: "aac"; config: AudioEncoderConfig } | null = null;
   if (soundtrack) {
     if (format.extension === "mkv") audioCodec = { kind: "pcm" };
+    else if (lossless) audioCodec = { kind: "flac" };
     else {
-      for (const c of [
-        { kind: "aac" as const, config: { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: 320_000 } },
-        { kind: "opus" as const, config: { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: 510_000 } },
-      ]) {
-        try {
-          if (typeof AudioEncoder !== "undefined" && (await AudioEncoder.isConfigSupported(c.config)).supported) {
-            audioCodec = c;
-            break;
-          }
-        } catch {
-          // Try the next codec.
-        }
-      }
-      if (!audioCodec) throw new Error("This browser can't encode audio for MP4. Choose the Lossless master (.mkv) format, or turn audio off.");
+      const aac = { kind: "aac" as const, config: { codec: "mp4a.40.2", sampleRate: SAMPLE_RATE, numberOfChannels: 2, bitrate: 320_000 } };
+      const supported = typeof AudioEncoder !== "undefined" && (await AudioEncoder.isConfigSupported(aac.config).then((r) => r.supported, () => false));
+      audioCodec = supported ? aac : { kind: "flac" };
     }
   }
+  let flacEntry: Uint8Array | null = null;
   const mkvTarget = new MkvTarget();
   const mp4Target = new Mp4Target();
   const mkv =
@@ -215,7 +210,8 @@ async function run(
           firstTimestampBehavior: "offset",
           // The MP4 time base must be a whole number: one that makes every frame duration exact.
           video: { codec: encoder.mux, width: size.width, height: size.height, frameRate: mp4Timescale(fps) },
-          ...(audioCodec && audioCodec.kind !== "pcm" ? { audio: { codec: audioCodec.kind, numberOfChannels: 2, sampleRate: SAMPLE_RATE } } : {}),
+          // FLAC goes into an Opus-shaped track (the muxer knows no FLAC), relabelled after finalize().
+          ...(audioCodec && audioCodec.kind !== "pcm" ? { audio: { codec: audioCodec.kind === "aac" ? ("aac" as const) : ("opus" as const), numberOfChannels: 2, sampleRate: SAMPLE_RATE } } : {}),
         })
       : null;
 
@@ -330,6 +326,15 @@ async function run(
           const n = Math.min(block, l.length - i);
           mkv!.addAudioChunkRaw(pcm24(l.subarray(i, i + n), r.subarray(i, i + n)), "key", Math.round((i / SAMPLE_RATE) * MICRO));
         }
+      } else if (audioCodec.kind === "flac") {
+        const flac = encodeFlac(l, r, SAMPLE_RATE);
+        flacEntry = flacSampleEntry(flac.streamInfo, SAMPLE_RATE);
+        let at = 0;
+        for (const [i, f] of flac.frames.entries()) {
+          const meta = i === 0 ? { decoderConfig: { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: 2 } } : undefined;
+          mp4!.addAudioChunkRaw(f.data, "key", (at / SAMPLE_RATE) * MICRO, (f.samples / SAMPLE_RATE) * MICRO, meta);
+          at += f.samples;
+        }
       } else {
         let audioFailure: unknown = null;
         // AAC: the AudioSpecificConfig is ours, not the encoder's (see aac.ts: Safari's is
@@ -363,7 +368,8 @@ async function run(
       return { blob: new Blob([mkvTarget.buffer], { type: "video/x-matroska" }), extension: "mkv", frames: chunks, lossless, copied: false, note, sound: audioCodec ? "24-bit PCM" : null };
     }
     mp4!.finalize();
-    return { blob: new Blob([mp4Target.buffer], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
+    const bytes = flacEntry ? opusTrackToFlac(new Uint8Array(mp4Target.buffer), flacEntry) : mp4Target.buffer;
+    return { blob: new Blob([bytes as BlobPart], { type: "video/mp4" }), extension: "mp4", frames: chunks, lossless: lossless && exactFrames === plan.frames, copied: false, note, sound: audioCodec && audioCodec.kind !== "pcm" ? soundName(audioCodec.kind) : null };
   } finally {
     for (const s of sources.values()) void s.then((x) => x.dispose(), () => {});
     if (videoEncoder.state !== "closed") videoEncoder.close();
@@ -371,7 +377,7 @@ async function run(
   }
 }
 
-const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec.toUpperCase());
+const soundName = (codec: string) => (codec === "aac" ? "AAC" : codec === "opus" ? "Opus" : codec === "flac" ? "FLAC (lossless)" : codec.toUpperCase());
 
 const COPY_MUX: [RegExp, "avc" | "hevc" | "vp9" | "av1"][] = [
   [/^avc[13]\./, "avc"],

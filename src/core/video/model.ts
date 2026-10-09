@@ -82,9 +82,8 @@ export type Resolution = "original" | "2160" | "1440" | "1080" | "720" | "480" |
 
 /**
  * - `mkv-lossless`: VP9 at quantizer 0 (mathematically lossless) + uncompressed 24-bit PCM audio. Truly lossless.
- * - `mp4-lossless`: the same lossless VP9 video in MP4, with transparent high-bitrate audio (AAC 320k or Opus 510k).
- * - `mp4-h264`: H.264 at near-lossless constant quality: plays everywhere (QuickTime, phones, Discord).
- * An MP4 of an untouched clip is copied from the original, bit for bit.
+ * - `mp4-lossless`: the same lossless VP9 video in MP4, with lossless FLAC sound (core/video/flac.ts).
+ * - `mp4-h264`: H.264 at near-lossless constant quality, with AAC sound (FLAC where the browser has no AAC encoder).
  */
 export type ExportFormat = "mkv-lossless" | "mp4-lossless" | "mp4-h264";
 
@@ -115,7 +114,7 @@ export const FORMATS: { id: ExportFormat; label: string; extension: "mkv" | "mp4
     id: "mp4-lossless",
     label: "Lossless video (.mp4)",
     extension: "mp4",
-    detail: "Lossless VP9 frames with transparent high-bitrate audio. Plays in Chrome, Firefox and VLC; uploads to YouTube.",
+    detail: "Lossless VP9 frames with lossless FLAC sound. Plays in Chrome, Firefox, VLC and Windows; uploads to YouTube.",
   },
   { id: "mp4-h264", label: "Compatible (.mp4, H.264)", extension: "mp4", detail: "Near-lossless H.264 that plays everywhere (QuickTime, phones, Discord). Not bit-exact." },
 ];

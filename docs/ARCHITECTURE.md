@@ -648,8 +648,11 @@ to zoom; trim handles appear, thumb-wide, on the selected segment only.
   come out bit-identical to the source. Treated frames are rendered on the GPU first.
 - The MKV (webm-muxer, Matroska) carries uncompressed 24-bit integer PCM audio
   (`A_PCM/INT/LIT`; 32-bit float PCM leaves Windows' players and many editors silent).
-  The MP4 carries
-  AAC 320k or Opus 510k. For AAC the export writes its own AudioSpecificConfig into the
+  The lossless MP4 carries FLAC (lossless; our own encoder,
+  `core/video/flac.ts`, muxed as an Opus-shaped track and relabelled `fLaC`/`dfLa` after
+  the muxer finishes). The Compatible MP4 carries AAC 320k where the browser can encode
+  it, else FLAC. Never Opus in an MP4: Windows' players, QuickTime and iPhones show its
+  picture and stay silent. For AAC the export writes its own AudioSpecificConfig into the
   `esds` (`core/video/aac.ts`) instead of the encoder's: Safari's AAC AudioEncoder
   reports a wrong one (WebKit bug 302253, reading as 22050 Hz with no channels), and
   an MP4 carrying it plays silent. A clip whose sound can't be decoded here exports

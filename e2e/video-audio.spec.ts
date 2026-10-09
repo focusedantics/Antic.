@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { createFile, MP4BoxBuffer } from "mp4box";
 import { moovAtEnd, quickTimeAac } from "../tests/fixtures/moov";
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
@@ -156,7 +157,7 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
   await page.getByRole("button", { name: "Stutter", exact: true }).click();
   for (const [format, sound] of [
     ["mkv-lossless", "sound: 24-bit PCM"],
-    ["mp4-lossless", "sound: Opus"],
+    ["mp4-lossless", "sound: FLAC (lossless)"],
   ] as const) {
     await page.getByLabel("Format").selectOption(format);
     await page.getByRole("button", { name: "Export…" }).click();
@@ -169,6 +170,17 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
     if (format === "mkv-lossless") {
       expect(bytes.includes(Buffer.from("A_PCM/INT/LIT"))).toBe(true);
       expect(bytes.includes(Buffer.from("A_PCM/FLOAT"))).toBe(false);
+    } else {
+      // FLAC, not Opus: an MP4's Opus plays silent in Windows' players, QuickTime and on iPhones.
+      expect(bytes.includes(Buffer.from("fLaC"))).toBe(true);
+      expect(bytes.includes(Buffer.from("dfLa"))).toBe(true);
+      expect(bytes.includes(Buffer.from("Opus"))).toBe(false);
+      const file = createFile();
+      let codec = "";
+      file.onReady = (info) => (codec = info.audioTracks[0]?.codec ?? "");
+      file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 0));
+      file.flush();
+      expect(codec).toBe("fLaC");
     }
     const heard = await page.evaluate(async (data) => {
       const blob = await (await fetch(`data:application/octet-stream;base64,${data}`)).blob();
@@ -182,4 +194,35 @@ test("both lossless formats keep the sound, in a form every player reads, and sa
     expect(heard.seconds).toBeGreaterThan(2.2);
     expect(heard.energy).toBeGreaterThan(100);
   }
+});
+
+test("the FLAC encoder is lossless: the browser's own decoder returns every 16-bit sample", async ({ page }) => {
+  await page.goto("/");
+  const r = await page.evaluate(async () => {
+    const { encodeFlac, flacFile } = await import("/src/core/video/flac.ts" as string);
+    // Silence, a tone with noise, loud noise (wide Rice codes), and a short last block.
+    const n = 48000 * 3 + 1234;
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    let seed = 1;
+    const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+    for (let i = 0; i < n; i++) {
+      const t = i / 48000;
+      l[i] = i < 20000 ? 0 : 0.5 * Math.sin(2 * Math.PI * 440 * t) + 0.2 * noise();
+      r[i] = i > 100000 ? 1.5 * noise() : 0.3 * Math.sin(2 * Math.PI * 1000 * t);
+    }
+    const { frames, streamInfo } = encodeFlac(l, r, 48000);
+    const file = flacFile(frames, streamInfo);
+    const decoded = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(file.buffer.slice(0) as ArrayBuffer);
+    const q = (v: number) => Math.max(-32768, Math.min(32767, Math.round(v * 32767)));
+    // Chromium's decoder turns 16-bit samples into floats by 1/32768 below zero and 1/32767 above.
+    let misses = 0;
+    [l, r].forEach((src, c) => {
+      const d = decoded.getChannelData(c);
+      for (let i = 0; i < n; i++) if (Math.round(d[i] * (d[i] < 0 ? 32768 : 32767)) !== q(src[i])) misses++;
+    });
+    return { length: decoded.length, n, misses };
+  });
+  expect(r.length).toBe(r.n);
+  expect(r.misses).toBe(0);
 });
