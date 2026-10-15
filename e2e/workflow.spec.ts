@@ -565,3 +565,20 @@ test("composite: layer mask brush size and feather change what is painted", asyn
   expect(hard.soft).toBeLessThan(8);
   expect(soft.soft).toBeGreaterThan(hard.soft * 4 + 10);
 });
+
+test("text: curved text in Composite bends the words and grows the box to fit", async ({ page }) => {
+  await freshLibrary(page);
+  await importFiles(page, [await makeImage(page, "landscape.jpg", "landscape")]);
+  await page.locator(".cell").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Apply an Effect…" }).click();
+  await page.getByRole("dialog", { name: "Effects" }).getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "+ Layer" }).click();
+  await page.getByRole("menuitem", { name: "Text" }).click();
+  await page.getByLabel("Text", { exact: true }).fill("CURVED TITLE");
+  const curve = page.getByRole("slider", { name: "Curve" });
+  await expect(curve).toBeVisible();
+  const height = Number(await page.getByLabel("H", { exact: true }).inputValue());
+  await curve.focus();
+  await page.keyboard.press("End");
+  expect(Number(await page.getByLabel("H", { exact: true }).inputValue())).toBeGreaterThan(height);
+});
