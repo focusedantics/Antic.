@@ -362,6 +362,136 @@ function jazzNight(doc: Doc): Layer[] {
   ];
 }
 
+/** Book reading: an engraved sphere like a banknote vignette, an editorial serif and a quiet footer. */
+function bookReading(doc: Doc): Layer[] {
+  const k = page(doc);
+  const ink = "#1f2a44";
+  const small = { size: 21, font: INTER, weight: 700, color: ink, letterSpacing: 0.18 };
+  return [
+    set(k, "Engraving", [
+      shape(k, 230, 150, 540, 540, "ellipse", { fill: "#ffffff", stroke: null, fillGradient: radial(["#cfcfcf", 0], ["#6e6e6e", 0.5], ["#121212", 1]) }, { name: "Sphere" }),
+      effect(k, "engraving", { spacing: 6.5, angle: 28, relief: 1.8, cross: false, ink, paper: "#f3efe6" }),
+    ]),
+    field(k, "Kicker", 100, 760, 800, 40, "AN EVENING WITH NOOR HADDAD", small),
+    field(k, "Title", 40, 800, 920, 170, "The Salt Archive", { size: 120, font: DMSERIF, color: ink }),
+    field(k, "Subtitle", 100, 975, 800, 44, "A reading from the new novel, and a conversation", { size: 30, font: PLAYFAIR, italic: true, color: ink }),
+    path(k, [{ closed: false, nodes: [{ x: 100, y: 1110 }, { x: 900, y: 1110 }] }], line(ink, 1.5), "Rule"),
+    field(k, "Date & time", 100, 1130, 380, 40, "THU 5 FEB · 7 PM", { ...small, align: "left" }),
+    field(k, "Place", 520, 1130, 380, 40, "MARLOWE BOOKS, LEEDS", { ...small, align: "right" }),
+    field(k, "Note", 100, 1175, 800, 36, "Free entry · signed copies", { size: 20, font: INTER, weight: 400, color: ink, align: "left" }),
+    grain(k, 12),
+  ];
+}
+
+/** Design week: Bauhaus primaries in a tight print, lower-case grotesque type set flush left. */
+function designWeek(doc: Doc): Layer[] {
+  const k = page(doc);
+  const ink = "#141414";
+  const label = { size: 22, font: INTER, weight: 700, color: ink, align: "left" as const };
+  return [
+    set(k, "Shapes", [
+      shape(k, 80, 80, 400, 400, "ellipse", fill("#e63b2e"), { name: "Circle" }),
+      shape(k, 520, 80, 400, 400, "rectangle", fill("#1d4ed8"), { name: "Square" }),
+      shape(k, 520, 300, 400, 380, { kind: "polygon", points: 3, ratio: 0.5, round: 0 }, fill("#f5c518"), { name: "Triangle" }),
+      shape(k, 80, 520, 400, 160, "rectangle", fill(ink), { name: "Bar" }),
+      effect(k, "halftone-cmyk", { size: 3.5, misregister: 0.7, density: 1.05, paper: "#f2ede3" }),
+    ]),
+    field(k, "Title", 66, 720, 880, 330, "design\nweek", { size: 190, font: INTER, weight: 700, color: ink, align: "left", lineHeight: 0.86, letterSpacing: -0.05 }),
+    field(k, "Dates", 80, 1090, 420, 40, "08—14.03.2027", label),
+    field(k, "What", 80, 1125, 420, 40, "Talks, workshops, open studios", { ...label, weight: 400 }),
+    field(k, "Place", 520, 1090, 400, 40, "Kunsthalle Nord", { ...label, align: "right" }),
+    field(k, "Website", 520, 1125, 400, 40, "designweek.example", { ...label, weight: 400, align: "right" }),
+    grain(k, 10),
+  ];
+}
+
+/** Tea ceremony: one red sun drawn in ink dots, a lot of paper, a serif title. */
+function teaCeremony(doc: Doc): Layer[] {
+  const k = page(doc);
+  const red = "#b3261e";
+  const ink = "#2a2522";
+  return [
+    set(k, "Ink sun", [
+      shape(k, 290, 170, 420, 420, "ellipse", { fill: red, stroke: null, fillGradient: radial(["#5a0f0a", 0], ["#3a0905", 0.7], ["#1a0402", 1]) }, { name: "Sun" }),
+      effect(k, "stipple", { size: 2.4, density: 1.35, mode: "ink", ink: red, paper: "#f4efe4", seed: 5 }),
+    ]),
+    field(k, "Title", 100, 700, 800, 150, "Slow Tea", { size: 120, font: DMSERIF, color: ink }),
+    field(k, "Subtitle", 100, 860, 800, 40, "A TEA CEREMONY IN FOUR SEASONS", { size: 22, font: INTER, weight: 700, color: ink, letterSpacing: 0.32 }),
+    shape(k, 493, 950, 14, 14, "ellipse", fill(red), { name: "Dot" }),
+    field(k, "Date & time", 100, 1010, 800, 44, "Sundays in April · 11:00 and 15:00", { size: 30, font: PLAYFAIR, italic: true, color: ink }),
+    field(k, "Place", 100, 1060, 800, 40, "THE GARDEN PAVILION, 3 KEW ROW", { size: 20, font: INTER, weight: 700, color: ink, letterSpacing: 0.24 }),
+    field(k, "Note", 100, 1190, 800, 36, "Ten guests a sitting · book ahead", { size: 19, font: INTER, weight: 400, color: red, letterSpacing: 0.1 }),
+    grain(k, 12),
+  ];
+}
+
+/** Photography show: a contour map drawn from soft hills, the title tracked wide. */
+function terrain(doc: Doc): Layer[] {
+  const k = page(doc);
+  const ink = "#2f4a3a";
+  const hill = (cx: number, cy: number, r: number, color: string, name: string) => shape(k, cx - r, cy - r, r * 2, r * 2, "ellipse", { fill: color, stroke: null, fillGradient: radial([color, 0], [color, 1, 0]) }, { name });
+  return [
+    set(k, "Contour map", [
+      shape(k, 0, 0, 1000, 840, "rectangle", { fill: "#808080", stroke: null, fillGradient: linear(60, "#b8b8b8", "#5a5a5a") }, { name: "Land" }),
+      hill(330, 300, 360, "#111111", "Hill"),
+      hill(720, 520, 320, "#202020", "Ridge"),
+      hill(470, 640, 180, "#ffffff", "Valley"),
+      hill(820, 160, 200, "#f0f0f0", "Lake"),
+      effect(k, "contours", { levels: 26, smooth: 16, width: 1.1, style: "ink", index: true, ink, paper: "#eef0ea" }),
+    ]),
+    field(k, "Title", 40, 900, 920, 140, "TERRAIN", { size: 120, font: INTER, weight: 700, color: ink, letterSpacing: 0.42 }),
+    field(k, "Subtitle", 100, 1040, 800, 40, "Landscape photographs by Elin Saro", { size: 28, font: PLAYFAIR, italic: true, color: ink }),
+    field(k, "Dates", 80, 1180, 420, 40, "6 MAR — 27 APR 2027", { size: 21, font: INTER, weight: 700, color: ink, letterSpacing: 0.16, align: "left" }),
+    field(k, "Place", 500, 1180, 420, 40, "FJELL GALLERY, BERGEN", { size: 21, font: INTER, weight: 700, color: ink, letterSpacing: 0.16, align: "right" }),
+  ];
+}
+
+/** Recital: a warm light seen through rippled glass, like sound spreading, on deep navy. */
+function recital(doc: Doc): Layer[] {
+  const k = page(doc);
+  const cream = "#f3ead9";
+  const gold = "#e0b26b";
+  return [
+    set(k, "Rippled light", [
+      paper(k, "#131a2e"),
+      shape(k, 160, 120, 680, 680, "ellipse", { fill: gold, stroke: null, fillGradient: radial(["#ffd79a", 0], ["#e0905a", 0.45], ["#131a2e", 1]) }, { name: "Light" }),
+      effect(k, "fluted-glass", { shape: "rings", width: 34, strength: 1.6, frost: 0.1, dispersion: 0.05, highlight: 0.45 }, { name: "Rippled glass" }),
+    ]),
+    field(k, "Kicker", 100, 860, 800, 40, "AN EVENING RECITAL", { size: 22, font: INTER, weight: 700, color: gold, letterSpacing: 0.4 }),
+    field(k, "Title", 40, 900, 920, 150, "Cello & Silence", { size: 108, font: PLAYFAIR, italic: true, color: cream }),
+    field(k, "Programme", 100, 1060, 800, 80, "Bach · Kodály · Pärt\nperformed by Ines Varga", { size: 26, font: INTER, weight: 400, color: cream, lineHeight: 1.5 }),
+    field(k, "Date & time", 100, 1170, 800, 40, "SAT 21 FEB · 8 PM", { size: 22, font: INTER, weight: 700, color: gold, letterSpacing: 0.3 }),
+    field(k, "Place", 100, 1210, 800, 40, "ST. ANNE'S CHAPEL", { size: 22, font: INTER, weight: 400, color: cream, letterSpacing: 0.3 }),
+    grain(k, 14),
+  ];
+}
+
+/** Open studios: two-colour paper hills, a short sans title and a tidy footer. */
+function openStudios(doc: Doc): Layer[] {
+  const k = page(doc);
+  const navy = "#1d3557";
+  const wave = (y: number, amp: number, phase: number, color: string, name: string) =>
+    path(k, [{ closed: true, nodes: [...Array.from({ length: 41 }, (_, i) => ({ x: (i / 40) * 1000, y: y + Math.sin((i / 40) * Math.PI * 2 + phase) * amp })), { x: 1000, y: 760 }, { x: 0, y: 760 }] }], fill(color), name);
+  return [
+    set(k, "Paper hills", [
+      paper(k, "#fbf1e1"),
+      wave(260, 40, 0.4, "#e9b98a", "Far hills"),
+      wave(380, 55, 2.1, "#c98f6a", "Hills"),
+      wave(500, 45, 4.2, "#5b6b8c", "Near hills"),
+      wave(620, 35, 1.3, navy, "Front hills"),
+      shape(k, 660, 110, 150, 150, "ellipse", fill("#f6dfb6"), { name: "Sun" }),
+      effect(k, "paper-cut", { layers: 8, smooth: 6, shadow: 12, palette: "photo" }),
+    ]),
+    field(k, "Title", 80, 820, 840, 150, "Open Studios", { size: 112, font: INTER, weight: 700, color: navy, align: "left", letterSpacing: -0.03 }),
+    field(k, "Subtitle", 80, 965, 840, 44, "Twenty artists open their doors for one weekend", { size: 28, font: INTER, weight: 400, color: navy, align: "left" }),
+    path(k, [{ closed: false, nodes: [{ x: 80, y: 1090 }, { x: 920, y: 1090 }] }], line(navy, 2), "Rule"),
+    field(k, "Dates", 80, 1110, 420, 40, "SAT 16 — SUN 17 MAY", { size: 22, font: INTER, weight: 700, color: navy, letterSpacing: 0.12, align: "left" }),
+    field(k, "Place", 500, 1110, 420, 40, "RIVERSIDE MILLS", { size: 22, font: INTER, weight: 700, color: navy, letterSpacing: 0.12, align: "right" }),
+    field(k, "Hours", 80, 1150, 840, 40, "11:00 — 18:00 · free · map at the gate", { size: 20, font: INTER, weight: 400, color: navy, align: "left" }),
+    grain(k, 10),
+  ];
+}
+
 // ─── Futuristic ─────────────────────────────────────────────────────────────
 
 /** Hackathon: liquid chrome title over a neon grid horizon. */
@@ -485,6 +615,58 @@ function spaceNight(doc: Doc): Layer[] {
   ];
 }
 
+/**
+ * Frutiger Aero (the glossy mid-2000s look): a bright sky over green hills, clouds, bubbles,
+ * white swooshes, a glass orb, a frosted panel and a glossy button.
+ */
+function frutigerAero(doc: Doc): Layer[] {
+  const k = page(doc);
+  const deep = "#0d47a1";
+  const bubble = (cx: number, cy: number, r: number): Layer[] => [
+    shape(k, cx - r, cy - r, r * 2, r * 2, "ellipse", { fill: "#ffffff", stroke: "#ffffff", strokeWidth: 2, strokeOpacity: 0.85, fillGradient: radial(["#ffffff", 0, 0.05], ["#bfe9ff", 0.75, 0.2], ["#ffffff", 1, 0.75]) }, { name: "Bubble" }),
+    turn(shape(k, cx - r * 0.62, cy - r * 0.72, r * 0.7, r * 0.38, "ellipse", { fill: "#ffffff", stroke: null, fillOpacity: 0.85 }, { name: "Bubble shine" }), -30),
+  ];
+  // A cloud: overlapping puffs, softened, `w` units wide from x, y.
+  const cloud = (x: number, y: number, w: number) =>
+    set(k, "Cloud", [
+      shape(k, x, y + w * 0.18, w * 0.5, w * 0.32, "ellipse", fill("#ffffff"), { name: "Puff" }),
+      shape(k, x + w * 0.22, y, w * 0.45, w * 0.42, "ellipse", fill("#ffffff"), { name: "Puff" }),
+      shape(k, x + w * 0.5, y + w * 0.1, w * 0.38, w * 0.34, "ellipse", fill("#ffffff"), { name: "Puff" }),
+      shape(k, x + w * 0.1, y + w * 0.26, w * 0.85, w * 0.2, rounded(1), fill("#ffffff"), { name: "Puff" }),
+    ], { opacity: 0.92, fx: fx(k, { blur: 5 }) });
+  const swoosh = (y: number, amp: number, phase: number, width: number, opacity: number) =>
+    path(k, [{ closed: false, nodes: Array.from({ length: 49 }, (_, i) => ({ x: -40 + (i / 48) * 1080, y: y + Math.sin((i / 48) * Math.PI * 1.6 + phase) * amp })) }], line("#ffffff", width, { cap: "round" }), "Swoosh", { opacity });
+  return [
+    set(k, "Sky and hills", [
+      backdrop(k, linear(90, ["#1565c0", 0], ["#42a5f5", 0.35], ["#b3e5fc", 0.62], ["#e8f8ff", 0.72])),
+      shape(k, 480, -260, 760, 760, "ellipse", { fill: "#ffffff", stroke: null, fillGradient: radial(["#ffffff", 0, 0.95], ["#fffde7", 0.25, 0.6], ["#ffffff", 1, 0]) }, { name: "Sun" }),
+      cloud(40, 80, 300),
+      cloud(560, 210, 240),
+      cloud(330, 40, 170),
+      shape(k, -380, 820, 1200, 760, "ellipse", { fill: "#7ed957", stroke: null, fillGradient: radial(["#c6f36b", 0], ["#6cc644", 0.6], ["#2e8b2e", 1]) }, { name: "Far hill" }),
+      shape(k, 300, 900, 1200, 760, "ellipse", { fill: "#56ab2f", stroke: null, fillGradient: radial(["#b6f05a", 0], ["#4caf50", 0.55], ["#1b6e20", 1]) }, { name: "Near hill" }),
+      set(k, "Swooshes", [swoosh(760, 60, 0.2, 7, 0.75), swoosh(800, 70, 0.8, 3, 0.55), swoosh(735, 45, 1.6, 2, 0.45)], { fx: fx(k, { glow: { color: "#ffffff", opacity: 0.9, blur: 14, spread: 0 } }) }),
+      effect(k, "liquid-glass", { shape: "circle", size: 0.24, cx: 0.8, cy: 0.6, refraction: 1.2, bevel: 70, frost: 0.02, dispersion: 0.08, rim: 1, light: 135, tint: "#e0f7ff", tintAmount: 0.12, shadow: 0.25 }, { name: "Glass orb" }),
+    ]),
+    ...bubble(150, 520, 60),
+    ...bubble(250, 640, 32),
+    ...bubble(880, 160, 44),
+    ...bubble(90, 720, 22),
+    field(k, "Title", 40, 330, 920, 300, "Summer\nSplash", { size: 150, font: MONT, weight: 700, color: "#ffffff", lineHeight: 0.95, gradient: linear(90, "#ffffff", "#d6f1ff") }, {
+      fx: fx(k, { shadow: { color: "#0d47a1", opacity: 0.45, angle: 90, distance: 8, blur: 18, spread: 0 }, glow: { color: "#ffffff", opacity: 0.6, blur: 24, spread: 0 } }),
+    }),
+    field(k, "Kicker", 40, 640, 920, 50, "a pool party at the lido", { size: 40, font: MONT, weight: 400, color: "#ffffff" }, { fx: fx(k, { shadow: { color: deep, opacity: 0.4, angle: 90, distance: 3, blur: 8, spread: 0 } }) }),
+    shape(k, 120, 960, 760, 200, rounded(0.35), { fill: "#ffffff", stroke: "#ffffff", strokeWidth: 3, fillOpacity: 0.42, strokeOpacity: 0.95, fillGradient: linear(90, ["#ffffff", 0, 0.75], ["#e3f6ff", 1, 0.35]) }, { name: "Glass panel", fx: fx(k, { shadow: { color: "#0d47a1", opacity: 0.25, angle: 90, distance: 10, blur: 30, spread: 0 } }) }),
+    field(k, "Date & time", 140, 980, 720, 60, "Saturday 12 July · 2—8 pm", { size: 44, font: MONT, weight: 700, color: deep }),
+    field(k, "Place", 140, 1045, 720, 44, "Riverside Lido, Park Lane", { size: 30, font: MONT, weight: 400, color: deep }),
+    field(k, "Note", 140, 1095, 720, 40, "Free entry · bring a towel and a friend", { size: 24, font: MONT, weight: 700, color: "#1565c0" }),
+    shape(k, 300, 1190, 400, 70, rounded(1), { fill: "#1e88e5", stroke: "#0d47a1", strokeWidth: 2, fillGradient: linear(90, "#8fdcff", "#1e88e5", "#1565c0") }, { name: "Button", fx: fx(k, { glow: { color: "#4fc3f7", opacity: 0.7, blur: 16, spread: 0 } }) }),
+    shape(k, 318, 1194, 364, 30, rounded(1), { fill: "#ffffff", stroke: null, fillOpacity: 0.5 }, { name: "Button shine" }),
+    field(k, "Button", 300, 1190, 400, 70, "RSVP · SPLASH.FUN", { size: 26, font: MONT, weight: 700, color: "#ffffff", letterSpacing: 0.08 }, { fx: fx(k, { shadow: { color: deep, opacity: 0.5, angle: 90, distance: 2, blur: 4, spread: 0 } }) }),
+    effect(k, "glow", { threshold: 0.82, radius: 36, intensity: 0.7, soften: 0.3, tint: "#ffffff" }, { name: "Bloom" }),
+  ];
+}
+
 const poster = (t: Omit<Template, "category" | "width" | "height" | "background" | "preview"> & { background?: string | null }): Template => ({
   category: "Stylized",
   width: 2550,
@@ -505,9 +687,16 @@ export const STYLIZED: readonly Template[] = [
   poster({ id: "sty-lecture", name: "Lecture", look: "Minimal", tags: ["talk", "lecture", "conference", "school", "university", "poster", "event"], background: "#f4f4f0", build: lecture }),
   poster({ id: "sty-retreat", name: "Retreat", look: "Minimal", tags: ["yoga", "wellness", "retreat", "workshop", "poster", "event"], background: "#f4e9e1", build: retreat }),
   poster({ id: "sty-jazz", name: "Jazz night", look: "Minimal", tags: ["jazz", "music", "concert", "dinner", "poster", "event"], background: "#000000", build: jazzNight }),
+  poster({ id: "sty-book-reading", name: "Book reading", look: "Minimal", tags: ["book", "reading", "author", "literature", "library", "poster", "event"], background: "#f3efe6", build: bookReading }),
+  poster({ id: "sty-design-week", name: "Design week", look: "Minimal", tags: ["design", "bauhaus", "festival", "workshop", "architecture", "poster", "event"], background: "#f2ede3", build: designWeek }),
+  poster({ id: "sty-tea", name: "Tea ceremony", look: "Minimal", tags: ["tea", "japanese", "ceremony", "workshop", "food", "poster", "event"], background: "#f4efe4", build: teaCeremony }),
+  poster({ id: "sty-terrain", name: "Photo exhibition", look: "Minimal", tags: ["photography", "exhibition", "landscape", "gallery", "map", "poster", "event"], background: "#eef0ea", build: terrain }),
+  poster({ id: "sty-recital", name: "Recital", look: "Minimal", tags: ["classical", "recital", "concert", "music", "cello", "poster", "event"], background: "#131a2e", build: recital }),
+  poster({ id: "sty-open-studios", name: "Open studios", look: "Minimal", tags: ["art", "studios", "open day", "craft", "community", "poster", "event"], background: "#fbf1e1", build: openStudios }),
   poster({ id: "sty-hackathon", name: "Hackathon", look: "Futuristic", tags: ["tech", "hackathon", "meetup", "code", "conference", "poster", "event"], background: "#05060a", build: hackathon }),
   poster({ id: "sty-synth", name: "Electronic festival", look: "Futuristic", tags: ["festival", "electronic", "music", "rave", "techno", "poster", "event"], background: "#7a2bff", build: synthGlass }),
   poster({ id: "sty-launch", name: "Product launch", look: "Futuristic", tags: ["launch", "product", "business", "tech", "poster", "event"], background: "#000000", build: launch }),
   poster({ id: "sty-game-night", name: "Game night", look: "Futuristic", tags: ["gaming", "esports", "tournament", "game", "poster", "event"], background: "#0a0f2c", build: gameNight }),
   poster({ id: "sty-space", name: "Space night", look: "Futuristic", tags: ["space", "astronomy", "stars", "science", "poster", "event"], background: "#03040c", build: spaceNight }),
+  poster({ id: "sty-aero", name: "Frutiger Aero party", look: "Futuristic", tags: ["frutiger aero", "aero", "y2k", "aqua", "glossy", "pool", "summer", "party", "poster", "event"], background: "#42a5f5", build: frutigerAero }),
 ];

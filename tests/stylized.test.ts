@@ -10,8 +10,9 @@ const stylized = TEMPLATES.filter((t) => t.category === "Stylized");
 const hashes: Record<string, string> = JSON.parse(readFileSync("src/features/design/template-previews.json", "utf8"));
 
 describe("stylized posters", () => {
-  it("five of each look, each layered with effects and filled in from labelled fields", () => {
-    for (const look of TEMPLATE_LOOKS) expect(stylized.filter((t) => t.look === look.id), look.id).toHaveLength(5);
+  it("at least five of each look, each layered with effects and filled in from labelled fields", () => {
+    for (const look of TEMPLATE_LOOKS) expect(stylized.filter((t) => t.look === look.id).length, look.id).toBeGreaterThanOrEqual(5);
+    expect(stylized.find((t) => t.id === "sty-aero")).toMatchObject({ look: "Futuristic" });
     for (const t of stylized) {
       const layers = flatten(t.build({ width: t.width, height: t.height }));
       expect(layers.some((l) => l.kind === "effect"), t.id).toBe(true);

@@ -1725,13 +1725,14 @@ test.describe("stylized templates", () => {
     await fresh(page);
     await go(page, "Design");
     await page.getByRole("button", { name: "Stylized", exact: true }).click();
-    for (const look of ["Crazy", "Minimal", "Futuristic"]) {
+    for (const [look, count] of [["Crazy", 5], ["Minimal", 11], ["Futuristic", 6]] as const) {
       const group = page.getByRole("group", { name: new RegExp(`^${look}`) });
-      await expect(group.locator(".template-card")).toHaveCount(5);
+      await expect(group.locator(".template-card")).toHaveCount(count);
     }
+    await expect(page.locator(".template-card", { hasText: "Frutiger Aero party" })).toBeVisible();
     // The previews are renders (effects included), and every one loads.
     const images = page.locator(".template-grid.stylized img.template-sketch");
-    await expect(images).toHaveCount(15);
+    await expect(images).toHaveCount(22);
     for (const img of await images.all()) {
       await img.scrollIntoViewIfNeeded();
       await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(300);
