@@ -1709,3 +1709,84 @@ test.describe("phone: paste onto the slide in use", () => {
     await expect.poll(async () => (await docLayers(page)).filter((l) => l.name === "Star").map((l) => Math.floor(l.transform.x / 1080)).sort()).toEqual([0, 1]);
   });
 });
+
+/** The open design's text layers with a fill-in label, as [label, text, size]. */
+const fieldTexts = (page: Page) =>
+  page.evaluate(async (): Promise<[string, string, number][]> => {
+    const { composite } = await import("/src/core/document/session.ts" as string);
+    const { flatten } = await import("/src/core/document/operations.ts" as string);
+    return flatten(composite.getState().doc.layers)
+      .filter((l: { kind: string; field?: string }) => l.kind === "text" && l.field)
+      .map((l: { field: string; style: { text: string; size: number } }) => [l.field, l.style.text, l.style.size] as [string, string, number]);
+  });
+
+test.describe("stylized templates", () => {
+  test("crazy, minimal and futuristic posters with rendered previews, filled in from one form", async ({ page }) => {
+    await fresh(page);
+    await go(page, "Design");
+    await page.getByRole("button", { name: "Stylized", exact: true }).click();
+    for (const look of ["Crazy", "Minimal", "Futuristic"]) {
+      const group = page.getByRole("group", { name: new RegExp(`^${look}`) });
+      await expect(group.locator(".template-card")).toHaveCount(5);
+    }
+    // The previews are renders (effects included), and every one loads.
+    const images = page.locator(".template-grid.stylized img.template-sketch");
+    await expect(images).toHaveCount(15);
+    for (const img of await images.all()) {
+      await img.scrollIntoViewIfNeeded();
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(300);
+    }
+
+    await page.locator(".template-card", { hasText: "Club night" }).click();
+    const details = page.locator("section.panel", { hasText: "Fill these in" });
+    await expect(details.getByRole("textbox", { name: "Date", exact: true })).toHaveValue("SAT 14 DEC");
+    // Labels come in reading order: the title first, the place last.
+    const labels = await details.locator(".field > span").allTextContents();
+    expect(labels[0]).toBe("Title");
+    expect(labels.at(-1)).toBe("Place");
+
+    // The title and its five depth copies change together.
+    await details.getByRole("textbox", { name: "Title", exact: true }).fill("TECHNO");
+    let texts = await fieldTexts(page);
+    expect(texts.filter(([f]) => f === "Title").map(([, t]) => t)).toEqual(Array(6).fill("TECHNO"));
+    // Long words shrink to fit their box; short ones go back to the designed size.
+    const designed = texts.find(([f]) => f === "Place")![2];
+    await details.getByRole("textbox", { name: "Place", exact: true }).fill("THE VERY LONG NAME OF A WAREHOUSE DOWN BY THE OLD DOCKS, UNIT 21B");
+    texts = await fieldTexts(page);
+    expect(texts.find(([f]) => f === "Place")![2]).toBeLessThan(designed * 0.8);
+    await details.getByRole("textbox", { name: "Place", exact: true }).fill("DOCK 9");
+    texts = await fieldTexts(page);
+    expect(texts.find(([f]) => f === "Place")![2]).toBe(designed);
+    await details.getByRole("textbox", { name: "Date", exact: true }).fill("FRI 9 JAN");
+    await page.screenshot({ path: "test-results/stylized-details.png" });
+
+    // A reload keeps what was filled in.
+    await page.waitForTimeout(800);
+    await page.reload();
+    await go(page, "Design");
+    await page.locator(".design-tile").first().click();
+    await expect(page.getByRole("textbox", { name: "Date", exact: true })).toHaveValue("FRI 9 JAN");
+    await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveValue("TECHNO");
+  });
+
+  test.describe("phone", () => {
+    test.use({ viewport: { width: 390, height: 664 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: IPHONE_UA });
+
+    test("the dock leads with Details for a poster with fields", async ({ page }) => {
+      await fresh(page);
+      await page.getByRole("button", { name: /^Workspace:/ }).tap();
+      await page.getByRole("menuitemradio", { name: "Design" }).tap();
+      await page.getByRole("button", { name: "Stylized", exact: true }).tap();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      await page.screenshot({ path: "test-results/stylized-phone-gallery.png" });
+      await page.locator(".template-card", { hasText: "Gig night" }).tap();
+      const dock = page.getByRole("navigation", { name: "Panels" });
+      await dock.getByRole("button", { name: "Details" }).tap();
+      const sheet = page.getByTestId("sheet");
+      await sheet.getByRole("textbox", { name: "Band", exact: true }).fill("THE NEW NOISE");
+      expect((await fieldTexts(page)).find(([f]) => f === "Band")![1]).toBe("THE NEW NOISE");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      await page.screenshot({ path: "test-results/stylized-phone-details.png" });
+    });
+  });
+});

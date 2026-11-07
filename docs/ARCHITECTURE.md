@@ -428,6 +428,23 @@ fact. A user's templates, elements (and, from phase 5, palettes, gradients, brus
 fonts) live in the `designAssets` store with a folder path; `core/design/assets.ts`
 validates them on every read.
 
+**Stylized templates and the Details form.** The Stylized category (`stylized.ts`) holds
+event posters in three looks, Crazy, Minimal and Futuristic, shown under their own
+headings in the gallery. Each is layered the way a designer builds one: a backdrop group
+whose effect stays inside it (groups keep effects to their own children), artwork, crisp
+type, then a finish over the whole poster. Photo frames carry their treatment as effects
+clipped to them, so a photo put in comes out in the poster's style. Effects don't show in
+a `LayerSketch`, so these templates (`preview: true`) show a rendered WebP from
+`public/templates/` instead, made by `npm run templates:previews` (`previews/`): it opens
+each template the way the app does (`actions.ts: templateDocument`) and renders it with
+the compositor. `template-previews.json` records each preview's fingerprint of the
+template (`template-hash.ts`), and a unit test fails when a template changes without its
+preview being made again. Words people change are text layers with a `field` label
+("Date", "Place"); Design's Details panel (`DetailsPanel.tsx`, first on the phone dock when
+there are fields) lists them as one form in reading order, layers sharing a label change
+together, and words that run long shrink to fit their box and grow back to the size they
+were designed at (`details.ts: fillField`, which records it as `fieldSize`).
+
 **Colours** (`features/color`, shared by Composite and Design): `ColorField` is a swatch
 plus a hex field; its picker has a hue/saturation wheel with brightness, a
 saturation/brightness square with hue, and RGB/HSB values (`lib/hsv.ts`), swatches from

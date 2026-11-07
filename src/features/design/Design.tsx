@@ -18,6 +18,8 @@ import { chooseFiles, pickerAccept } from "@/lib/files";
 import { CanvasPanel, compositeShortcuts, DrawingTools, setTool } from "@/features/composite/Composite";
 import { addLayer, LayersPanel } from "@/features/composite/LayersPanel";
 import { PropertiesPanel } from "@/features/composite/Properties";
+import { detailFields } from "./details";
+import { DetailsPanel } from "./DetailsPanel";
 import { ExportDocumentDialog } from "@/features/composite/ExportDocument";
 import { CompositeView, zoomComposite } from "@/features/composite/View";
 import { EffectsBrowserHost, openEffectsBrowser } from "@/features/effects/EffectsBrowser";
@@ -257,6 +259,8 @@ const editorDock: DockItem[] = [
   { id: "layers", label: "Layers", icon: "layers", side: "right" },
   { id: "effects", label: "Effects", icon: "effects", onSelect: () => openEffectsBrowser() },
 ];
+/** With details to fill in, the dock leads with them (the right sheet opens on the Details form). */
+const detailsDock: DockItem[] = [editorDock[0], { id: "details", label: "Details", icon: "text", side: "right" }, ...editorDock.slice(1)];
 
 export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) {
   const home = useStore(design, (s) => s.home);
@@ -264,6 +268,7 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
   // subscribing to the document re-rendered all of them on every edit.
   const open = useStore(composite, (s) => isDesign(s.doc));
   const editing = !home && open;
+  const hasDetails = useStore(composite, (s) => isDesign(s.doc) && detailFields(s.doc).length > 0);
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState<"template" | "element" | null>(null);
   const managing = useStore(manager, (st) => st.open);
@@ -319,12 +324,13 @@ export default function Design({ Shell }: { Shell: ComponentType<ShellProps> }) 
         right={
           editing ? (
             <>
+              <DetailsPanel />
               <LayersPanel />
               <PropertiesPanel />
             </>
           ) : null
         }
-        dock={editing ? editorDock : homeDock}
+        dock={editing ? (hasDetails ? detailsDock : editorDock) : homeDock}
       />
       <EffectsBrowserHost />
       {exporting && editing && <ExportDocumentDialog onClose={() => setExporting(false)} />}

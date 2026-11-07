@@ -82,6 +82,7 @@ npm run e2e       # end-to-end tests in Chromium (CHROMIUM_PATH=… to use an in
 npm run typecheck
 npm run build
 npm run trailer:capture && npm run trailer:render   # the 60-second trailer (trailer/README.md)
+npm run templates:previews   # renders the Stylized templates' gallery previews (after changing one)
 ```
 
 Chromium-based browsers get the most complete experience: File System Access allows

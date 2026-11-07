@@ -8,11 +8,23 @@ import { importPhotosFromDevice } from "@/features/composite/actions";
 import { collageFromPhotos, startMyTemplate, startTemplate } from "./actions";
 import { sizeLabel } from "./presets";
 import { LayerSketch } from "./preview";
-import { matchesTemplate, type Template, TEMPLATE_CATEGORIES, type TemplateCategory, TEMPLATES } from "./templates";
+import { matchesTemplate, type Template, TEMPLATE_CATEGORIES, TEMPLATE_LOOKS, type TemplateCategory, TEMPLATES } from "./templates";
 
 /** Template previews, drawn once each. */
 const previews = new Map<string, React.ReactNode>();
 export function TemplatePreview({ t }: { t: Template }) {
+  if (t.preview) return <RenderedPreview t={t} />;
+  return <TemplateSketch t={t} />;
+}
+
+/** A template whose effects only show rendered: its preview image, or the sketch if the image can't load. */
+function RenderedPreview({ t }: { t: Template }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <TemplateSketch t={t} />;
+  return <img className="template-sketch" src={`${import.meta.env.BASE_URL}templates/${t.id}.webp`} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />;
+}
+
+function TemplateSketch({ t }: { t: Template }) {
   let node = previews.get(t.id);
   if (!node) {
     node = <LayerSketch className="template-sketch" width={t.width} height={t.height} background={t.background ?? "#ffffff"} layers={t.build({ width: t.width, height: t.height })} />;
@@ -152,16 +164,33 @@ export function TemplatesSection({ query }: { query: string }) {
           ))}
         </div>
       )}
-      <div className="template-grid">
-        {myShown.map((a) => (
-          <MyTemplateCard key={a.id} asset={a} />
-        ))}
-        {!q && (category === "Collages" || category === "All") && <CollageCard />}
-        {shown.map((t) => (
-          <TemplateCard key={t.id} t={t} />
-        ))}
-        {q && !shown.length && !myShown.length && <p className="faint">No template matches “{query}”.</p>}
-      </div>
+      {!q && category === "Stylized" ? (
+        TEMPLATE_LOOKS.map((look) => (
+          <div key={look.id} className="template-look" role="group" aria-labelledby={`look-${look.id}`}>
+            <h3 id={`look-${look.id}`}>
+              {look.id} <span className="faint">{look.blurb}</span>
+            </h3>
+            <div className="template-grid stylized">
+              {shown
+                .filter((t) => t.look === look.id)
+                .map((t) => (
+                  <TemplateCard key={t.id} t={t} />
+                ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="template-grid">
+          {myShown.map((a) => (
+            <MyTemplateCard key={a.id} asset={a} />
+          ))}
+          {!q && (category === "Collages" || category === "All") && <CollageCard />}
+          {shown.map((t) => (
+            <TemplateCard key={t.id} t={t} />
+          ))}
+          {q && !shown.length && !myShown.length && <p className="faint">No template matches “{query}”.</p>}
+        </div>
+      )}
     </section>
   );
 }

@@ -249,7 +249,17 @@ export type ImageLayer = LayerBase & {
 };
 export type FillLayer = LayerBase & { readonly kind: "fill"; readonly color: string };
 export type GradientLayer = LayerBase & { readonly kind: "gradient"; readonly gradient: Gradient };
-export type TextLayer = LayerBase & { readonly kind: "text"; readonly style: TextStyle };
+export type TextLayer = LayerBase & {
+  readonly kind: "text";
+  readonly style: TextStyle;
+  /**
+   * A detail people fill in ("Date", "Place"): templates label their words this way, and
+   * Design's Details form lists every labelled text to fill in at once.
+   */
+  readonly field?: string;
+  /** The size a field's words were designed at: filled in, they shrink below it to fit their box and grow back up to it. */
+  readonly fieldSize?: number;
+};
 export type ShapeLayer = LayerBase & { readonly kind: "shape"; readonly style: ShapeStyle };
 export type AdjustmentLayer = LayerBase & { readonly kind: "adjustment"; readonly adjustment: Adjustment };
 /** A stylization effect (ASCII, halftone, glass…) applied to everything below it, like an adjustment. */

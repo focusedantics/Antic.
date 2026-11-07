@@ -112,6 +112,12 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 .template-name { padding-right: 26px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .collage-plus { background: var(--panel-2); color: var(--accent-strong); }
 .workspace.compact .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Stylized: one row per look, bigger cards so the effects read. */
+.template-look + .template-look { margin-top: 18px; }
+.template-look h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--text); }
+.template-look h3 .faint { margin-left: 6px; font-size: 12px; font-weight: 400; }
+.template-grid.stylized { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+img.template-sketch { object-fit: cover; }
 .element-mine { position: relative; }
 .element-mine .element-tile { width: 100%; }
 .element-more { position: absolute; top: 2px; right: 2px; }
@@ -181,3 +187,7 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 .carousel-dots i { width: 6px; height: 6px; border-radius: 50%; background: #fff5; }
 .carousel-dots i[data-on] { background: #3d8bfd; }
 .carousel-actions { display: flex; gap: 10px; }
+
+/* Details: the design's fill-in fields */
+.details-form { display: flex; flex-direction: column; gap: 8px; }
+.details-form textarea { width: 100%; resize: vertical; min-height: 30px; font: inherit; line-height: 1.3; }

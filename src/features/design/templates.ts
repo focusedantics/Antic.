@@ -3,13 +3,14 @@ import type { CompositeDocument, Gradient, Layer } from "@/core/document/model";
 import { canvasTransform, gradientLayer } from "@/core/document/operations";
 import { ELEMENTS } from "./elements";
 import { frame, fx, kit, type Kit, path, shape, text, trace } from "./kit";
+import { STYLIZED } from "./stylized";
 
 /**
  * Starting points: original templates written as code (no stock images; photos go in
  * frames the user fills). Each is drawn at its own size; `build` lays it out on a
  * document of that size.
  */
-export type TemplateCategory = "Posts" | "Carousels" | "Stories" | "Wallpapers" | "Flyers & posters" | "Invitations & cards" | "Business" | "Thumbnails & banners" | "Collages";
+export type TemplateCategory = "Stylized" | "Posts" | "Carousels" | "Stories" | "Wallpapers" | "Flyers & posters" | "Invitations & cards" | "Business" | "Thumbnails & banners" | "Collages";
 export type Template = {
   readonly id: string;
   readonly name: string;
@@ -21,9 +22,21 @@ export type Template = {
   /** A carousel: `width` is all its slides side by side. */
   readonly slides?: number;
   readonly build: (doc: Pick<CompositeDocument, "width" | "height">) => Layer[];
+  /** Stylized templates: which of the section's three looks it is. */
+  readonly look?: TemplateLook;
+  /** Shown by a rendered preview (public/templates/<id>.webp, `npm run templates:previews`): its effects don't show in a sketch. */
+  readonly preview?: boolean;
 };
 
-export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = ["Posts", "Carousels", "Stories", "Wallpapers", "Flyers & posters", "Invitations & cards", "Business", "Thumbnails & banners", "Collages"];
+/** The Stylized section's looks, in the order the gallery shows them. */
+export type TemplateLook = "Crazy" | "Minimal" | "Futuristic";
+export const TEMPLATE_LOOKS: readonly { id: TemplateLook; blurb: string }[] = [
+  { id: "Crazy", blurb: "Loud, layered and printed wrong on purpose" },
+  { id: "Minimal", blurb: "One striking idea and a lot of room" },
+  { id: "Futuristic", blurb: "Chrome, glass, light and screens" },
+];
+
+export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = ["Stylized", "Posts", "Carousels", "Stories", "Wallpapers", "Flyers & posters", "Invitations & cards", "Business", "Thumbnails & banners", "Collages"];
 
 const ANTON = "Anton, Impact, sans-serif";
 const BEBAS = "'Bebas Neue', Impact, sans-serif";
@@ -115,6 +128,7 @@ function playingCard(k: Kit): Layer[] {
 }
 
 export const TEMPLATES: readonly Template[] = [
+  ...STYLIZED,
   // ─── Posts (1080 × 1080 / 1350) ───
   {
     id: "post-big-news",
@@ -838,5 +852,5 @@ export const TEMPLATES: readonly Template[] = [
 ];
 
 /** A template's matching text (name, category, tags) contains the query. */
-export const matchesTemplate = (t: Template, q: string) => !q || [t.name, t.category, ...t.tags].some((s) => s.toLowerCase().includes(q));
+export const matchesTemplate = (t: Template, q: string) => !q || [t.name, t.category, t.look ?? "", ...t.tags].some((s) => s.toLowerCase().includes(q));
 

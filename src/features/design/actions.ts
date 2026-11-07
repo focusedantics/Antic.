@@ -79,12 +79,17 @@ export async function addPhotosFromDevice() {
 
 /** Starts a design from a built-in template (fonts loaded first so text boxes fit). */
 export async function startTemplate(t: Template) {
+  startFrom(await templateDocument(t));
+}
+
+/** A new design from a template, its fonts loaded (also used to render the template previews). */
+export async function templateDocument(t: Template): Promise<CompositeDocument> {
   const base = createDocument(t.width, t.height, t.name, t.background, "design");
   const doc = t.slides && t.slides > 1 ? { ...base, carousel: { slides: t.slides } } : base;
   // A fresh link for linked frames, so two designs from one template are not tied together.
   const layers = relinkFrames(t.build(doc));
   await loadFonts(layerFonts(layers), 3000);
-  startFrom({ ...doc, layers: layers.map(fitTextBoxes) });
+  return { ...doc, layers: layers.map(fitTextBoxes) };
 }
 
 /** A collage of `ids` (Library photos) on a new design of `size`. */

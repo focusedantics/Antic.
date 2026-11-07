@@ -858,6 +858,8 @@ function sanitizeLayer(v: unknown, doc: { width: number; height: number }, depth
               }
             : {}),
         },
+        ...(typeof l.field === "string" && l.field.trim() ? { field: str(l.field.trim(), "", 40) } : {}),
+        ...(typeof l.fieldSize === "number" && Number.isFinite(l.fieldSize) ? { fieldSize: num(l.fieldSize, 96, 1, 5000) } : {}),
       };
     }
     case "path": {

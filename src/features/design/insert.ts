@@ -1,5 +1,5 @@
 import { ontoWorkingSlide } from "@/features/composite/slide";
-import type { Layer, TextLayer } from "@/core/document/model";
+import type { Layer, TextLayer, TextStyle } from "@/core/document/model";
 import { flatten, insertLayer } from "@/core/document/operations";
 import { composite, editDocument } from "@/core/document/session";
 import { fontShorthand, shownText } from "@/core/text/draw";
@@ -11,14 +11,12 @@ import { loadFonts } from "@/core/text/fonts";
  * Boxes grow around their centre and never shrink.
  */
 export function fitTextBoxes(layer: Layer): Layer {
-  const ctx = new OffscreenCanvas(1, 1).getContext("2d")!;
   const fit = (l: Layer): Layer => {
     if (l.kind === "group") return { ...l, children: l.children.map(fit) };
     if (l.kind !== "text" || l.transform.corners) return l;
     const s = l.style;
-    ctx.font = fontShorthand(s);
     const lines = shownText(s).split("\n");
-    const width = Math.max(...lines.map((t) => ctx.measureText(t).width + s.letterSpacing * s.size * Math.max(0, [...t].length - 1)));
+    const width = textWidth(s);
     const pad = s.highlight ? s.highlight.padding * s.size * 2 : 0;
     const need = width * 1.04 + pad + s.size * 0.1;
     const height = s.size * s.lineHeight * (lines.length - 1) + s.size * 1.25 + pad;
@@ -27,6 +25,14 @@ export function fitTextBoxes(layer: Layer): Layer {
       : l;
   };
   return fit(layer);
+}
+
+let measurer: OffscreenCanvasRenderingContext2D | null = null;
+/** The width of a text style's widest line in its real font, letter spacing included (canvas px). */
+export function textWidth(s: TextStyle): number {
+  measurer ??= new OffscreenCanvas(1, 1).getContext("2d")!;
+  measurer.font = fontShorthand(s);
+  return Math.max(...shownText(s).split("\n").map((t) => measurer!.measureText(t).width + s.letterSpacing * s.size * Math.max(0, [...t].length - 1)));
 }
 
 /** Every font a layer tree uses. */
