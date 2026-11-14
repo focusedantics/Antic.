@@ -5,7 +5,8 @@
  * size (that skips demosaicing, and there is none), so a 48-megapixel one takes about
  * a gigabyte inside the decoder: more than iOS lets a web page have.
  *
- * Reads tags only (IFD0, the IFDs chained after it and their SubIFDs), never pixels.
+ * Reads tags only (IFD0, the IFDs chained after it and their SubIFDs), never pixels, and
+ * copes with being given only the start of the file (where the tags are).
  */
 export function rawImageInfo(bytes: Uint8Array): { linear: boolean; width: number; height: number } | null {
   if (bytes.length < 8) return null;
@@ -15,7 +16,9 @@ export function rawImageInfo(bytes: Uint8Array): { linear: boolean; width: numbe
   const u16 = (at: number) => view.getUint16(at, little);
   const u32 = (at: number) => view.getUint32(at, little);
   if (u16(2) !== 42) return null;
-  let best = { width: 0, height: 0, photometric: 0 };
+  // The main image is the largest marked full resolution (NewSubFileType 0): a DNG can also
+  // hold a preview as big as it (marked 1), which must not hide that the RAW is linear.
+  let best = { width: 0, height: 0, photometric: 0, main: false };
   const seen = new Set<number>();
   const walk = (offset: number, depth: number) => {
     for (let ifd = offset; ifd > 0 && ifd + 2 <= bytes.length && !seen.has(ifd) && depth < 4; ) {
@@ -25,6 +28,7 @@ export function rawImageInfo(bytes: Uint8Array): { linear: boolean; width: numbe
       let width = 0;
       let height = 0;
       let photometric = 0;
+      let subfile = 0;
       const subs: number[] = [];
       for (let i = 0; i < count; i++) {
         const at = ifd + 2 + i * 12;
@@ -36,13 +40,15 @@ export function rawImageInfo(bytes: Uint8Array): { linear: boolean; width: numbe
         if (tag === 256) width = value;
         else if (tag === 257) height = value;
         else if (tag === 262) photometric = type === 3 ? u16(at + 8) : value;
+        else if (tag === 254) subfile = value;
         else if (tag === 330) {
           // SubIFDs: one offset in the entry, or a list of LONG offsets elsewhere.
           if (n === 1) subs.push(u32(at + 8));
           else for (let j = 0, list = u32(at + 8); j < n && list + j * 4 + 4 <= bytes.length; j++) subs.push(u32(list + j * 4));
         }
       }
-      if (width * height > best.width * best.height) best = { width, height, photometric };
+      const main = subfile === 0;
+      if ((main && !best.main) || (main === best.main && width * height > best.width * best.height)) best = { width, height, photometric, main };
       for (const sub of subs) walk(sub, depth + 1);
       ifd = u32(ifd + 2 + count * 12);
     }

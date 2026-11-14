@@ -107,7 +107,7 @@ test.describe("iPhone", () => {
       for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       return btoa(s);
     });
-    const proraw = testDng(8064, 6048, { linear: true, pixels: false, preview: Buffer.from(jpeg, "base64") });
+    const proraw = testDng(8064, 6048, { linear: true, pixels: false, previewIfd: true, preview: Buffer.from(jpeg, "base64") });
     await page.getByRole("button", { name: /^Workspace:/ }).tap();
     await page.getByRole("menuitemradio", { name: "Design" }).tap();
     await page.getByRole("button", { name: /^Instagram post 1080/ }).tap();

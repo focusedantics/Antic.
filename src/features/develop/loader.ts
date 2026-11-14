@@ -100,7 +100,6 @@ export async function showInDevelop(assetId: AssetId) {
   if (!asset) return;
   // Decoded already, as fully as Develop works (a design's smaller copy is decoded again).
   if (engine.hasFullSource(assetId)) {
-    if (engine.isFromPreview(assetId)) sayFromPreview();
     const src = engine.sourceFor(assetId)!;
     sourceDecoded(assetId, src.info, asset.kind === "raw" ? "raw" : "rendered", src.size);
     engine.requestRender();

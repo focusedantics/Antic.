@@ -238,11 +238,14 @@ GPU: nothing of a photo stays on the CPU. Composite and Design work from a copy 
 fraction of the GPU memory), and Develop decodes the photo again in full when it opens a
 copy smaller than it works at (`hasFullSource`). A RAW larger than the GPU's biggest
 texture is shrunk on the CPU before upload (`gpu/shrink.ts`, area averaging, a row at a
-time): WebGL refuses the texture outright, and the photo showed black. Phones never decode
-a linear RAW over 24 MP (iPhone ProRAW and the like: already RGB, so LibRaw can't halve it,
-and a 48 MP one takes about a gigabyte inside the decoder, after which iOS ends the page);
-`image/raw-kind.ts` reads that from the DNG's tags, and the photo comes from its 2560 px
-catalog preview instead (`LoadedSource.fromPreview`; Develop says so). After a lost WebGL
+time): WebGL refuses the texture outright, and the photo showed black. On phones, RAWs in
+compositions and designs come from their 2560 px catalog preview (`loadCompositionSource`):
+the original isn't even read, since a whole ProRAW in memory is enough for iOS to reload the
+page. Develop on a phone decodes the RAW, except a linear one over 24 MP (iPhone ProRAW and
+the like: already RGB, so LibRaw can't halve it, and a 48 MP one takes about a gigabyte
+inside the decoder); `image/raw-kind.ts` reads that from the first 4 MB (the tags; the
+full-resolution image, not a same-size preview), and Develop edits the preview and says so
+(`LoadedSource.fromPreview`). After a lost WebGL
 context the photos still in use are decoded again from their originals, at most 4096 px
 and half that after each further loss, so a photo too big for the GPU can't take the view
 down again and again; the app says so (`GPU_RESET_EVENT`). An error while drawing the app

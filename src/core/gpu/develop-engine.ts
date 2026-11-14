@@ -12,7 +12,7 @@ import { fullCrop } from "@/core/develop/defaults";
 import { outputSize, type Size } from "@/core/develop/geometry";
 import type { DevelopRecipe } from "@/core/develop/recipe";
 import { currentHistory, develop, type Histogram, recipeFor } from "@/core/develop/session";
-import { type LoadedSource, loadSource } from "@/core/develop/source-loader";
+import { type LoadedSource, loadCompositionSource, loadSource } from "@/core/develop/source-loader";
 import type { CompositeDocument } from "@/core/document/model";
 import { effectById } from "@/core/effects/registry";
 import { EffectRunner } from "@/core/effects/runtime";
@@ -209,7 +209,7 @@ export class DevelopEngine {
       if (asset) {
         this.loadingSources.add(assetId);
         const side = Math.min(COMPOSITE_MAX_SIDE, this.workingSide);
-        void loadSource(asset, undefined, false, side)
+        void loadCompositionSource(asset, side)
           .then((data) => this.setSource(assetId, data, data.quality, side))
           .catch((error) => console.warn(`Could not load ${asset.fileName} for the composition:`, error))
           .finally(() => this.loadingSources.delete(assetId));
@@ -260,8 +260,9 @@ export class DevelopEngine {
       const stillUsed = id === develop.getState().assetId || this.warm.has(id) || this.inComposition().has(id);
       if (!stillUsed) continue;
       try {
-        const side = this.inComposition().has(id) && id !== develop.getState().assetId ? Math.min(COMPOSITE_MAX_SIDE, this.workingSide) : this.workingSide;
-        const loaded = await loadSource(asset, undefined, true, side);
+        const forComposition = this.inComposition().has(id) && id !== develop.getState().assetId;
+        const side = forComposition ? Math.min(COMPOSITE_MAX_SIDE, this.workingSide) : this.workingSide;
+        const loaded = forComposition ? await loadCompositionSource(asset, side, true) : await loadSource(asset, undefined, true, side);
         if (this.lost) {
           releaseDecoded(loaded);
           return;
@@ -329,7 +330,7 @@ export class DevelopEngine {
   /** Whether the photo is on the GPU decoded as fully as Develop works (not a preview, not a design's smaller copy). */
   hasFullSource(assetId: AssetId) {
     const s = this.sources.get(assetId);
-    return !!s && s.quality !== "preview" && s.maxSide >= this.workingSide;
+    return !!s && s.quality !== "preview" && !s.fromPreview && s.maxSide >= this.workingSide;
   }
 
   sourceFor(assetId: AssetId) {

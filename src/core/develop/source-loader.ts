@@ -25,6 +25,29 @@ export type LoadedSource = {
  * Those are shown from their 2560 px preview instead.
  */
 export const LITE_LINEAR_RAW_PIXELS = 24e6;
+/** How much of a RAW is read to learn its layout: its tags sit at the start. */
+const HEADER_BYTES = 4 * 1024 * 1024;
+
+/** A RAW shown from its catalog preview, keeping its full size (crops, zoom and radii stay true). */
+async function previewStandIn(asset: Asset, layout?: { width: number; height: number }): Promise<LoadedSource | null> {
+  const preview = await loadPreviewSource(asset);
+  if (!preview || preview.data.kind !== "image") return null;
+  const full = { width: asset.width ?? layout?.width ?? preview.data.width, height: asset.height ?? layout?.height ?? preview.data.height };
+  return { ...preview, data: { ...preview.data, fullWidth: full.width, fullHeight: full.height }, fromPreview: true };
+}
+
+/**
+ * A photo for a composition or design. Phones draw RAWs from their 2560 px preview: the
+ * original is not even read (a whole ProRAW in memory is enough for iOS to reload the
+ * page), and a design on a phone rarely needs more. Develop decodes the RAW itself.
+ */
+export async function loadCompositionSource(asset: Asset, maxSide = device.maxSide, quiet = false): Promise<LoadedSource> {
+  if (device.lite && asset.kind === "raw") {
+    const preview = await previewStandIn(asset);
+    if (preview) return preview;
+  }
+  return loadSource(asset, undefined, quiet, maxSide);
+}
 
 /**
  * Decodes an asset's original for development. Camera RAW goes through LibRaw as
@@ -53,15 +76,16 @@ async function decodeSource(asset: Asset, maxSide: number, signal?: AbortSignal)
     const long = Math.max(asset.width ?? 0, asset.height ?? 0);
     // Half size skips demosaicing: a quarter of the memory, and still at least the working size.
     const halfSize = long > 0 && long / 2 >= Math.min(maxSide, 8192) * 0.7;
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const layout = device.lite ? rawImageInfo(bytes) : null;
-    if (layout?.linear && layout.width * layout.height > LITE_LINEAR_RAW_PIXELS) {
-      const preview = await loadPreviewSource(asset);
-      if (preview && preview.data.kind === "image") {
-        const full = { width: asset.width ?? layout.width, height: asset.height ?? layout.height };
-        return { ...preview, data: { ...preview.data, fullWidth: full.width, fullHeight: full.height }, fromPreview: true };
+    if (device.lite) {
+      // Decided from the first few MB: on iOS, reading a whole 75 MB ProRAW into memory is
+      // enough by itself to have the page reloaded.
+      const layout = rawImageInfo(new Uint8Array(await blob.slice(0, HEADER_BYTES).arrayBuffer()));
+      if (layout?.linear && layout.width * layout.height > LITE_LINEAR_RAW_PIXELS) {
+        const preview = await previewStandIn(asset, layout);
+        if (preview) return preview;
       }
     }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     const { image, metadata } = await decodeRaw(bytes, { output: "linear", halfSize });
     signal?.throwIfAborted();
     const color = metadata?.color_data;

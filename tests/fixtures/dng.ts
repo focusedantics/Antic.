@@ -3,9 +3,14 @@
  * smooth colour pattern, as LibRaw reads it. Big ones stand in for real 24–60 megapixel RAWs.
  * `linear` writes it the way iPhone ProRAW does (already RGB, PhotometricInterpretation
  * "linear raw"); `preview` appends an embedded JPEG; `pixels: false` declares the size but
- * stores no pixel data (for paths that must never decode it).
+ * stores no pixel data (for paths that must never decode it); `previewIfd` puts a
+ * same-size preview's tags first (IFD0), as real DNGs do, with the RAW chained after it.
  */
-export function testDng(width: number, height: number, { linear = false, preview, pixels: withPixels = true }: { linear?: boolean; preview?: Buffer; pixels?: boolean } = {}): Buffer {
+export function testDng(
+  width: number,
+  height: number,
+  { linear = false, preview, pixels: withPixels = true, previewIfd = false }: { linear?: boolean; preview?: Buffer; pixels?: boolean; previewIfd?: boolean } = {},
+): Buffer {
   const channels = linear ? 3 : 1;
   const pixels = new Uint16Array(withPixels ? width * height * channels : 0);
   if (withPixels)
@@ -53,7 +58,28 @@ export function testDng(width: number, height: number, { linear = false, preview
   const ifd = Buffer.alloc(ifdBytes);
   ifd.writeUInt16LE(tags.length, 0);
   const extras: Buffer[] = [];
-  let next = 8 + ifdBytes;
+  // IFD0: the preview's tags (reduced-resolution image, YCbCr JPEG), chained to the RAW's IFD.
+  const previewTags: [number, number, number][] = [
+    [254, 4, 1],
+    [256, 4, width],
+    [257, 4, height],
+    [259, 3, 7],
+    [262, 3, 6],
+  ];
+  const lead = previewIfd ? Buffer.alloc(2 + previewTags.length * 12 + 4) : Buffer.alloc(0);
+  const start = 8 + lead.length;
+  if (previewIfd) {
+    lead.writeUInt16LE(previewTags.length, 0);
+    previewTags.forEach(([tag, type, v], i) => {
+      lead.writeUInt16LE(tag, 2 + i * 12);
+      lead.writeUInt16LE(type, 4 + i * 12);
+      lead.writeUInt32LE(1, 6 + i * 12);
+      if (type === 3) lead.writeUInt16LE(v, 10 + i * 12);
+      else lead.writeUInt32LE(v, 10 + i * 12);
+    });
+    lead.writeUInt32LE(start, lead.length - 4);
+  }
+  let next = start + ifdBytes;
   let stripAt = 0;
   tags.forEach(([tag, type, values], i) => {
     const at = 2 + i * 12;
@@ -83,5 +109,5 @@ export function testDng(width: number, height: number, { linear = false, preview
   });
   ifd.writeUInt32LE(next, stripAt);
   const header = Buffer.from([0x49, 0x49, 42, 0, 8, 0, 0, 0]);
-  return Buffer.concat([header, ifd, ...extras, Buffer.from(pixels.buffer), ...(preview ? [preview] : [])]);
+  return Buffer.concat([header, lead, ifd, ...extras, Buffer.from(pixels.buffer), ...(preview ? [preview] : [])]);
 }
