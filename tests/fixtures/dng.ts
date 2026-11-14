@@ -1,34 +1,45 @@
 /**
  * A camera-style RAW for tests: an uncompressed RGGB Bayer DNG of `width × height` with a
  * smooth colour pattern, as LibRaw reads it. Big ones stand in for real 24–60 megapixel RAWs.
+ * `linear` writes it the way iPhone ProRAW does (already RGB, PhotometricInterpretation
+ * "linear raw"); `preview` appends an embedded JPEG; `pixels: false` declares the size but
+ * stores no pixel data (for paths that must never decode it).
  */
-export function bayerDng(width: number, height: number): Buffer {
-  const pixels = new Uint16Array(width * height);
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      const r = 0.5 + 0.5 * Math.sin(x / 300);
-      const g = 0.5 + 0.5 * Math.sin(y / 200 + x / 900);
-      const b = 0.5 + 0.5 * Math.cos((x + y) / 500);
-      pixels[y * width + x] = Math.round(512 + (y % 2 === 0 ? (x % 2 === 0 ? r : g) : x % 2 === 0 ? g : b) * 14000);
-    }
+export function testDng(width: number, height: number, { linear = false, preview, pixels: withPixels = true }: { linear?: boolean; preview?: Buffer; pixels?: boolean } = {}): Buffer {
+  const channels = linear ? 3 : 1;
+  const pixels = new Uint16Array(withPixels ? width * height * channels : 0);
+  if (withPixels)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const r = 0.5 + 0.5 * Math.sin(x / 300);
+        const g = 0.5 + 0.5 * Math.sin(y / 200 + x / 900);
+        const b = 0.5 + 0.5 * Math.cos((x + y) / 500);
+        const at = (y * width + x) * channels;
+        if (linear) pixels.set([r, g, b].map((v) => Math.round(512 + v * 14000)), at);
+        else pixels[at] = Math.round(512 + (y % 2 === 0 ? (x % 2 === 0 ? r : g) : x % 2 === 0 ? g : b) * 14000);
+      }
   // [tag, type, values]: type 1 BYTE, 2 ASCII, 3 SHORT, 4 LONG, 5 RATIONAL, 10 SRATIONAL.
   const ascii = (s: string) => [...Buffer.from(`${s}\0`)];
   const tags: [number, number, (number | [number, number])[]][] = [
     [254, 4, [0]],
     [256, 4, [width]],
     [257, 4, [height]],
-    [258, 3, [16]],
+    [258, 3, linear ? [16, 16, 16] : [16]],
     [259, 3, [1]],
-    [262, 3, [32803]], // CFA
+    [262, 3, [linear ? 34892 : 32803]], // linear raw, or CFA
     [271, 2, ascii("Focused")],
     [272, 2, ascii("Test Bayer")],
     [273, 4, [0]], // strip offset, set below
-    [277, 3, [1]],
+    [277, 3, [channels]],
     [278, 4, [height]],
-    [279, 4, [width * height * 2]],
+    [279, 4, [width * height * 2 * channels]],
     [284, 3, [1]],
-    [33421, 3, [2, 2]],
-    [33422, 1, [0, 1, 1, 2]], // RGGB
+    ...(linear
+      ? []
+      : ([
+          [33421, 3, [2, 2]],
+          [33422, 1, [0, 1, 1, 2]], // RGGB
+        ] as [number, number, number[]][])),
     [50706, 1, [1, 4, 0, 0]],
     [50708, 2, ascii("Focused Test Bayer")],
     [50714, 3, [512]],
@@ -72,5 +83,5 @@ export function bayerDng(width: number, height: number): Buffer {
   });
   ifd.writeUInt32LE(next, stripAt);
   const header = Buffer.from([0x49, 0x49, 42, 0, 8, 0, 0, 0]);
-  return Buffer.concat([header, ifd, ...extras, Buffer.from(pixels.buffer)]);
+  return Buffer.concat([header, ifd, ...extras, Buffer.from(pixels.buffer), ...(preview ? [preview] : [])]);
 }

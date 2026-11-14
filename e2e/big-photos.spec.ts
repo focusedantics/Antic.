@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { bayerDng } from "../tests/fixtures/dng";
+import { testDng } from "../tests/fixtures/dng";
 
 /**
  * Camera RAWs bigger than the GPU can hold in one texture (this browser's limit is 8192 px),
@@ -12,7 +12,7 @@ async function openDesignWithRaw(page: Page) {
   await page.getByRole("navigation", { name: "Workspaces" }).getByRole("button", { name: /^Design/ }).click();
   await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByRole("button", { name: "Photo from device" }).click()]);
-  await chooser.setFiles({ name: "wide.dng", mimeType: "image/x-adobe-dng", buffer: bayerDng(8400, 1400) });
+  await chooser.setFiles({ name: "wide.dng", mimeType: "image/x-adobe-dng", buffer: testDng(8400, 1400) });
   await expect.poll(() => source(page), { timeout: 60_000 }).not.toBeNull();
 }
 
@@ -76,4 +76,56 @@ test("an error while drawing shows a message and a reload button, not a black pa
   });
   await expect(page.getByRole("alert")).toContainText("Something went wrong");
   await expect(page.getByRole("button", { name: "Reload" })).toBeVisible();
+});
+
+test.describe("iPhone", () => {
+  test.use({
+    viewport: { width: 390, height: 664 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  });
+
+  test("a 48-megapixel ProRAW goes into a design from its preview, without decoding the RAW", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    page.on("crash", () => errors.push("crashed"));
+    await page.addInitScript(() => localStorage.setItem("focused:prefs", JSON.stringify({ backdrop: false, tourDone: true })));
+    await page.goto("/");
+    // A ProRAW: linear RAW tags for 8064 × 6048, and the embedded JPEG preview every ProRAW carries.
+    const jpeg = await page.evaluate(async () => {
+      const c = new OffscreenCanvas(2016, 1512);
+      const g = c.getContext("2d")!;
+      const sky = g.createLinearGradient(0, 0, 0, 1512);
+      sky.addColorStop(0, "#2f7dd1");
+      sky.addColorStop(1, "#bfe3ff");
+      g.fillStyle = sky;
+      g.fillRect(0, 0, 2016, 1512);
+      const bytes = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.9 })).arrayBuffer());
+      let s = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(s);
+    });
+    const proraw = testDng(8064, 6048, { linear: true, pixels: false, preview: Buffer.from(jpeg, "base64") });
+    await page.getByRole("button", { name: /^Workspace:/ }).tap();
+    await page.getByRole("menuitemradio", { name: "Design" }).tap();
+    await page.getByRole("button", { name: /^Instagram post 1080/ }).tap();
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Add" }).tap();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.getByTestId("sheet").getByRole("button", { name: "Photo from device" }).tap()]);
+    await chooser.setFiles({ name: "IMG_0175.DNG", mimeType: "image/x-adobe-dng", buffer: proraw });
+
+    // Drawn from the 2016 px preview (the file holds no pixels LibRaw could have decoded), and drawn.
+    await expect.poll(() => source(page), { timeout: 60_000 }).toMatchObject({ width: 2016 });
+    await expect.poll(() => brightness(page), { timeout: 20_000 }).toBeGreaterThan(80);
+    expect(errors).toEqual([]);
+
+    // Develop says it is editing the preview.
+    await page.getByRole("navigation", { name: "Panels" }).getByRole("button", { name: "Layers" }).tap();
+    await page.getByTestId("sheet").getByRole("button", { name: "Open in Develop" }).tap();
+    await expect(page.getByText(/too large to decode on a phone/)).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Got it" }).tap();
+    await expect(page.getByText(/too large to decode on a phone/)).toBeHidden();
+    expect(errors).toEqual([]);
+  });
 });

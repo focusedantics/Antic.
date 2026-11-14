@@ -34,7 +34,7 @@ type Rect = { x: number; y: number; width: number; height: number };
 import * as S from "./shaders/passes";
 
 /** A photo on the GPU: how it was decoded, and the long side it was capped at. */
-type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered"; maxSide: number };
+type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered"; maxSide: number; fromPreview?: boolean };
 
 /**
  * Photos in Composite and Design work from a copy of at most this many px on the long
@@ -321,6 +321,11 @@ export class DevelopEngine {
     return !!s && (!quality || s.quality === quality);
   }
 
+  /** Whether the photo stands in for a RAW too big to decode on this device (see `loadSource`). */
+  isFromPreview(assetId: AssetId) {
+    return !!this.sources.get(assetId)?.fromPreview;
+  }
+
   /** Whether the photo is on the GPU decoded as fully as Develop works (not a preview, not a design's smaller copy). */
   hasFullSource(assetId: AssetId) {
     const s = this.sources.get(assetId);
@@ -343,7 +348,7 @@ export class DevelopEngine {
     } finally {
       releaseDecoded(data);
     }
-    this.sources.set(assetId, { gpu, quality, maxSide: side });
+    this.sources.set(assetId, { gpu, quality, maxSide: side, fromPreview: data.fromPreview });
     if (old) this.pipeline.disposeSource(old.gpu);
     this.evict(assetId);
     this.invalidate();

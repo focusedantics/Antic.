@@ -5,6 +5,7 @@ import type { SourceData } from "@/core/gpu/pipeline";
 import { decodeAtMost } from "@/core/image/decode";
 import { decodeTiffInWorker } from "@/core/image/image-workers";
 import { decodeRaw, isRawDecodingAvailable } from "@/core/image/libraw";
+import { rawImageInfo } from "@/core/image/raw-kind";
 import { asShotFromCamera } from "@/lib/colorimetry";
 import { device } from "@/lib/device";
 import type { SourceColorInfo } from "./defaults";
@@ -14,7 +15,16 @@ export type LoadedSource = {
   readonly info: SourceColorInfo;
   /** "raw" is real sensor data; "rendered" is a finished image file. */
   readonly quality: "raw" | "rendered";
+  /** A RAW too big to decode on this device, shown from its preview instead (see `loadSource`). */
+  readonly fromPreview?: boolean;
 };
+
+/**
+ * Phones decode a linear RAW (iPhone ProRAW and the like) up to this many pixels; larger
+ * ones would take about a gigabyte inside LibRaw, and iOS ends the page (it goes black).
+ * Those are shown from their 2560 px preview instead.
+ */
+export const LITE_LINEAR_RAW_PIXELS = 24e6;
 
 /**
  * Decodes an asset's original for development. Camera RAW goes through LibRaw as
@@ -44,6 +54,14 @@ async function decodeSource(asset: Asset, maxSide: number, signal?: AbortSignal)
     // Half size skips demosaicing: a quarter of the memory, and still at least the working size.
     const halfSize = long > 0 && long / 2 >= Math.min(maxSide, 8192) * 0.7;
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    const layout = device.lite ? rawImageInfo(bytes) : null;
+    if (layout?.linear && layout.width * layout.height > LITE_LINEAR_RAW_PIXELS) {
+      const preview = await loadPreviewSource(asset);
+      if (preview && preview.data.kind === "image") {
+        const full = { width: asset.width ?? layout.width, height: asset.height ?? layout.height };
+        return { ...preview, data: { ...preview.data, fullWidth: full.width, fullHeight: full.height }, fromPreview: true };
+      }
+    }
     const { image, metadata } = await decodeRaw(bytes, { output: "linear", halfSize });
     signal?.throwIfAborted();
     const color = metadata?.color_data;

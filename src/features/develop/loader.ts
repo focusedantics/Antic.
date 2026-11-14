@@ -77,6 +77,13 @@ function adoptPrefetch(id: AssetId): Prefetch | null {
   return p;
 }
 
+// Kept until dismissed: it explains why the photo isn't the RAW, which a quick toast would not.
+const sayFromPreview = () =>
+  toast("This RAW is too large to decode on a phone, so you're editing its preview (2560 px). Open it on a computer to edit the full RAW.", "info", {
+    label: "Got it",
+    run: () => ui.setState({ toast: null }),
+  });
+
 /**
  * Opens a photo in Develop: the catalog preview appears at once, then the
  * original decodes (RAW through LibRaw) and replaces it.
@@ -93,6 +100,7 @@ export async function showInDevelop(assetId: AssetId) {
   if (!asset) return;
   // Decoded already, as fully as Develop works (a design's smaller copy is decoded again).
   if (engine.hasFullSource(assetId)) {
+    if (engine.isFromPreview(assetId)) sayFromPreview();
     const src = engine.sourceFor(assetId)!;
     sourceDecoded(assetId, src.info, asset.kind === "raw" ? "raw" : "rendered", src.size);
     engine.requestRender();
@@ -114,6 +122,7 @@ export async function showInDevelop(assetId: AssetId) {
     if (abort.signal.aborted) return;
     engine.setSource(assetId, loaded, loaded.quality);
     sourceDecoded(assetId, loaded.info, loaded.quality, fullSizeOf(loaded.data));
+    if (loaded.fromPreview) sayFromPreview();
   } catch (error) {
     if (abort.signal.aborted) return;
     const message = error instanceof Error ? error.message : String(error);
