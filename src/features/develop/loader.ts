@@ -43,7 +43,7 @@ export function prefetchNeighbours(order: readonly AssetId[], open: AssetId) {
     }
   void (async () => {
     for (const id of wanted) {
-      if (!engine.isWarm(id) || prefetches.has(id) || (engine.hasSource(id) && !engine.hasSource(id, "preview"))) continue;
+      if (!engine.isWarm(id) || prefetches.has(id) || engine.hasFullSource(id)) continue;
       const asset = getAsset(id);
       if (!asset) continue;
       const abort = new AbortController();
@@ -91,7 +91,8 @@ export async function showInDevelop(assetId: AssetId) {
   controller = abort;
   const asset = getAsset(assetId);
   if (!asset) return;
-  if (engine.hasSource(assetId) && !engine.hasSource(assetId, "preview")) {
+  // Decoded already, as fully as Develop works (a design's smaller copy is decoded again).
+  if (engine.hasFullSource(assetId)) {
     const src = engine.sourceFor(assetId)!;
     sourceDecoded(assetId, src.info, asset.kind === "raw" ? "raw" : "rendered", src.size);
     engine.requestRender();

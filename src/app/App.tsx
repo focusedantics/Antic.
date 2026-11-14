@@ -12,6 +12,7 @@ import { Backdrop } from "@/features/backdrop/Backdrop";
 import { TopbarTools, TourHost } from "@/features/tour/TourHost";
 import { TrailerHost, watchTrailer } from "@/features/tour/Trailer";
 import { importProgress, itemsFromDataTransfer } from "@/core/catalog/import";
+import { GPU_RESET_EVENT } from "@/core/gpu/events";
 import { catalog, loadCatalogIntoStore } from "@/core/catalog/store";
 import { pulseActivity } from "@/lib/activity";
 import { Filmstrip } from "@/features/library/Filmstrip";
@@ -203,6 +204,12 @@ export function App() {
     document.documentElement.dataset.compact = String(compact);
   }, [compact]);
   const [dragging, setDragging] = useState(false);
+  // The GPU ran out of memory (or was reset): the view comes back by itself, with photos smaller.
+  useEffect(() => {
+    const said = () => toast("The graphics card ran out of memory, so photos are shown at a smaller size for now. Reload the page for full size.", "error");
+    window.addEventListener(GPU_RESET_EVENT, said);
+    return () => window.removeEventListener(GPU_RESET_EVENT, said);
+  }, []);
 
   useEffect(() => {
     loadCatalogIntoStore()

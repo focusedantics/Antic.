@@ -1019,3 +1019,9 @@ html.sweeping, html.sweeping * { cursor: crosshair !important; }
 .gradient-chip:hover { outline: 1px solid var(--accent); }
 .tool-options .tip-button { width: 30px; padding: 2px !important; display: inline-flex; align-items: center; justify-content: center; }
 .tool-options .tip-button img { width: 22px; height: 22px; object-fit: contain; filter: invert(1); }
+
+/* The error boundary's page (an error while drawing the app) */
+.crash { max-width: 520px; margin: 18vh auto 0; padding: 0 16px; color: var(--text); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.crash h1 { margin: 0; font-size: 20px; }
+.crash p { margin: 0; color: var(--text-dim); line-height: 1.5; }
+.crash pre { max-width: 100%; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text-dim); font-size: 12px; }

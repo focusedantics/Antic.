@@ -25,6 +25,7 @@ import { type Mat3, toGlMat3 } from "@/lib/math";
 import { Compositor, fxReach } from "./compositor";
 import { Gpu, type Target } from "./gl";
 import * as CS from "./shaders/composite";
+import { GPU_RESET_EVENT } from "./events";
 import { MaskRenderer } from "./masks";
 import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
 
@@ -32,7 +33,16 @@ import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
 type Rect = { x: number; y: number; width: number; height: number };
 import * as S from "./shaders/passes";
 
-type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered" };
+/** A photo on the GPU: how it was decoded, and the long side it was capped at. */
+type Loaded = { gpu: GpuSource; quality: "preview" | "raw" | "rendered"; maxSide: number };
+
+/**
+ * Photos in Composite and Design work from a copy of at most this many px on the long
+ * side (Develop opens the full photo): plenty for a poster at 300 dpi, and a 60-megapixel
+ * RAW no longer takes a gigabyte of GPU memory just to be placed in a design.
+ */
+export const COMPOSITE_MAX_SIDE = 6144;
+
 
 /** Frees decoded pixels once they are on the GPU: nothing of a photo is kept on the CPU. */
 function releaseDecoded(data: LoadedSource) {
@@ -72,6 +82,9 @@ export class DevelopEngine {
   private thumbTimer: ReturnType<typeof setTimeout> | null = null;
   private observer: ResizeObserver | null = null;
   private lost = false;
+  /** The long side photos are capped at: the device's limit, lowered after each GPU reset. */
+  private workingSide = device.maxSide;
+  private resets = 0;
   masks: MaskStage;
   maskRenderer: MaskRenderer;
   /** Only the on-screen render keeps the edited mask's coverage for the overlay. */
@@ -120,6 +133,10 @@ export class DevelopEngine {
     this.canvas.addEventListener("webglcontextlost", (e) => {
       e.preventDefault();
       this.lost = true;
+      // Most often the GPU ran out of memory: photos come back smaller each time, so a
+      // photo that was too big can't take the view down again and again.
+      this.workingSide = Math.max(1024, Math.min(this.workingSide, 4096) / (this.resets++ ? 2 : 1));
+      window.dispatchEvent(new CustomEvent(GPU_RESET_EVENT, { detail: { side: this.workingSide } }));
     });
     this.canvas.addEventListener("webglcontextrestored", () => this.restore());
     // Phones: a backgrounded tab gives back its idle GPU memory, so the OS is less
@@ -191,8 +208,9 @@ export class DevelopEngine {
       const asset = getAsset(assetId);
       if (asset) {
         this.loadingSources.add(assetId);
-        void loadSource(asset)
-          .then((data) => this.setSource(assetId, data, data.quality))
+        const side = Math.min(COMPOSITE_MAX_SIDE, this.workingSide);
+        void loadSource(asset, undefined, false, side)
+          .then((data) => this.setSource(assetId, data, data.quality, side))
           .catch((error) => console.warn(`Could not load ${asset.fileName} for the composition:`, error))
           .finally(() => this.loadingSources.delete(assetId));
       }
@@ -242,12 +260,13 @@ export class DevelopEngine {
       const stillUsed = id === develop.getState().assetId || this.warm.has(id) || this.inComposition().has(id);
       if (!stillUsed) continue;
       try {
-        const loaded = await loadSource(asset, undefined, true);
+        const side = this.inComposition().has(id) && id !== develop.getState().assetId ? Math.min(COMPOSITE_MAX_SIDE, this.workingSide) : this.workingSide;
+        const loaded = await loadSource(asset, undefined, true, side);
         if (this.lost) {
           releaseDecoded(loaded);
           return;
         }
-        this.setSource(id, loaded, loaded.quality);
+        this.setSource(id, loaded, loaded.quality, side);
       } catch (error) {
         console.warn(`Could not reload ${asset.fileName} after the GPU was reset:`, error);
       }
@@ -302,21 +321,29 @@ export class DevelopEngine {
     return !!s && (!quality || s.quality === quality);
   }
 
+  /** Whether the photo is on the GPU decoded as fully as Develop works (not a preview, not a design's smaller copy). */
+  hasFullSource(assetId: AssetId) {
+    const s = this.sources.get(assetId);
+    return !!s && s.quality !== "preview" && s.maxSide >= this.workingSide;
+  }
+
   sourceFor(assetId: AssetId) {
     return this.sources.get(assetId)?.gpu ?? null;
   }
 
   /** Puts a decoded photo on the GPU (the decoded pixels are freed). */
-  setSource(assetId: AssetId, data: LoadedSource, quality: Loaded["quality"]) {
+  /** Puts a decoded photo on the GPU, at most `maxSide` px on its long side (and never more than after a GPU reset). */
+  setSource(assetId: AssetId, data: LoadedSource, quality: Loaded["quality"], maxSide = this.workingSide) {
     if (this.lost) return releaseDecoded(data);
     const old = this.sources.get(assetId);
+    const side = Math.min(maxSide, this.workingSide);
     let gpu: GpuSource;
     try {
-      gpu = this.pipeline.upload(assetId, data.data, data.info);
+      gpu = this.pipeline.upload(assetId, data.data, data.info, side);
     } finally {
       releaseDecoded(data);
     }
-    this.sources.set(assetId, { gpu, quality });
+    this.sources.set(assetId, { gpu, quality, maxSide: side });
     if (old) this.pipeline.disposeSource(old.gpu);
     this.evict(assetId);
     this.invalidate();
@@ -357,11 +384,11 @@ export class DevelopEngine {
     const old = this.sources.get(assetId);
     let gpu: GpuSource;
     try {
-      gpu = this.pipeline.upload(assetId, data.data, data.info);
+      gpu = this.pipeline.upload(assetId, data.data, data.info, this.workingSide);
     } finally {
       releaseDecoded(data);
     }
-    this.sources.set(assetId, { gpu, quality });
+    this.sources.set(assetId, { gpu, quality, maxSide: this.workingSide });
     if (old) this.pipeline.disposeSource(old.gpu);
     this.evict(assetId);
   }

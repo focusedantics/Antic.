@@ -8,6 +8,7 @@ import { bakeCurves, isToneCurveActive, LUT_SIZE, toHalfArray } from "./curves";
 import type { Gpu, Target, Texture, TextureFormat } from "./gl";
 import { gradingUniforms, isGradingActive, isMixerActive, mixerUniform } from "./mixer";
 import * as S from "./shaders/passes";
+import { shrinkRgb16 } from "./shrink";
 import { retouch as retouchShader } from "./shaders/retouch";
 
 /** Decoded pixels ready for upload. */
@@ -134,6 +135,15 @@ export class DevelopPipeline {
   /** Uploads a photo, at most `maxSide` px on the long side (phones keep a smaller working copy; see lib/device). */
   upload(id: string, data: SourceData, info: SourceColorInfo, maxSide = device.maxSide): GpuSource {
     const { gpu } = this;
+    // Decoded RAW pixels go to the GPU as they are before it shrinks them: a photo larger
+    // than the biggest texture this GPU allows is shrunk on the CPU first.
+    if (data.kind === "rgb16-linear" && Math.max(data.width, data.height) > gpu.maxTextureSize) {
+      const full = fullSizeOf(data);
+      const f = Math.max(data.width, data.height) / gpu.maxTextureSize;
+      const w = Math.min(gpu.maxTextureSize, Math.max(1, Math.round(data.width / f)));
+      const h = Math.min(gpu.maxTextureSize, Math.max(1, Math.round(data.height / f)));
+      data = { ...data, data: shrinkRgb16(data.data, data.width, data.height, w, h), width: w, height: h, fullWidth: full.width, fullHeight: full.height };
+    }
     const max = Math.min(gpu.maxTextureSize, maxSide);
     let width = data.width;
     let height = data.height;

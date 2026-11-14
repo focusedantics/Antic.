@@ -233,8 +233,17 @@ on phones; the browser resizes while decoding, given only a width so the result 
 distorted whichever way it combines resizing with EXIF orientation, and phones decode RAW
 at half size when that still covers it); the full-resolution size travels with the pixels
 (`SourceData.fullWidth/fullHeight`). Decoded pixels are freed as soon as they are on the
-GPU: nothing of a photo stays on the CPU. After a lost WebGL context the photos still in
-use are decoded again from their originals. The engine keeps the open photo, its warm
+GPU: nothing of a photo stays on the CPU. Composite and Design work from a copy of at most
+`COMPOSITE_MAX_SIDE` (6144 px; a 60-megapixel RAW then decodes at half size and takes a
+fraction of the GPU memory), and Develop decodes the photo again in full when it opens a
+copy smaller than it works at (`hasFullSource`). A RAW larger than the GPU's biggest
+texture is shrunk on the CPU before upload (`gpu/shrink.ts`, area averaging, a row at a
+time): WebGL refuses the texture outright, and the photo showed black. After a lost WebGL
+context the photos still in use are decoded again from their originals, at most 4096 px
+and half that after each further loss, so a photo too big for the GPU can't take the view
+down again and again; the app says so (`GPU_RESET_EVENT`). An error while drawing the app
+shows a message with a Reload button (`app/ErrorBoundary.tsx`) instead of an empty page.
+The engine keeps the open photo, its warm
 neighbours and the composition's photos; computers also the last one used. Phones free
 pooled targets and unused mask rasters on leaving Develop and before an AI selection, and
 neighbours and caches when the page is hidden. The canvas is the view's first child; React
