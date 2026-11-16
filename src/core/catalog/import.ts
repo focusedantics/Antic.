@@ -3,8 +3,8 @@ import { analyzeInWorker } from "@/core/image/image-workers";
 import { fileKindOf } from "@/core/image/formats";
 import { createId } from "@/lib/id";
 import { findByFingerprint, putOriginal, putThumb } from "./db";
-import { addAssets, catalog, updateAsset } from "./store";
-import type { Asset, OriginalRef } from "./types";
+import { addAssets, catalog, updateAssets } from "./store";
+import type { Asset, AssetId, OriginalRef } from "./types";
 
 export type ImportItem = {
   readonly file: File;
@@ -118,21 +118,62 @@ export async function importItems(items: readonly ImportItem[], options: { colle
       const asset = newAsset(item, original, print);
       if (!asset) continue;
       if (original.kind === "stored") await putOriginal(asset.id, item.file);
-      addAssets([
-        options.collectionId ? { ...asset, collectionIds: [options.collectionId] } : asset,
-      ]);
+      queueAdd(options.collectionId ? { ...asset, collectionIds: [options.collectionId] } : asset);
       analyses.push(analyze(asset, item.file));
     } catch (error) {
       fail(item.file.name, error);
     }
   }
   await Promise.all(analyses);
+  applyQueued();
   importProgress.setState({ active: false, current: undefined });
 }
 
 function hasFingerprint(print: string) {
   for (const a of catalog.getState().assets.values()) if (a.fingerprint === print) return true;
-  return false;
+  return queued.adds.some((a) => a.fingerprint === print);
+}
+
+/**
+ * Catalog changes of an import, applied together about ten times a second. Each change to
+ * the catalog copies its map and runs the Library's query again, and an import makes two
+ * per photo (it appears, then its size and thumbnail arrive): with thousands of photos in
+ * the library that is most of what the page does while importing. The first change of a
+ * quiet spell applies at once, so the first photo still appears immediately.
+ */
+const queued = { adds: [] as Asset[], patches: new Map<AssetId, Partial<Asset>>(), timer: null as ReturnType<typeof setTimeout> | null, applied: 0 };
+const QUEUE_MS = 100;
+
+function applyQueued() {
+  if (queued.timer) clearTimeout(queued.timer);
+  queued.timer = null;
+  queued.applied = Date.now();
+  const patches = new Map(queued.patches);
+  queued.patches.clear();
+  // A photo analysed before it was shown arrives complete.
+  const adds = queued.adds.splice(0).map((a) => {
+    const patch = patches.get(a.id);
+    patches.delete(a.id);
+    return patch ? { ...a, ...patch } : a;
+  });
+  addAssets(adds);
+  if (patches.size) updateAssets([...patches.keys()], (a) => patches.get(a.id) ?? null);
+}
+
+function schedule() {
+  if (queued.timer) return;
+  if (Date.now() - queued.applied >= QUEUE_MS) applyQueued();
+  else queued.timer = setTimeout(applyQueued, QUEUE_MS);
+}
+
+function queueAdd(asset: Asset) {
+  queued.adds.push(asset);
+  schedule();
+}
+
+function queuePatch(id: AssetId, patch: Partial<Asset>) {
+  queued.patches.set(id, { ...queued.patches.get(id), ...patch });
+  schedule();
 }
 
 function fail(name: string, error: unknown) {
@@ -149,7 +190,7 @@ async function analyze(asset: Asset, file: Blob) {
       previewSource: result.previewSource,
       revision: -1,
     });
-    updateAsset(asset.id, {
+    queuePatch(asset.id, {
       width: result.width,
       height: result.height,
       orientation: result.orientation,
@@ -160,7 +201,7 @@ async function analyze(asset: Asset, file: Blob) {
     });
     importProgress.setState((s) => ({ done: s.done + 1 }));
   } catch (error) {
-    updateAsset(asset.id, { thumbState: "error", error: error instanceof Error ? error.message : String(error) });
+    queuePatch(asset.id, { thumbState: "error", error: error instanceof Error ? error.message : String(error) });
     fail(asset.fileName, error);
   }
 }

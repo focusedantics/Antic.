@@ -546,7 +546,6 @@ export class DevelopEngine {
    * pass, like Lightroom's), then a sharp render replaces them.
    */
   private motion() {
-    this.working();
     this.motionUntil = performance.now() + SETTLE_MS;
     clearTimeout(this.settleTimer);
     this.settleTimer = window.setTimeout(() => this.requestRender(), SETTLE_MS + 16);

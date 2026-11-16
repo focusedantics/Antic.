@@ -30,6 +30,13 @@ the older measurements. This file is the story and the method.
 
 ### Traps in this environment
 
+- Timing tests (anything asserting "no more than one render during a pinch") sit close
+  to their threshold on the software GPU and fail about one run in three, on old code
+  as well as new, more once the machine has been busy for a while. Before blaming a
+  change, measure the quantity itself (the gap between steps, the render count) on both
+  commits, alternating: `git worktree add <dir> <commit>`, symlink `node_modules`,
+  serve it on port 5174, run the same spec against each.
+
 - The test browser has no GPU (SwiftShader, a software renderer). Absolute times are many
   times a real device's. Compare *before and after on the same machine*, and count work
   removed (passes, megapixels), not milliseconds.
@@ -154,9 +161,16 @@ screen cannot need (video, effects, AI) appearing in `dist/index.html`'s
 ### 4. The glow rests
 
 The animated backdrop is a second WebGL context drawing 30 times a second for as long as
-the page is open. It now holds still while the picture is being edited, panned or zoomed
+the page is open. It now holds still while the picture is being edited
 (`DevelopEngine.working` → `holdMotion()`), so the GPU's frames go to the picture, and
 after 20 s without a pointer move or key (`Backdrop.tsx`, `useAway`).
+
+Holding it during pans and zooms too was tried and taken out. It looked as if it broke
+`e2e/immersive.spec.ts` ("pinching draws the photo it has…"); it had not. That test
+sends a pinch step every ~120 ms here and fails when one gap passes the 156 ms settle,
+which the *old* code did in 3 runs of 5 on the same machine. Printing the gaps for old
+and new code, alternately, is what showed it; pass counts alone (6/6, 4/6, 1/6 for the
+same code as the machine warmed up) pointed at whichever change was made last.
 
 ### 5. Smaller things
 
@@ -166,6 +180,16 @@ after 20 s without a pointer move or key (`Backdrop.tsx`, `useAway`).
 - Pressing on the canvas blurs a focused panel field, so arrow keys nudge the layer
   instead of moving a caret nobody is looking at (found by the benchmark: "nudge" did
   no renders at all).
+- **Imports changed the catalog twice a photo** (it appears; then its size and thumbnail
+  arrive), and every change copies the catalog map and re-runs the Library's query.
+  Changes from an import are now applied together about ten times a second
+  (`core/catalog/import.ts`: `queueAdd`, `queuePatch`), the first of a quiet spell at
+  once so the first photo still appears immediately. 120 photos into an empty library:
+  517 → 383 React commits, 15.7 → 14.6 s (the time is the decoding workers'); the gain
+  grows with the size of the library, since each avoided change is a copy and a sort of
+  all of it.
+- The grid, the filmstrip and Develop's view each ran the same Library query; they now
+  share one result (`features/library/results.ts`).
 - The Design home read every saved design's whole record to show thumbnails. Tiles now
   read their own (`features/design/thumbs.ts`), cached by design and save time.
 

@@ -35,10 +35,10 @@ test.describe("computer", () => {
     // Sizes by group and by search.
     await page.getByRole("button", { name: "Print", exact: true }).click();
     await expect(page.getByRole("button", { name: /Flyer \(A4\)/ })).toBeVisible();
-    await page.getByRole("searchbox", { name: "Search sizes and templates" }).fill("story");
+    await page.getByRole("searchbox", { name: "Search your designs, sizes and templates" }).fill("story");
     await expect(page.getByRole("button", { name: /Story \/ Reel/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Flyer \(A4\)/ })).toHaveCount(0);
-    await page.getByRole("searchbox", { name: "Search sizes and templates" }).fill("");
+    await page.getByRole("searchbox", { name: "Search your designs, sizes and templates" }).fill("");
     await page.getByRole("button", { name: "Social", exact: true }).click();
     await page.getByRole("button", { name: /^Instagram post 1080/ }).click();
 
@@ -390,7 +390,7 @@ test.describe("computer: templates and collages", () => {
     await fresh(page);
     await go(page, "Design");
     // Search finds a template; it opens as a design with its layers.
-    await page.getByRole("searchbox", { name: "Search sizes and templates" }).fill("wedding");
+    await page.getByRole("searchbox", { name: "Search your designs, sizes and templates" }).fill("wedding");
     await page.getByRole("button", { name: /^Wedding invitation/ }).click();
     await expect(page.getByRole("toolbar", { name: "Design tools" })).toBeVisible();
     expect(await layerNames(page).count()).toBeGreaterThan(5);

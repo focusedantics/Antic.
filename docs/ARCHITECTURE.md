@@ -133,6 +133,12 @@ embedded JPEG is used (format-agnostic JPEG marker scan — 74 ms on a 30 MB ARW
 without one, LibRaw decodes at half size. HEIC goes to the browser's own decoder first
 (Safari), then to WebCodecs' HEVC decoder with our HEIF parser (`decodeHeicImage`).
 
+An import's catalog changes (each photo appearing, then its size and thumbnail) are
+queued and applied together about ten times a second (`queueAdd`, `queuePatch`): every
+change to the catalog copies its map and re-runs the Library query, which the grid, the
+filmstrip and Develop's view share (`features/library/results.ts`). The first change of
+a quiet spell applies at once, and everything queued is applied before the import ends.
+
 ## RAW decoding
 
 LibRaw 0.22 (via LibRaw-Wasm) decodes in its own worker. For development it returns
@@ -888,8 +894,8 @@ return blank or stale pixels without any error.
   has a look in `looks.ts` (two colours, angle, size, speed, brightness); the glow
   blends to the active workspace's look over about 1.2 s. It holds still while
   anything calls `holdMotion()` (`lib/motion.ts`): the Video workspace does so while a
-  clip plays or exports, and the render engine while a picture is being edited, panned
-  or zoomed (`DevelopEngine.working`), so the GPU's frames go to the picture. It also
+  clip plays or exports, and the render engine while a picture is being edited
+  (`DevelopEngine.working`), so the GPU's frames go to the picture. It also
   rests after 20 s without a pointer move or key (`Backdrop.tsx: useAway`). It renders at a capped field
   resolution and 30 fps (15 on software GL), pauses in hidden tabs, holds still under
   `prefers-reduced-motion`, and frees its context when switched off.
