@@ -47,39 +47,8 @@ Other switches:
 The video is silent: add music in your editor. Cuts land on whole seconds, every two beats
 at 120 BPM, so a 120 BPM track lines up with them.
 
-## In the app
+## Not in the app
 
-The app plays the trailer from the **?** menu ("Watch the trailer"; on phones, the ⋯ menu):
-`public/trailer.mp4` (16:9) on computers, `public/trailer-vertical.mp4` (9:16) on phones,
-both 720p and loaded only when the player opens. After re-rendering, update them with:
-
-```sh
-TRAILER_SCALE=0.6667 TRAILER_QP=32 npm run trailer:render
-cp trailer/out/trailer-16x9-qp32-720.mp4 public/trailer.mp4
-cp trailer/out/trailer-9x16-qp32-720.mp4 public/trailer-vertical.mp4
-```
-
-## Your own media
-
-Put your photos and clip in `trailer/kit/` (see its README) and run both steps again.
-Without them, the capture draws stand-ins: a sunset lake, a striped balloon, dunes, and
-a clip of the balloon rising. These keep the pipeline working, but they are placeholders,
-not footage to publish.
-
-## Motion design
-
-The timing primitives come from [Motion](https://motion.dev) (MIT): cubic-bézier easing,
-physical springs, stagger, and `animate` for live playback. The rules, which `scenes.ts`
-spells out at the top:
-
-- **Motion explains.** Every move shows what the app did. The wipe is the before/after.
-  The sky's edit sweeps down like the gradient that made it. The cutout moves to show
-  "anywhere". The swipe is a swipe. Each stutter repeat punches in its own syllable.
-- **One set of physics.** Arrivals decelerate (expo-out). Departures are quicker and
-  accelerate (expo-in). Everything that lands uses the same spring.
-- **Hierarchy.** The picture moves first, the words follow, and the small workspace label
-  comes last. One thing moves at a time.
-- **Cheap to draw.** Only position, scale, rotation and opacity animate.
-- **On the beat.** Cuts and landings fall on whole seconds.
-- **Reduced motion.** Every move becomes a cross-fade at the same moment. The story is
-  unchanged.
+The app used to play the trailer from the **?** menu, from two files in `public/`. They
+were removed in November 2026: 25 MB in every deploy for something few people opened.
+The renders stay in `trailer/out/` (not committed); host them wherever the series lives.
