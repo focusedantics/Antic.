@@ -36,7 +36,6 @@ the older measurements. This file is the story and the method.
   change, measure the quantity itself (the gap between steps, the render count) on both
   commits, alternating: `git worktree add <dir> <commit>`, symlink `node_modules`,
   serve it on port 5174, run the same spec against each.
-
 - The test browser has no GPU (SwiftShader, a software renderer). Absolute times are many
   times a real device's. Compare *before and after on the same machine*, and count work
   removed (passes, megapixels), not milliseconds.
@@ -50,6 +49,17 @@ the older measurements. This file is the story and the method.
   seeing that. Restart the dev server before measuring.
 - `page.evaluate(() => import("/src/core/gpu/develop-engine.ts"))` gives a probe the
   live engine: wrap `engine.compositor.render` or `engine.gpu.pass` to count and time.
+
+### Probes (`bench/probes/`, plain Node scripts; dev server on 5174)
+
+| Script | Answers |
+| --- | --- |
+| `passes.mjs "Club night"` | Which GPU passes one full redraw of a template spends its time in |
+| `composites.mjs "Club night" Date` | What each redraw did while typing into a detail: size, `live` hint, passes (is the checkpoint used?) |
+| `startup.mjs http://localhost:4173/ [phone]` | Requests, bytes and long tasks before the first screen is idle (against `vite preview`) |
+| `chunk-sizes.mjs dist/assets/index-….js` | Bytes per module of a built chunk, from its source map |
+
+`CHROMIUM_PATH=/opt/pw-browsers/chromium node bench/probes/passes.mjs`.
 
 ## Where the time went (November 2026 baseline)
 
