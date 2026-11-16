@@ -130,9 +130,11 @@ export async function measureStorage({ assets, onStage, now = Date.now() }: Meas
     let cursor = await db.transaction("thumbs").store.openCursor();
     let n = 0;
     while (cursor) {
-      const { thumb, preview } = cursor.value;
+      const { thumb, preview, base } = cursor.value;
       if (thumb) add("thumbnails", thumb.size);
       if (preview) add("previews", preview.size);
+      // The unedited preview kept beside a developed one belongs to the same photo.
+      if (base) add("previews", base.size, 0);
       cursor = await cursor.continue();
       if (++n % 500 === 0) await pause();
     }

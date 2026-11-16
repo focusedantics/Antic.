@@ -114,6 +114,12 @@ export type SourceColorInfo = {
   /** Camera RAW: white balance is in Kelvin and "as shot" comes from the camera. */
   readonly raw: boolean;
   readonly asShot?: { readonly temperature: number; readonly tint: number };
+  /**
+   * A RAW shown from its camera-made preview (see `loadPreviewSource`): to its recipe it is
+   * still a RAW (white balance in Kelvin, around the as-shot value), but the pixels are a
+   * finished picture, so the camera profile's tone curve is not applied a second time.
+   */
+  readonly rendered?: boolean;
 };
 
 export function asShotWhiteBalance(info: SourceColorInfo): WhiteBalance {

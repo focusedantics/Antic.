@@ -16,7 +16,18 @@ export type ThumbRecord = {
   readonly previewSource: "embedded" | "decoded" | "developed" | "none";
   /** Develop revision the thumbnail was rendered from; -1 for the unedited rendering. */
   readonly revision: number;
+  /**
+   * The unedited preview (the camera's embedded one, or the first decode), kept when a
+   * developed one takes `preview`'s place. It is what the photo is drawn from where the
+   * original cannot be decoded (a large RAW on a phone, and while Develop decodes): the
+   * developed preview already has the edits in it, and drawing from that applies them twice.
+   */
+  readonly base?: Blob;
 };
+
+/** The unedited preview of a thumbnail record, when it has one. */
+export const undevelopedPreview = (record: ThumbRecord | undefined): Blob | undefined =>
+  record?.base ?? (record && record.previewSource !== "developed" ? (record.preview ?? record.thumb) : undefined);
 
 export type RasterRecord = {
   readonly id: string;
@@ -250,6 +261,22 @@ export async function putThumb(id: AssetId, record: ThumbRecord) {
 
 export async function getThumb(id: AssetId) {
   return (await catalogDb()).get("thumbs", id);
+}
+
+/** Stores a developed thumbnail and preview, keeping the unedited preview beside them. */
+export async function putDevelopedThumb(id: AssetId, developed: { thumb: Blob; preview: Blob; revision: number }) {
+  const tx = (await catalogDb()).transaction("thumbs", "readwrite");
+  const base = undevelopedPreview(await tx.store.get(id));
+  await tx.store.put({ ...developed, previewSource: "developed", ...(base ? { base } : {}) }, id);
+  await tx.done;
+}
+
+/** Gives a record the unedited preview it lacks (see `ThumbRecord.base`). */
+export async function putThumbBase(id: AssetId, base: Blob) {
+  const tx = (await catalogDb()).transaction("thumbs", "readwrite");
+  const record = await tx.store.get(id);
+  if (record) await tx.store.put({ ...record, base }, id);
+  await tx.done;
 }
 
 export async function putRaster(record: RasterRecord) {

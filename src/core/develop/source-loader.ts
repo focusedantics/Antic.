@@ -3,7 +3,7 @@ import { readOriginal } from "@/core/catalog/originals";
 import type { Asset } from "@/core/catalog/types";
 import type { SourceData } from "@/core/gpu/pipeline";
 import { decodeAtMost } from "@/core/image/decode";
-import { decodeTiffInWorker } from "@/core/image/image-workers";
+import { analyzeInWorker, decodeTiffInWorker } from "@/core/image/image-workers";
 import { decodeRaw, isRawDecodingAvailable } from "@/core/image/libraw";
 import { rawImageInfo } from "@/core/image/raw-kind";
 import { asShotFromCamera } from "@/lib/colorimetry";
@@ -30,9 +30,13 @@ const HEADER_BYTES = 4 * 1024 * 1024;
 
 /** A RAW shown from its catalog preview, keeping its full size (crops, zoom and radii stay true). */
 async function previewStandIn(asset: Asset, layout?: { width: number; height: number }): Promise<LoadedSource | null> {
-  const preview = await loadPreviewSource(asset);
+  const preview = await loadPreviewSource(asset, true);
   if (!preview || preview.data.kind !== "image") return null;
-  const full = { width: asset.width ?? layout?.width ?? preview.data.width, height: asset.height ?? layout?.height ?? preview.data.height };
+  let full = { width: asset.width ?? layout?.width ?? preview.data.width, height: asset.height ?? layout?.height ?? preview.data.height };
+  // The preview stands for the whole photo only if it has its shape: one of another shape
+  // (a camera's 16:9 preview of a 3:2 RAW) keeps its own, rather than being stretched.
+  const shape = (preview.data.width / preview.data.height) / (full.width / full.height);
+  if (shape < 0.98 || shape > 1.02) full = { width: full.width, height: Math.round((full.width * preview.data.height) / preview.data.width) };
   return { ...preview, data: { ...preview.data, fullWidth: full.width, fullHeight: full.height }, fromPreview: true };
 }
 
@@ -133,16 +137,36 @@ function toRgb(data: Uint16Array, colors: number) {
   return out;
 }
 
-/** The embedded/decoded preview from the catalog, shown while the original decodes. */
-export async function loadPreviewSource(asset: Asset): Promise<LoadedSource | null> {
-  const { getThumb } = await import("@/core/catalog/db");
+/**
+ * The photo's unedited preview from the catalog (the camera's embedded one, or the first
+ * decode), to draw it from while the original decodes, or instead of it (`previewStandIn`).
+ * Never the developed preview: the recipe is applied to what this returns, and a preview
+ * with the edits already in it would get them twice (and a cropped one would be stretched
+ * to the uncropped size). A record that has only a developed preview has the unedited one
+ * made again from the original when `remake` is set; otherwise there is none.
+ *
+ * A RAW's preview is a RAW to its recipe (`rendered`): white balance stays in Kelvin
+ * around as-shot. Called a rendered file, the recipe's 5500 K was read on the −100…100
+ * scale and came out as a heavy colour cast.
+ */
+export async function loadPreviewSource(asset: Asset, remake = false): Promise<LoadedSource | null> {
+  const { getThumb, putThumbBase, undevelopedPreview } = await import("@/core/catalog/db");
   const record = await getThumb(asset.id);
-  const blob = record?.preview ?? record?.thumb;
+  let blob = undevelopedPreview(record);
+  if (!blob && remake && record) {
+    try {
+      const again = await analyzeInWorker(await readOriginal(asset), asset.kind);
+      blob = again.preview ?? again.thumb;
+      if (blob) await putThumbBase(asset.id, blob);
+    } catch (error) {
+      console.warn(`Could not read the camera preview of ${asset.fileName} again`, error);
+    }
+  }
   if (!blob) return null;
   const bitmap = await createImageBitmap(blob);
   return {
     data: { kind: "image", image: bitmap, width: bitmap.width, height: bitmap.height },
-    info: { raw: false },
+    info: asset.kind === "raw" ? { raw: true, asShot: asset.asShot, rendered: true } : { raw: false },
     quality: "rendered",
   };
 }

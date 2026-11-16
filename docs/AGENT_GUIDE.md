@@ -236,6 +236,44 @@ designs yet the section is absent and the page starts with sizes.
   `max-height: 100%` in an auto-height box let a tall story stretch its tile.
 - `e2e/design-home.spec.ts` checks the order by position on screen, not by DOM order.
 
+## A fault I shipped: RAWs with a colour cast, edits applied twice (and how it was found)
+
+Reported as: "the RAW picture preview has some weird hue shifts and sometimes distorts
+the whole image", in every workspace. It came from the earlier fix that draws a RAW too
+large for a phone from its catalog preview. Three mistakes, each small:
+
+1. **Wrong colour meaning.** The preview was uploaded as `{ raw: false }`. The recipe of a
+   RAW asset is always a RAW recipe (white balance 5500 K), and on the rendered scale
+   (−100…100 mired) 5500 is clamped to the far end: a heavy cast on *every* such photo,
+   edited or not. The test for the original fix only checked the photo was not black.
+2. **Wrong pixels.** "The catalog preview" is the camera's preview only until the photo is
+   developed; then it is the developed one. Developing that again applied every edit
+   twice, and a cropped preview was stretched to the uncropped size (the distortion).
+3. **A loop.** Develop renders the Library thumbnail from the source it has. From a
+   stand-in that already had the fault, it saved the fault as the new preview: now the
+   Library showed it, and the next round started from it.
+
+How it was found: not by looking at pictures. The report said "every section" and "RAW",
+so what all sections share for a RAW was traced (`loadPreviewSource` → `info` →
+`whiteBalanceFor`), and the numbers were worked through by hand: `1e6 / 6500 − 5500` is
+negative, clamped to 40 mired, 25 000 K. Then a test drew a two-colour preview through
+the stand-in and compared colours: 208,128,48 came out 226,126,3 on the old code.
+
+What to take from it:
+
+- **A test that says "it draws" is not a test that it draws the right thing.** Compare
+  colour and shape with something known whenever a new path feeds the renderer.
+- **When one thing stands in for another, list what the rest of the system assumes about
+  the original** (here: its colour meaning, that it is unedited, its shape) and check
+  each. `SourceColorInfo` is such an assumption carried with the pixels.
+- **A cache you read from must never be one you write a derived result to.** Keep the
+  input (`ThumbRecord.base`) apart from the output (`preview`).
+- **Repair what the fault wrote.** Fixing the code leaves spoiled previews in people's
+  catalogs: `repairRawPreviewsOnce` restores them, and `sanitizeRecipe` rescues white
+  balance values saved on the wrong scale.
+- Tests: `e2e/big-photos.spec.ts` ("keeps its colours and shape…", "…spoiled…"),
+  `tests/white-balance.test.ts`, `tests/usage.test.ts` (the base is kept).
+
 ## What did not work, and why
 
 - **`content-visibility: auto` on template cards.** Expected: smoother gallery

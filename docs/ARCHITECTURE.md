@@ -64,7 +64,7 @@ One IndexedDB database, `focused-catalog`:
 | `assets` | id | Asset records (small; loaded eagerly at start) |
 | `collections` | id | Collections and smart collections (rules) |
 | `originals` | asset id | Copied original (import-by-copy only): a Blob; on iPhone/iPad a `FileRef` to a file in the private file system (below); `{ bytes, type }` (`StoredBytes`) only where neither works |
-| `thumbs` | asset id | Thumbnail + preview blobs, revision they were rendered for |
+| `thumbs` | asset id | Thumbnail + preview blobs, revision they were rendered for; `base`: the unedited preview, kept when a developed one takes `preview`'s place |
 | `rasters` | id | Coverage rasters for AI masks (8-bit), referenced by recipes |
 | `presets` | id | Develop presets (recipe groups) |
 | `snapshots` | id | Named develop snapshots per asset |
@@ -281,7 +281,29 @@ page. Develop on a phone decodes the RAW, except a linear one over 24 MP (iPhone
 the like: already RGB, so LibRaw can't halve it, and a 48 MP one takes about a gigabyte
 inside the decoder); `image/raw-kind.ts` reads that from the first 4 MB (the tags; the
 full-resolution image, not a same-size preview), and Develop edits the preview and says so
-(`LoadedSource.fromPreview`). After a lost WebGL
+(`LoadedSource.fromPreview`).
+
+**A preview drawn in place of a RAW** (`loadPreviewSource`: those stand-ins, and the
+picture Develop shows while the original decodes) must be the *unedited* one, with the
+RAW's colour meaning. Two rules, both learned from a fault that gave RAWs on phones a
+colour cast, applied edits twice and stretched cropped photos:
+
+- The recipe is applied to what is drawn, so the pixels must not have it in them already.
+  The developed preview that replaces the camera's in the Library does. `ThumbRecord.base`
+  keeps the camera's own preview beside it (`putDevelopedThumb` carries it over;
+  `undevelopedPreview` picks it), and a record with only a developed preview has the
+  camera's made again from the original. Never draw a photo from `record.preview` and
+  then develop it.
+- A RAW's recipe is a RAW's recipe (`infoFor` goes by the asset's kind): white balance in
+  Kelvin around as-shot. Its preview therefore carries
+  `info: { raw: true, asShot, rendered: true }`: Kelvin for white balance, but no camera
+  profile curve (`rendered`: the pixels are a finished picture). Called `{ raw: false }`,
+  5500 K was read on the rendered scale (−100…100) as an enormous shift. As-shot is the
+  identity on every source (`whiteBalanceFor`), and `sanitizeRecipe` turns a RAW's white
+  balance that was saved on the rendered scale back into Kelvin.
+
+`core/catalog/repair.ts: repairRawPreviewsOnce` restores, once per catalog on phones, the
+previews that fault spoiled. After a lost WebGL
 context the photos still in use are decoded again from their originals, at most 4096 px
 and half that after each further loss, so a photo too big for the GPU can't take the view
 down again and again; the app says so (`GPU_RESET_EVENT`). An error while drawing the app

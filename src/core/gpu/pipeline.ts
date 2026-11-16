@@ -491,7 +491,7 @@ export class DevelopPipeline {
         uAtmosphere: atmosphere,
         uVibrance: b.vibrance,
         uSaturation: b.saturation,
-        uProfileCurve: source.info.raw ? 1 : 0,
+        uProfileCurve: source.info.raw && !source.info.rendered ? 1 : 0,
         uMonochrome: recipe.profile === "monochrome" ? 1 : 0,
         uCurvesActive: curvesActive ? 1 : 0,
         uMixerActive: isMixerActive(recipe.colorMixer) ? 1 : 0,

@@ -11,6 +11,10 @@ const renderedTarget = (wb: WhiteBalance) => {
 };
 
 export function whiteBalanceFor(wb: WhiteBalance, info: SourceColorInfo): Mat3 {
+  // As shot is no change, whatever numbers came with it: a recipe can reach a source whose
+  // as-shot values it has not been rebased on yet (a design drawing a RAW never opened in
+  // Develop), and those numbers must not turn into a colour cast.
+  if (wb.mode === "as-shot") return IDENTITY3;
   let from: Xy;
   let to: Xy;
   if (info.raw) {

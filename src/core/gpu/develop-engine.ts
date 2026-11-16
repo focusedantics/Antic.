@@ -6,7 +6,7 @@ import { holdMotion } from "@/lib/motion";
 import { similarImages } from "./verify";
 import { composeExport, type ExportFrame } from "@/core/export/frame";
 import { type Watermark, watermarkFont } from "@/core/export/watermark";
-import { getRaster, getSetting, getThumb, putSetting, putThumb } from "@/core/catalog/db";
+import { getRaster, getSetting, getThumb, putDevelopedThumb, putSetting } from "@/core/catalog/db";
 import { THUMBS_REPAIRED } from "@/core/catalog/repair";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
@@ -1396,7 +1396,7 @@ export class DevelopEngine {
     // Cutouts keep their transparency in the Library.
     const type = recipe.masks.some((m) => m.cutout && m.visible) ? "image/webp" : "image/jpeg";
     const [thumb, preview] = await Promise.all([this.renderBlob(src.gpu, recipe, 480, type, 0.85), this.renderBlob(src.gpu, recipe, 2560, type, 0.88)]);
-    await putThumb(assetId, { thumb, preview, previewSource: "developed", revision });
+    await putDevelopedThumb(assetId, { thumb, preview, revision });
     const { invalidateImage } = await import("@/app/thumbs");
     invalidateImage(assetId);
     updateAsset(assetId, { thumbRevision: revision, thumbState: "ready" });
@@ -1448,7 +1448,7 @@ export class DevelopEngine {
           try {
             const thumb = await this.renderBlob(gpu, recipe, 480, type, 0.85);
             const preview = await this.renderBlob(gpu, recipe, 2560, type, 0.88);
-            await putThumb(id, { thumb, preview, previewSource: "developed", revision });
+            await putDevelopedThumb(id, { thumb, preview, revision });
           } finally {
             if (temporary) this.pipeline.disposeSource(temporary);
           }
@@ -1486,7 +1486,7 @@ export class DevelopEngine {
         const type = recipe.masks.some((m) => m.cutout && m.visible) ? "image/webp" : "image/jpeg";
         const thumb = await this.renderBlob(src, recipe, 480, type, 0.85);
         const preview = await this.renderBlob(src, recipe, 2560, type, 0.88);
-        await putThumb(asset.id, { thumb, preview, previewSource: "developed", revision: record.revision });
+        await putDevelopedThumb(asset.id, { thumb, preview, revision: record.revision });
         invalidateImage(asset.id);
       } catch (error) {
         console.warn(`Could not repair the thumbnail of ${asset.fileName}`, error);

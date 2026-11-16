@@ -200,6 +200,21 @@ function sanitizeMask(input: unknown): Mask | null {
   };
 }
 
+/**
+ * A RAW's white balance saved on the scale of rendered files (−100…100 around daylight)
+ * instead of Kelvin: for a while, a RAW shown from its preview on a phone was edited as a
+ * rendered file. Read as Kelvin such a number is clamped to 2000 K, a deep blue cast. It
+ * is turned into the Kelvin value that means the same shift from as-shot; as-shot itself
+ * takes the photo's own values.
+ */
+function rawTemperature(wb: { temperature?: unknown; mode?: unknown } | null | undefined, info: SourceColorInfo): number | undefined {
+  const t = wb?.temperature;
+  if (!info.raw || typeof t !== "number" || !(Math.abs(t) <= temperatureRange.rendered.max)) return undefined;
+  const shot = info.asShot?.temperature ?? 5500;
+  if (wb?.mode !== "custom" && wb?.mode !== "auto") return shot;
+  return Math.round(1e6 / Math.max(1e6 / shot - t, 20));
+}
+
 export function sanitizeRecipe(input: unknown, info: SourceColorInfo): DevelopRecipe {
   const base = createDefaultRecipe(info);
   const s = obj(input);
@@ -207,6 +222,7 @@ export function sanitizeRecipe(input: unknown, info: SourceColorInfo): DevelopRe
   const wb = obj(s.whiteBalance);
   const temperature = info.raw ? temperatureRange.raw : temperatureRange.rendered;
   const tint = info.raw ? tintRange.raw : tintRange.rendered;
+  const kelvin = rawTemperature(wb, info);
   const tc = obj(s.toneCurve);
   const mixer = obj(s.colorMixer);
   const grade = obj(s.colorGrading);
@@ -220,7 +236,7 @@ export function sanitizeRecipe(input: unknown, info: SourceColorInfo): DevelopRe
     profile: s.profile === "monochrome" ? "monochrome" : "color",
     whiteBalance: {
       mode: wb?.mode === "custom" || wb?.mode === "auto" ? wb.mode : "as-shot",
-      temperature: num(wb?.temperature, base.whiteBalance.temperature, temperature),
+      temperature: num(kelvin ?? wb?.temperature, base.whiteBalance.temperature, temperature),
       tint: num(wb?.tint, base.whiteBalance.tint, tint),
     },
     basic: numbers(s.basic, defaultBasic, basicRanges),

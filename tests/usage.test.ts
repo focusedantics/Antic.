@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { catalogDb } from "@/core/catalog/db";
+import { catalogDb, getThumb, putDevelopedThumb, putThumb, putThumbBase, undevelopedPreview } from "@/core/catalog/db";
 import { byteSizeOf, formatBytes, measureStorage } from "@/core/catalog/usage";
 
 describe("storage use", () => {
@@ -64,5 +64,27 @@ describe("storage use", () => {
     expect(usage.largest.slice(0, 3).map((i) => i.name)).toEqual(["clip.mp4", "b.dng", "a.jpg"]);
     expect(stages).toContain("masks");
     expect(usage.leftover).toEqual([]);
+  });
+
+  it("a developed preview never replaces the camera's own: it is kept beside it", async () => {
+    const blob = (n: number) => new Blob([new Uint8Array(n)]);
+    const camera = blob(900);
+    await putThumb("raw1", { thumb: blob(50), preview: camera, previewSource: "embedded", revision: -1 });
+    expect(undevelopedPreview(await getThumb("raw1"))?.size).toBe(900);
+    await putDevelopedThumb("raw1", { thumb: blob(60), preview: blob(1200), revision: 3 });
+    await putDevelopedThumb("raw1", { thumb: blob(61), preview: blob(1300), revision: 4 });
+    const record = (await getThumb("raw1"))!;
+    expect(record).toMatchObject({ previewSource: "developed", revision: 4 });
+    expect(record.preview?.size).toBe(1300);
+    expect(record.base?.size).toBe(900);
+    expect(undevelopedPreview(record)?.size).toBe(900);
+    // An older record that only has a developed preview: none to draw from until one is made again.
+    await putThumb("raw2", { thumb: blob(50), preview: blob(1000), previewSource: "developed", revision: 2 });
+    expect(undevelopedPreview(await getThumb("raw2"))).toBeUndefined();
+    await putThumbBase("raw2", blob(700));
+    expect(undevelopedPreview(await getThumb("raw2"))?.size).toBe(700);
+    // The unedited preview is counted with the previews.
+    const usage = await measureStorage({ assets: [] });
+    expect(usage.rows.find((r) => r.id === "previews")!.bytes).toBeGreaterThanOrEqual(1300 + 900 + 1000 + 700);
   });
 });

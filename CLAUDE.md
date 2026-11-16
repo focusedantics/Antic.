@@ -23,6 +23,10 @@ did not work and why. Read it before a performance task and add to it after one.
 - Edits keep what they do not touch identical: map over layers with `mapTree`
   (`core/document/operations.ts`), never `layers.map((l) => ({ ...l }))`. The renderer
   reuses what it drew of unchanged layer objects; a rebuilt layer is a full redraw.
+- A photo drawn from a catalog preview and then developed must come from the unedited
+  preview (`loadPreviewSource`, `ThumbRecord.base`), never from `record.preview`, which
+  may already have the edits in it; and a RAW's preview is still a RAW to its recipe
+  (`info.rendered`). See ARCHITECTURE, "A preview drawn in place of a RAW".
 - Every edit is data: develop recipes (`core/develop/recipe.ts`) and composite documents
   (`core/document`). A control is not done until changing it changes the render and
   survives a reload. Do not add controls that do nothing.
