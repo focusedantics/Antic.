@@ -34,6 +34,7 @@ const DevelopWorkspace = lazy(() => import("@/features/develop/Develop"));
 const CompositeWorkspace = lazy(() => import("@/features/composite/Composite"));
 const DesignWorkspace = lazy(() => import("@/features/design/Design"));
 const VideoWorkspace = lazy(() => import("@/features/video/Video"));
+const StorageWorkspace = lazy(() => import("@/features/storage/Storage"));
 
 const modules: { id: Workspace; label: string; key: string }[] = [
   { id: "library", label: "Library", key: "G" },
@@ -41,6 +42,8 @@ const modules: { id: Workspace; label: string; key: string }[] = [
   { id: "composite", label: "Composite", key: "C" },
   { id: "design", label: "Design", key: "B" },
   { id: "video", label: "Video", key: "" },
+  // Not an editor: what the app keeps on this device, and how much room it takes.
+  { id: "storage", label: "Storage", key: "" },
 ];
 
 function ImportStatus() {
@@ -138,7 +141,7 @@ function CompactTopbar({ workspace }: { workspace: Workspace }) {
         aria-haspopup="menu"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          const icons = { library: "folders", develop: "edit", composite: "layers", design: "design", video: "clips" } as const;
+          const icons = { library: "folders", develop: "edit", composite: "layers", design: "design", video: "clips", storage: "storage" } as const;
           openMenu(r.left, r.bottom + 6, modules.map((m) => ({ label: m.label, icon: icons[m.id], checked: m.id === workspace, onSelect: () => setWorkspace(m.id) })));
         }}
       >
@@ -328,8 +331,13 @@ export function App() {
           <VideoWorkspace Shell={Shell} />
         </Suspense>
       )}
+      {workspace === "storage" && (
+        <Suspense fallback={<div className="empty-state">Loading Storage…</div>}>
+          <StorageWorkspace Shell={Shell} />
+        </Suspense>
+      )}
       {/* Phones show the filmstrip inside the workspace, above the dock. */}
-      {!compact && showFilmstrip && workspace !== "video" ? <Filmstrip /> : <div />}
+      {!compact && showFilmstrip && workspace !== "video" && workspace !== "storage" ? <Filmstrip /> : <div />}
       {dragging && <div className="drop-overlay">Drop photos, videos or folders to import</div>}
       <Toast />
       <ActivityBar />

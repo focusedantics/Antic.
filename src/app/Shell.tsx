@@ -143,13 +143,13 @@ export function PanelToggles() {
   const showRight = useStore(prefs, (s) => s.showRight);
   const showFilmstrip = useStore(prefs, (s) => s.showFilmstrip);
   const workspace = useStore(ui, (s) => s.workspace);
-  const left = workspace === "develop" ? "presets, snapshots and history" : workspace === "library" ? "folders and collections" : workspace === "composite" ? "documents" : workspace === "design" ? "templates, elements and text" : "clips";
+  const left = workspace === "develop" ? "presets, snapshots and history" : workspace === "library" ? "folders and collections" : workspace === "composite" ? "documents" : workspace === "design" ? "templates, elements and text" : workspace === "storage" ? "memory and safety" : "clips";
   return (
     <div className="panel-toggles" role="group" aria-label="Panels">
       <button type="button" className="tool-btn" aria-pressed={showLeft} aria-label="Left panel" title={`${showLeft ? "Hide" : "Show"} the left panel (${left})`} onClick={() => setPrefs({ showLeft: !showLeft })}>
         <Icon name="panel-left" size={16} />
       </button>
-      {workspace !== "video" && (
+      {workspace !== "video" && workspace !== "storage" && (
         <button type="button" className="tool-btn" aria-pressed={showFilmstrip} aria-label="Filmstrip" title={`${showFilmstrip ? "Hide" : "Show"} the filmstrip (Shift+F)`} onClick={() => setPrefs({ showFilmstrip: !showFilmstrip })}>
           <Icon name="panel-bottom" size={16} />
         </button>
@@ -212,7 +212,7 @@ function CompactShell({ left, center, right, dock }: ShellProps) {
       {floating && host && createPortal(panel, host)}
       {!floating && panel}
       {/* Design adds photos from its Add sheet; the canvas gets the room. */}
-      {!sheet && showFilmstrip && workspace !== "video" && workspace !== "design" && <Filmstrip />}
+      {!sheet && showFilmstrip && workspace !== "video" && workspace !== "design" && workspace !== "storage" && <Filmstrip />}
       {/* In select mode the selection's bar takes the dock's place, as in Photos. */}
       {selecting ? <SelectBar scope={selecting} /> : <nav className="dock" aria-label="Panels">
         {items.map((item) => {

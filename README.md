@@ -50,6 +50,12 @@ one asset system and one effects library:
   the **?** button in the top bar. An animated glow sits behind the photo and changes
   colour with each workspace; **◐** turns it off.
 
+- **Storage**: a tab that shows what Focused keeps on your device by category (original
+  photos, videos, previews, thumbnails, designs, masks, downloaded AI models…), how much
+  of the browser's allowance that is, the largest things with a way to them, and the
+  memory editing holds right now. Downloaded AI models and leftover files can be removed
+  there; the browser can be asked to keep your work safe from automatic clearing.
+
 - **Phones and panels**: on a computer, drag a side panel's edge to resize it and hide
   the presets/history panel, the filmstrip or the adjustments from the top bar. On a
   phone the photo fills the screen, tools sit in a bottom dock and panels open in a

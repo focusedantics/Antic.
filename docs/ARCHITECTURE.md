@@ -1,7 +1,8 @@
 # Focused architecture
 
 Focused is one application with five workspaces — **Library**, **Develop**,
-**Composite**, **Design** and **Video** — built on one asset system and one rendering engine. This file is the
+**Composite**, **Design** and **Video** — built on one asset system and one rendering engine,
+and a sixth tab, **Storage**, that reports on what they keep. This file is the
 contract: when a change moves a responsibility, update it in the same change.
 
 ```
@@ -80,6 +81,35 @@ through `createWritable` or, before Safari 26, a worker's synchronous access han
 (`file-store.worker.ts`); IndexedDB keeps a `FileRef`, and reading returns a disk-backed
 `File` that decoders and the demuxer read in parts. Elsewhere a Blob is stored, falling
 back to OPFS, then bytes, when it is refused. Deleting a photo or clip deletes its file.
+
+### Storage use (`core/catalog/usage.ts`, `features/storage`)
+
+The Storage tab (`ui.workspace === "storage"`, lazy like the editors, inside the same
+`Shell`) lists what is kept on the device by category. Browsers report one total for a
+site (`navigator.storage.estimate()`; Chromium's breakdown says "IndexedDB", Safari
+gives none), so `measureStorage` counts the app's own stores:
+
+| Category | Counted from |
+| --- | --- |
+| Original photos | keys of `originals` × the photo's recorded `byteSize` (the values are never read: a `StoredBytes` original would load whole). Photos without a key are read from a folder in place and take no space |
+| Videos | `videos` records (`byteSize`, poster, edit) whose file is in `videoFiles` |
+| Previews, thumbnails | Blob sizes in `thumbs` (a cursor; Blobs are handles, nothing is read) |
+| Designs, compositions | `byteSizeOf` each `documents` record (JSON and thumbnail), split by `purpose` |
+| Masks and cutouts | `rasters`, read one record at a time (their bytes are inside the record) |
+| Your things | `designAssets` records |
+| AI models | Cache Storage (Transformers.js downloads): `content-length`, else the cached blob's size |
+| Catalog | `assets`, `collections`, `presets`, `snapshots`, `settings`, `looks` |
+| Leftover files | files in OPFS `focused-files` that no `originals`/`videoFiles` key names (`original-<id>`, `video-<id>`) and that are over ten minutes old (an import writes the file before its record) |
+
+What the browser reports beyond the count is shown as "Browser bookkeeping". Clean-ups:
+`removeDownloadedModels` (they download again on use) and `removeLeftoverFiles` (disabled
+during an import); `keepStorage` asks for persistent storage. Originals, videos and
+designs are removed where they live; "Largest" lists the eight biggest with a way there.
+Counting follows `lib/pacing.ts` (`features/storage/state.ts`): the working state names
+its stage, holds at least `PACE.minWorking` and ends on a done beat; the result is kept
+for the session. The side panel reports memory in use (not storage) through
+`core/gpu/events.ts: engineRef`, which the engine sets when it is created: reading it
+never loads the engine. "Free working memory" calls `freeMemory()` and redraws.
 
 ### Import (`core/catalog/import.ts`)
 
@@ -298,6 +328,28 @@ follows once it rests. Thumbnails, the eyedropper, effect previews, exports and 
 whole-design render use a second compositor with its own caches, so they never replace
 the view's layer rasters and developed photos. See docs/PERFORMANCE.md.
 
+**Checkpoints (editing redraws from the edited layer up).** The view's renders pass
+`live: { focus, detail }` to `Compositor.render`. The compositor keeps a checkpoint: a
+copy of the canvas as it stood below top-level layer *n*, where *n* is the layer the
+selection is in (`focus`), lowered to the first layer that differs from the previous
+frame's. The next frame copies it and draws layers *n*…top only. A checkpoint holds
+while the layers below it are the same objects (documents are immutable, so identity is
+content) and what they draw from outside the document is unchanged: photos' develop
+recipes, fonts and brush tips loaded (`depsOf`). It never sits above an animated layer or
+between a layer and those clipped to it. Selecting a layer makes its checkpoint 120 ms
+later (`warm`). Exports and thumbnails render without `live`. This depends on edits
+leaving untouched layers and groups identical: map over layers with
+`operations.ts: mapTree`, never `layers.map((l) => ({ ...l }))`
+(`tests/document.test.ts`, "structural sharing"; `e2e/checkpoint.spec.ts` holds resumed
+renders equal to full ones).
+
+**Draft frames.** After each edit's render a GPU fence (`timeEdit`) tells how long the
+frame really took. Two late frames in a row mark the open design heavy; until a sharp
+frame is on time again, frames during a run of edits render at half the size
+(`DRAFT_SCALE`, content rasters kept at full detail) and a sharp one follows
+`EDIT_SETTLE_MS` after the run rests, counted from the last draft frame shown. The
+draft's checkpoint is the sharp one resampled. See docs/AGENT_GUIDE.md.
+
 Exports are sharp: the second compositor develops photos and rasterizes text at exactly
 their output size (the view rounds sizes up to steps of 2^¼ so zooming reuses them, which
 a final shrink makes slightly soft), and the geometry pass shrinks a photo with four
@@ -425,7 +477,10 @@ edited through the composite session, history, `CompositeView`, `LayersPanel`,
 (`composite.doc`): each workspace shows and reopens its own kind (`isDesign`,
 `openLatest(design)`); `composite.documents` marks designs so Composite's list leaves
 them out. `design.home` (`features/design/state.ts`) switches between the start screen
-(`Home.tsx`: size presets drawn to scale, search, your designs with thumbnails) and the
+(`Home.tsx`: your designs first, as a shelf of the newest with the latest marked
+Continue and all of them by folder behind "All designs"; then size presets drawn to
+scale and templates; one search covers all three. Each tile reads its own thumbnail,
+`thumbs.ts`) and the
 editor (`MakePanel` to add text styles, photos, shapes, fills and effects; a tool strip;
 Layers and Properties). "Move to Composite" and "Bring a composition here" move a
 document between the two by changing `purpose`. Photos added from the device are
@@ -832,8 +887,10 @@ return blank or stale pixels without any error.
   unchanged; with it on, image pixels are unchanged (they are opaque). Each workspace
   has a look in `looks.ts` (two colours, angle, size, speed, brightness); the glow
   blends to the active workspace's look over about 1.2 s. It holds still while
-  anything calls `holdMotion()` (`lib/motion.ts`); the Video workspace does so while a
-  clip plays or exports, so playback has the GPU to itself. It renders at a capped field
+  anything calls `holdMotion()` (`lib/motion.ts`): the Video workspace does so while a
+  clip plays or exports, and the render engine while a picture is being edited, panned
+  or zoomed (`DevelopEngine.working`), so the GPU's frames go to the picture. It also
+  rests after 20 s without a pointer move or key (`Backdrop.tsx: useAway`). It renders at a capped field
   resolution and 30 fps (15 on software GL), pauses in hidden tabs, holds still under
   `prefers-reduced-motion`, and frees its context when switched off.
 - **Prefs** (`app/prefs.ts`): the glow on/off, whether the tour was finished, which

@@ -35,6 +35,8 @@ export const LOOKS: Record<Workspace, GlowLook> = {
   design: { color1: hex("#b8f03d"), color2: hex("#3dd6ff"), angle: 120, size: 1, speed: 1.1, intensity: 0.55 },
   // Hot red and yellow, faster: the YTP editor.
   video: { color1: hex("#ff3d5a"), color2: hex("#ffb23d"), angle: -100, size: 1.05, speed: 1.5, intensity: 0.5 },
+  // Slate and steel, slow and dim: a utility page (its panels cover the glow anyway).
+  storage: { color1: hex("#6b7a8c"), color2: hex("#3d7fff"), angle: 160, size: 1, speed: 0.5, intensity: 0.3 },
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

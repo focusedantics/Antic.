@@ -1,7 +1,14 @@
 /** Small line icons for the phone dock and the panel toggles (inherit the text colour). */
-export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram" | "select" | "design" | "text" | "image" | "shapes" | "draw" | "pen" | "palette" | "home" | "grid" | "sparkle";
+export type IconName = "presets" | "edit" | "crop" | "masks" | "heal" | "folders" | "info" | "layers" | "documents" | "clips" | "panel-left" | "panel-right" | "panel-bottom" | "more" | "undo" | "redo" | "export" | "chevron" | "effects" | "split" | "duplicate" | "trash" | "play" | "pause" | "step-back" | "step-forward" | "move" | "brush" | "align" | "magnet" | "guides" | "fit" | "plus" | "animate" | "light" | "color" | "curve" | "mixer" | "grade" | "detail" | "optics" | "histogram" | "select" | "design" | "text" | "image" | "shapes" | "draw" | "pen" | "palette" | "home" | "grid" | "sparkle" | "storage";
 
 const paths: Record<IconName, React.ReactNode> = {
+  // A disk drum: what is kept on the device.
+  storage: (
+    <>
+      <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+      <path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3" />
+    </>
+  ),
   // A pen nib over a square: making designs.
   design: (
     <>

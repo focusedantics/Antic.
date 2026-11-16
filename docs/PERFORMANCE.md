@@ -297,3 +297,35 @@ time per phase; a composite is one render of the view (the GPU waited for).
 Not verified here: the numbers are from SwiftShader on a CPU. On an iPhone's GPU every
 pass is far faster, but the work removed (pixels shaded, rasters remade, photos
 developed again) is the same work.
+
+## Smoothness everywhere (November 2026)
+
+The app had grown slower with its features. `bench/smooth.bench.ts` drives it as a person
+does (import, scroll, develop, open a design, type, drag, nudge, zoom, idle) and reports
+per action: time, frames, the worst frame, long tasks, React commits, composites and
+megapixels composited. `npm run bench -- smooth.bench.ts -g computer` (or `-g phone`;
+`BENCH_ONLY=design|library`, `BENCH_LABEL=name`).
+
+The plain carousel of the October round was fine (57 ms a redraw). The stylized posters
+were not: a CMYK halftone under the type and an effect over everything made every edit a
+2.2 s redraw of every layer and pass.
+
+| Action (software GPU) | Before | After |
+| --- | --- | --- |
+| Type 8 characters into a poster's detail, computer | 17.7 s | 5.5 s |
+| Drag a layer on that poster, 12 steps, computer | 25.9 s | 4.9 s |
+| Drag a layer, phone | 30.5 s | 6.5 s |
+| Nudge ×10, phone | 24.6 s | 3.8 s |
+| Start-up script, compressed | 297 kB | 212 kB |
+| Deploy size, trailer videos | 25 MB | 0 |
+
+What changed: compositor checkpoints (redraw from the edited layer up), draft frames
+while a heavy design is edited, edits that keep untouched layers identical, mp4box and
+the render engine no longer loaded at start-up, a glow that rests, and a Design home
+that reads only the thumbnails it shows. How each was found, why it worked, and what was
+tried and dropped is in `docs/AGENT_GUIDE.md`; the mechanisms are in
+`docs/ARCHITECTURE.md` (Composite: "Checkpoints", "Draft frames").
+
+Not verified here: real GPUs. The numbers are SwiftShader's; what carries over is the
+work removed (passes and pixels per edit). On a fast GPU drafts never start: a sharp
+frame on time clears the "heavy" mark.

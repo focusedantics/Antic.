@@ -27,7 +27,7 @@ import { type Mat3, toGlMat3 } from "@/lib/math";
 import { Compositor, fxReach } from "./compositor";
 import { Gpu, type Target } from "./gl";
 import * as CS from "./shaders/composite";
-import { GPU_RESET_EVENT } from "./events";
+import { engineRef, GPU_RESET_EVENT } from "./events";
 import { MaskRenderer } from "./masks";
 import { DevelopPipeline, type GpuSource, type MaskStage } from "./pipeline";
 
@@ -1630,7 +1630,12 @@ function sameKey(a: unknown[], b: unknown[]) {
 
 let engine: DevelopEngine | null = null;
 export function developEngine() {
-  engine ??= new DevelopEngine();
+  if (!engine) {
+    engine = new DevelopEngine();
+    const made = engine;
+    // Freeing asks for a redraw, so the open picture comes straight back.
+    engineRef.current = { stats: () => made.stats(), freeMemory: () => (made.freeMemory(), made.requestRender()) };
+  }
   return engine;
 }
 
