@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/app/hooks";
 import { openMenu } from "@/components/Menu";
 import { Icon } from "@/components/icons";
-import { type DocumentRecord, getDocument } from "@/core/catalog/db";
 import { composite, moveDocumentToFolder, refreshDocumentList, removeStoredDocument } from "@/core/document/session";
+import { ago } from "@/lib/ago";
 import { duplicateDesign, moveToComposite, newDesign, openDesign } from "./actions";
 import { SIZE_GROUPS, SIZE_PRESETS, type SizeGroup, type SizePreset, sizeLabel } from "./presets";
+import { useDesignThumb } from "./thumbs";
 
 /** A size drawn to scale inside a fixed box. */
 export function SizeShape({ width, height, box = 56, slides = 1 }: { width: number; height: number; box?: number; slides?: number }) {
@@ -55,101 +56,131 @@ function CustomSize() {
   );
 }
 
-/** Saved designs with their thumbnails, newest first. */
-function YourDesigns() {
-  const all = useStore(composite, (s) => s.documents);
-  const designs = useMemo(() => all.filter((d) => d.design), [all]);
-  const folders = useMemo(() => [...new Set(designs.map((d) => d.folder))].filter(Boolean).sort((a, b) => a.localeCompare(b)), [designs]);
-  const [folder, setFolder] = useState<string | null>(null);
-  const docs = useMemo(() => (folder === null ? designs : designs.filter((d) => d.folder === folder || d.folder.startsWith(`${folder}/`))), [designs, folder]);
-  const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  useEffect(() => {
-    void refreshDocumentList();
-  }, []);
-  useEffect(() => {
-    let live = true;
-    const urls: string[] = [];
-    void Promise.all(docs.map((d) => getDocument(d.id))).then((records) => {
-      if (!live) return;
-      const next: Record<string, string> = {};
-      for (const r of records.filter((x): x is DocumentRecord => !!x?.thumb)) {
-        const url = URL.createObjectURL(r.thumb!);
-        urls.push(url);
-        next[r.id] = url;
-      }
-      setThumbs(next);
-    });
-    return () => {
-      live = false;
-      urls.forEach((u) => URL.revokeObjectURL(u));
-    };
-  }, [docs]);
-  if (!designs.length) return <p className="faint">Designs you make appear here.</p>;
+type Saved = ReturnType<typeof composite.getState>["documents"][number];
+
+/** How many of the newest designs the shelf holds before "All designs" is the way to the rest. */
+const SHELF = 12;
+
+const sizeOf = (d: Saved) => (d.width && d.height ? sizeLabel(Math.round(d.width / d.slides), d.height, d.slides) : "");
+
+function designMenu(d: Saved, at: DOMRect) {
+  openMenu(at.left, at.bottom + 4, [
+    { label: "Open", onSelect: () => void openDesign(d.id) },
+    { label: "Duplicate", onSelect: () => void duplicateDesign(d.id) },
+    {
+      label: "Move to folder…",
+      onSelect: () => {
+        const f = prompt("Folder (empty for none; use / for subfolders)", d.folder);
+        if (f !== null) void moveDocumentToFolder(d.id, f);
+      },
+    },
+    { label: "Move to Composite", onSelect: () => void moveToComposite(d.id) },
+    "separator",
+    { label: "Delete…", onSelect: () => confirm(`Delete the design “${d.name}”? Photos stay in the Library.`) && void removeStoredDocument(d.id) },
+  ]);
+}
+
+/** One saved design: its thumbnail (read when the tile is on screen), name, age and menu. */
+function DesignTile({ d, lead = false }: { d: Saved; lead?: boolean }) {
+  const thumb = useDesignThumb(d.id, d.updatedAt);
   return (
-    <>
-      {folders.length > 0 && (
+    <div className="design-tile" data-lead={lead || undefined}>
+      <button type="button" className="design-thumb" onClick={() => void openDesign(d.id)} aria-label={`Open ${d.name}`}>
+        {thumb ? <img src={thumb} alt="" decoding="async" /> : <Icon name="design" size={28} />}
+        {lead && <span className="design-continue">Continue</span>}
+      </button>
+      <span className="design-tile-name">{d.name}</span>
+      <span className="design-tile-meta">
+        {ago(d.updatedAt)}
+        {lead && sizeOf(d) && ` · ${sizeOf(d)}`}
+      </span>
+      <button type="button" className="btn ghost small design-tile-more" aria-label={`More for ${d.name}`} onClick={(e) => designMenu(d, e.currentTarget.getBoundingClientRect())}>
+        ⋯
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Your designs, first on the page: the newest as a shelf to pick up from (the latest one
+ * larger, marked Continue), and all of them, by folder, behind "All designs". A search
+ * shows the ones it matches.
+ */
+function YourDesigns({ designs, query }: { designs: readonly Saved[]; query: string }) {
+  const [all, setAll] = useState(false);
+  const [folder, setFolder] = useState<string | null>(null);
+  const folders = useMemo(() => [...new Set(designs.map((d) => d.folder))].filter(Boolean).sort((a, b) => a.localeCompare(b)), [designs]);
+  const inFolder = folder !== null && folders.includes(folder) ? folder : null;
+  const found = useMemo(() => (query ? designs.filter((d) => d.name.toLowerCase().includes(query) || d.folder.toLowerCase().includes(query)) : designs), [designs, query]);
+  const shelf = !query && !all;
+  const shown = shelf ? found.slice(0, SHELF) : inFolder === null ? found : found.filter((d) => d.folder === inFolder || d.folder.startsWith(`${inFolder}/`));
+  // The shelf starts at its beginning again when a newer design takes the lead.
+  const row = useRef<HTMLDivElement>(null);
+  const lead = designs[0]?.id;
+  useEffect(() => {
+    row.current?.scrollTo({ left: 0 });
+  }, [lead, shelf]);
+  if (!found.length) return null;
+  return (
+    <section aria-labelledby="design-yours" className="design-yours">
+      <div className="section-head">
+        <h2 id="design-yours">
+          Your designs <span className="count">{found.length}</span>
+        </h2>
+        {!query && designs.length > 1 && (
+          <button type="button" className="btn ghost small" aria-expanded={all} onClick={() => setAll(!all)}>
+            {all ? "Show recent" : `All designs${designs.length > SHELF ? ` (${designs.length})` : ""}`}
+          </button>
+        )}
+      </div>
+      {!shelf && !query && folders.length > 0 && (
         <div className="chip-row" role="group" aria-label="Design folders">
-          <button type="button" className="filter-chip" aria-pressed={folder === null} onClick={() => setFolder(null)}>
+          <button type="button" className="filter-chip" aria-pressed={inFolder === null} onClick={() => setFolder(null)}>
             All
           </button>
           {folders.map((f) => (
-            <button key={f} type="button" className="filter-chip" aria-pressed={folder === f} onClick={() => setFolder(f)}>
+            <button key={f} type="button" className="filter-chip" aria-pressed={inFolder === f} onClick={() => setFolder(f)}>
               <Icon name="folders" size={12} /> {f}
             </button>
           ))}
         </div>
       )}
-    <div className="design-grid">
-      {docs.map((d) => (
-        <div key={d.id} className="design-tile">
-          <button type="button" className="design-thumb" onClick={() => void openDesign(d.id)} aria-label={`Open ${d.name}`}>
-            {thumbs[d.id] ? <img src={thumbs[d.id]} alt="" /> : <Icon name="design" size={28} />}
+      <div ref={row} className={shelf ? "design-shelf" : "design-grid"}>
+        {shown.map((d, i) => (
+          <DesignTile key={d.id} d={d} lead={shelf && i === 0} />
+        ))}
+        {shelf && designs.length > SHELF && (
+          <button type="button" className="design-all" onClick={() => setAll(true)}>
+            All {designs.length} designs
           </button>
-          <span className="design-tile-name">{d.name}</span>
-          <button
-            type="button"
-            className="btn ghost small design-tile-more"
-            aria-label={`More for ${d.name}`}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              openMenu(r.left, r.bottom + 4, [
-                { label: "Open", onSelect: () => void openDesign(d.id) },
-                { label: "Duplicate", onSelect: () => void duplicateDesign(d.id) },
-                {
-                  label: "Move to folder…",
-                  onSelect: () => {
-                    const f = prompt("Folder (empty for none; use / for subfolders)", d.folder);
-                    if (f !== null) void moveDocumentToFolder(d.id, f);
-                  },
-                },
-                { label: "Move to Composite", onSelect: () => void moveToComposite(d.id) },
-                "separator",
-                { label: "Delete…", onSelect: () => confirm(`Delete the design “${d.name}”? Photos stay in the Library.`) && void removeStoredDocument(d.id) },
-              ]);
-            }}
-          >
-            ⋯
-          </button>
-        </div>
-      ))}
-    </div>
-    </>
+        )}
+      </div>
+    </section>
   );
 }
 
-/** The Design workspace's start: sizes to begin from, templates, and your designs. */
+/**
+ * The Design workspace's start. What you made comes first (to pick up where you left off),
+ * then sizes to begin something new from, then templates.
+ */
 export function DesignHome({ templates }: { templates?: (query: string) => React.ReactNode }) {
   const [group, setGroup] = useState<SizeGroup | "All">("Social");
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const sizes = SIZE_PRESETS.filter((p) => (q ? [p.label, ...(p.tags ?? [])].some((t) => t.toLowerCase().includes(q)) : group === "All" || p.group === group));
+  const documents = useStore(composite, (s) => s.documents);
+  const designs = useMemo(() => documents.filter((d) => d.design), [documents]);
+  useEffect(() => {
+    void refreshDocumentList();
+  }, []);
   return (
     <div className="design-home">
       <header className="design-home-head">
         <h1>Design</h1>
-        <p className="faint">Posters, posts, stories, wallpapers, flyers, cards and logos, made from your photos.</p>
-        <input className="input design-search" type="search" placeholder="Search sizes and templates (story, flyer, wallpaper…)" value={query} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setQuery(e.target.value)} aria-label="Search sizes and templates" />
+        <p className="faint">{designs.length ? "Pick up where you left off, or start something new." : "Posters, posts, stories, wallpapers, flyers, cards and logos, made from your photos. What you make is kept here."}</p>
+        <input className="input design-search" type="search" placeholder={designs.length ? "Search your designs, sizes and templates" : "Search sizes and templates (story, flyer, wallpaper…)"} value={query} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setQuery(e.target.value)} aria-label="Search your designs, sizes and templates" />
       </header>
+      <YourDesigns designs={designs} query={q} />
       <section aria-labelledby="design-sizes">
         <h2 id="design-sizes">Start with a size</h2>
         {!q && (
@@ -170,10 +201,6 @@ export function DesignHome({ templates }: { templates?: (query: string) => React
         </div>
       </section>
       {templates?.(q)}
-      <section aria-labelledby="design-yours">
-        <h2 id="design-yours">Your designs</h2>
-        <YourDesigns />
-      </section>
     </div>
   );
 }

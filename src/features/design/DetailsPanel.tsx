@@ -1,9 +1,22 @@
 import { useMemo } from "react";
 import { useStore } from "@/app/hooks";
 import { Panel } from "@/components/Panel";
+import type { CompositeDocument, Layer } from "@/core/document/model";
 import { composite, editDocument } from "@/core/document/session";
 import { detailFields, fillDetail } from "./details";
 import { textWidth } from "./insert";
+
+/**
+ * The fields as text, worked out once per layer list: the store also changes on every pan,
+ * zoom and selection, and walking every layer for each of those is wasted.
+ */
+const signatures = new WeakMap<readonly Layer[], string>();
+function signatureOf(doc: CompositeDocument | null): string {
+  if (!doc) return "[]";
+  let signature = signatures.get(doc.layers);
+  if (signature === undefined) signatures.set(doc.layers, (signature = JSON.stringify(detailFields(doc))));
+  return signature;
+}
 
 /**
  * Fill in the details: every labelled text of the design (a template's title, date, place…)
@@ -12,7 +25,7 @@ import { textWidth } from "./insert";
  */
 export function DetailsPanel() {
   // A signature of the fields, so the panel re-renders when they change and not on every edit.
-  const signature = useStore(composite, (s) => JSON.stringify(detailFields(s.doc)));
+  const signature = useStore(composite, (s) => signatureOf(s.doc));
   const fields = useMemo(() => JSON.parse(signature) as ReturnType<typeof detailFields>, [signature]);
   if (!fields.length) return null;
   return (

@@ -34,16 +34,40 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 .custom-fields { display: flex; align-items: center; gap: 4px; }
 .custom-fields .input { width: 56px; text-align: center; }
 
-.design-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.design-tile { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* Your designs: first on the page. A shelf of the newest (scrolls sideways, the latest
+   larger), or every design as a grid. */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; min-height: 24px; }
+.section-head h2 { margin: 0; }
+.design-home h2 .count { margin-left: 6px; font-weight: 500; letter-spacing: 0; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.design-shelf {
+  display: flex; align-items: flex-end; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity; scrollbar-width: thin; padding-bottom: 6px;
+}
+.design-shelf .design-tile { flex: none; width: 150px; scroll-snap-align: start; }
+.design-shelf .design-tile[data-lead] { width: 208px; }
+.design-shelf .design-tile[data-lead] .design-thumb { border-color: var(--line-strong); background: #111; }
+.design-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 12px; }
+.design-tile { position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .design-thumb {
-  aspect-ratio: 1; display: flex; align-items: center; justify-content: center; padding: 8px;
+  position: relative; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; padding: 8px; margin-bottom: 3px;
   border: 1px solid var(--line); border-radius: 6px; background: #0d0d0d; color: var(--text-faint);
 }
-.design-thumb:hover { border-color: var(--line-strong); }
-.design-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 1px 6px #000a; }
-.design-tile-name { padding-right: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
-.design-tile-more { position: absolute; right: 0; bottom: -3px; }
+.design-thumb:hover { border-color: var(--accent); }
+.design-thumb:focus-visible { border-color: var(--accent); outline: none; }
+/* The picture fits the square whatever its shape (a tall story must not stretch the tile). */
+.design-thumb img { position: absolute; inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); object-fit: contain; filter: drop-shadow(0 1px 4px #000a); }
+.design-continue {
+  position: absolute; left: 8px; bottom: 8px; padding: 3px 9px; border-radius: 11px;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 600;
+}
+.design-tile-name { padding-right: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.design-tile-meta { padding-right: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }
+.design-tile-more { position: absolute; right: 0; bottom: 2px; }
+.design-all {
+  flex: none; align-self: stretch; width: 120px; margin-bottom: 38px; border: 1px dashed var(--line-strong); border-radius: 6px;
+  background: none; color: var(--text-dim);
+}
+.design-all:hover { border-color: var(--accent); color: var(--text); }
 
 /* ─── Editor ─────────────────────────────────────────────────────────────── */
 .toolbar-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: var(--line-strong); }
@@ -73,6 +97,9 @@ button.size-card:hover .size-shape > span { border-color: var(--accent); }
 .workspace.compact .size-card { flex: none; width: 128px; scroll-snap-align: start; }
 .workspace.compact .size-card.custom { width: 176px; }
 .workspace.compact .design-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workspace.compact .design-shelf { margin: 0 -16px; padding: 0 16px 6px; scroll-padding-left: 16px; scrollbar-width: none; }
+.workspace.compact .design-shelf .design-tile { width: 124px; }
+.workspace.compact .design-shelf .design-tile[data-lead] { width: 168px; }
 .workspace.compact .make-grid { grid-template-columns: repeat(4, 1fr); }
 .workspace.compact .design-search { width: 100%; height: 36px; font-size: 16px; }
 .workspace.compact .filter-chip { height: 32px; }

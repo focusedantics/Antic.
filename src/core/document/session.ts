@@ -21,7 +21,7 @@ export type CompositeState = {
   readonly maskLayerId: string | null;
   readonly maskComponentId: string | null;
   /** Saved documents, newest first; `design`: made in the Design workspace. */
-  readonly documents: readonly { id: string; name: string; updatedAt: number; design: boolean; folder: string }[];
+  readonly documents: readonly { id: string; name: string; updatedAt: number; design: boolean; folder: string; width: number; height: number; slides: number }[];
 };
 
 export const composite = createStore<CompositeState>(() => ({
@@ -46,8 +46,18 @@ export async function refreshDocumentList() {
   composite.setState({
     documents: docs
       .map((d) => {
-        const data = d.data as { purpose?: unknown; folder?: unknown } | null;
-        return { id: d.id, name: d.name, updatedAt: d.updatedAt, design: data?.purpose === "design", folder: typeof data?.folder === "string" ? data.folder : "" };
+        const data = d.data as { purpose?: unknown; folder?: unknown; width?: unknown; height?: unknown; carousel?: { slides?: unknown } } | null;
+        const size = (v: unknown) => (typeof v === "number" && v > 0 ? v : 0);
+        return {
+          id: d.id,
+          name: d.name,
+          updatedAt: d.updatedAt,
+          design: data?.purpose === "design",
+          folder: typeof data?.folder === "string" ? data.folder : "",
+          width: size(data?.width),
+          height: size(data?.height),
+          slides: Math.max(1, Math.round(size(data?.carousel?.slides))),
+        };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt),
   });
