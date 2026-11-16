@@ -1,5 +1,5 @@
-import type { CompositeDocument, Layer, TextLayer, TextStyle } from "@/core/document/model";
-import { flatten } from "@/core/document/operations";
+import type { CompositeDocument, TextLayer, TextStyle } from "@/core/document/model";
+import { flatten, mapTree } from "@/core/document/operations";
 
 /**
  * The fill-in details of a design: its labelled text layers (`TextLayer.field`), one entry
@@ -42,7 +42,7 @@ export function fillField(layer: TextLayer, value: string, measure: Measure): Te
 
 /** Fills one detail in: every layer with that label gets the words. */
 export function fillDetail(doc: CompositeDocument, label: string, value: string, measure: Measure): CompositeDocument {
-  const fill = (layers: readonly Layer[]): Layer[] =>
-    layers.map((l) => (l.kind === "group" ? { ...l, children: fill(l.children) } : l.kind === "text" && l.field === label ? fillField(l, value, measure) : l));
-  return { ...doc, layers: fill(doc.layers) };
+  // Everything else keeps its identity (mapTree), so the renderer redraws only these layers.
+  const layers = mapTree(doc.layers, (l) => (l.kind === "text" && l.field === label ? fillField(l, value, measure) : l));
+  return layers === doc.layers ? doc : { ...doc, layers };
 }

@@ -243,6 +243,10 @@ export function CompositeView() {
   const onCanvasDown = (e: ReactPointerEvent) => {
     frameTap.current = null;
     if (e.button !== 0 || !doc) return;
+    // Working on the canvas ends typing in a panel: the arrow keys nudge the layer again
+    // instead of moving that field's caret.
+    const typing = document.activeElement;
+    if (typing instanceof HTMLElement && typing.matches("input, textarea, select") && !e.currentTarget.contains(typing)) typing.blur();
     const p = engine.clientToDoc(e.clientX, e.clientY);
     if (tool === "mask" && maskLayerId) return paintMask(e);
     const hit = layerAt(p);

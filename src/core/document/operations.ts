@@ -308,14 +308,25 @@ export function flatten(layers: readonly Layer[]): Layer[] {
   return layers.flatMap((l) => (l.kind === "group" ? [l, ...flatten(l.children)] : [l]));
 }
 
-function mapTree(layers: readonly Layer[], fn: (l: Layer) => Layer | null): Layer[] {
+/**
+ * Maps every layer of a tree (null removes one). What doesn't change keeps its identity:
+ * an untouched layer is the same object afterwards, and so is a group none of whose
+ * layers changed, and a list whose layers are all the same. Renderers and panels rely on
+ * that (an unchanged object means unchanged content) to skip work.
+ */
+export function mapTree(layers: readonly Layer[], fn: (l: Layer) => Layer | null): readonly Layer[] {
   const out: Layer[] = [];
+  let same = true;
   for (const layer of layers) {
-    const mapped = fn(layer);
-    if (!mapped) continue;
-    out.push(mapped.kind === "group" ? { ...mapped, children: mapTree(mapped.children, fn) } : mapped);
+    let mapped = fn(layer);
+    if (mapped?.kind === "group") {
+      const children = mapTree(mapped.children, fn);
+      if (children !== mapped.children) mapped = { ...mapped, children };
+    }
+    if (mapped !== layer) same = false;
+    if (mapped) out.push(mapped);
   }
-  return out;
+  return same ? layers : out;
 }
 
 export function updateLayer(doc: CompositeDocument, id: string, change: (l: Layer) => Layer): CompositeDocument {
@@ -455,7 +466,11 @@ export function arrangeLayers(doc: CompositeDocument, ids: readonly string[], ho
       }
     }
     // Inside groups that stay put; a selected group moves with its children as they are.
-    return out.map((l) => (l.kind === "group" && !set.has(l.id) ? { ...l, children: arrange(l.children) } : l));
+    return out.map((l) => {
+      if (l.kind !== "group" || set.has(l.id)) return l;
+      const children = arrange(l.children);
+      return children.every((c, i) => c === l.children[i]) ? l : { ...l, children };
+    });
   };
   const layers = arrange(doc.layers);
   return orderOf(layers) === orderOf(doc.layers) ? doc : { ...doc, layers };

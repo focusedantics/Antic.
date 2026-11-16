@@ -103,7 +103,14 @@ export class DevelopEngine {
   private offscreen: Compositor | null = null;
   private offscreenTimer = 0;
   /** The view's composite: `area` is the part of the document it holds (document px). */
-  private compositeResult: { target: Target; key: unknown[]; content: unknown[]; area: Rect } | null = null;
+  private compositeResult: { target: Target; key: unknown[]; content: unknown[]; area: Rect; scale: number; window: Rect | undefined; draft: boolean } | null = null;
+  /**
+   * A run of edits (a drag, typing): when its frames come late, the design is "heavy" and
+   * the rest of the run renders at DRAFT_SCALE, sharp again once it rests (as Develop's
+   * sliders do, and Penpot's fast mode). Fast devices never get there.
+   */
+  private editRun = { last: 0, shown: 0, late: 0, heavy: null as string | null, timer: 0 };
+  private warmTimer = 0;
   /** The whole design at a lower scale, shown around a windowed render while the view moves. */
   private compositeOverview: { target: Target; content: unknown[] } | null = null;
   private compositeOverviewTimer = 0;
@@ -164,6 +171,8 @@ export class DevelopEngine {
       const cropping = s.tool !== prev.tool || (s.tool === "crop" && s.selection !== prev.selection);
       // A pan, zoom or glide only moves what is already rendered; it sharpens once it rests.
       if (this.mode === "composite" && s.view !== prev.view) this.motion();
+      if (this.mode === "composite" && s.doc !== prev.doc && s.doc && s.doc.id === prev.doc?.id) this.edited();
+      if (this.mode === "composite" && s.selection !== prev.selection && s.doc === prev.doc) this.scheduleWarm();
       if (this.mode === "composite" && (s.doc !== prev.doc || s.view !== prev.view || s.playing !== prev.playing || cropping)) this.requestRender();
     });
     // Text rasters wait for their font; redraw when one arrives.
@@ -917,7 +926,9 @@ export class DevelopEngine {
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     if (!doc) return true;
-    const scale = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));
+    const sharp = Math.min(this.compositeScale(), 1, 8192 / Math.max(doc.width, doc.height));
+    const draft = this.editRun.heavy === doc.id && !this.editRested();
+    const scale = draft ? sharp * DRAFT_SCALE : sharp;
     const assets = catalog.getState().assets;
     const revisions = flatten(doc.layers).map((l) => {
       const id = layerAsset(l);
@@ -925,7 +936,7 @@ export class DevelopEngine {
     });
     const time = this.viewTime(doc);
     const content = [doc, revisions.join("|"), this.sources.size, time];
-    const win = this.compositeWindow(doc, scale);
+    const win = this.compositeWindow(doc, sharp);
     const key = [...content, scale, win?.x, win?.y, win?.width, win?.height];
     const overview = () => (this.compositeOverview && sameKey(this.compositeOverview.content, content) ? this.compositeOverview.target : null);
     // Moving (a glide, pinch, pan or zoom): the same design under a new mapping. Draw what
@@ -941,7 +952,11 @@ export class DevelopEngine {
       }
       const previous = this.compositeResult;
       const area = win ?? { x: 0, y: 0, width: doc.width, height: doc.height };
-      this.compositeResult = { target: this.compositor.render(doc, scale, time, win ?? undefined), key, content, area };
+      const started = performance.now();
+      const live = { focus: this.focusIndex(doc), detail: draft ? 1 / DRAFT_SCALE : 1 };
+      this.compositeResult = { target: this.compositor.render(doc, scale, time, win ?? undefined, live), key, content, area, scale, window: win ?? undefined, draft };
+      if (draft) this.editRun.shown = performance.now();
+      this.timeEdit(doc.id, draft, started);
       const whole = previous && previous.area.width === doc.width && previous.area.height === doc.height;
       if (win && whole && sameKey(previous.content, content)) {
         // Zooming in: the render of the whole design stays, to show around the window while moving.
@@ -955,6 +970,71 @@ export class DevelopEngine {
     }
     this.presentComposite(doc, this.compositeResult.target, this.compositeResult.area, overview());
     return true;
+  }
+
+  /** The top-level layer the selection is in (the lowest, with several): where edits are expected. */
+  private focusIndex(doc: CompositeDocument): number | undefined {
+    const { selection } = composite.getState();
+    if (!selection.length) return undefined;
+    const at = doc.layers.findIndex((l) => selection.includes(l.id) || (l.kind === "group" && selection.some((id) => locate(l.children, id))));
+    return at < 0 ? undefined : at;
+  }
+
+  /**
+   * No edit for a while, counted from the last draft frame too: a slow one must not be
+   * replaced by a sharp (slower) one while the drag it belongs to is still going.
+   */
+  private editRested() {
+    return performance.now() - Math.max(this.editRun.last, this.editRun.shown) >= EDIT_SETTLE_MS;
+  }
+
+  /** The open design changed: note it, and come back for a sharp render once the run of edits rests. */
+  private edited() {
+    this.editRun.last = performance.now();
+    const settle = () => {
+      if (!this.editRested()) this.editRun.timer = window.setTimeout(settle, EDIT_SETTLE_MS / 2);
+      else if (this.compositeResult?.draft) this.requestRender();
+    };
+    clearTimeout(this.editRun.timer);
+    this.editRun.timer = window.setTimeout(settle, EDIT_SETTLE_MS + 16);
+  }
+
+  /**
+   * How long a frame of an edit took the GPU, which goes on working after its calls return:
+   * a fence placed after them is looked at each frame until it has passed. Two late frames
+   * in a row make the design heavy; a sharp frame on time clears that.
+   */
+  private timeEdit(docId: string, draft: boolean, started: number) {
+    if (draft || started - this.editRun.last > EDIT_SETTLE_MS * 2) return;
+    const { gl } = this.gpu;
+    const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();
+    const check = () => {
+      if (fence && !this.lost && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED && performance.now() - started < 2000) return void requestAnimationFrame(check);
+      gl.deleteSync(fence);
+      if (performance.now() - started <= LATE_FRAME_MS) {
+        this.editRun.late = 0;
+        if (this.editRun.heavy === docId) this.editRun.heavy = null;
+      } else if (++this.editRun.late >= 2) this.editRun.heavy = docId;
+    };
+    requestAnimationFrame(check);
+  }
+
+  /** A layer was selected: have the checkpoint below it ready before the first edit. */
+  private scheduleWarm() {
+    clearTimeout(this.warmTimer);
+    this.warmTimer = window.setTimeout(() => {
+      const shown = this.compositeResult;
+      const doc = this.shownDocument(composite.getState().doc);
+      if (!shown || shown.draft || !doc || this.lost || this.mode !== "composite" || shown.content[0] !== doc || this.frameRequested) return;
+      const focus = this.focusIndex(doc);
+      if (focus === undefined) return;
+      try {
+        this.compositor.warm(doc, shown.scale, shown.content[3] as number, shown.window, { focus });
+      } catch (error) {
+        console.warn("Could not prepare the layers below the selection:", error);
+      }
+    }, 120);
   }
 
   private presentComposite(doc: CompositeDocument, image: Target, area: Rect, overview: Target | null) {
@@ -1515,6 +1595,12 @@ function smallCopy(canvas: OffscreenCanvas, longSide: number): ImageData {
 
 /** How long the view must rest after moving before it is rendered sharp again. */
 const SETTLE_MS = 140;
+/** A run of edits has rested when none came for this long. */
+const EDIT_SETTLE_MS = 220;
+/** A frame of an edit is late past this (under about 24 frames a second). */
+const LATE_FRAME_MS = 42;
+/** The share of the view's resolution a heavy design renders at while it is being edited. */
+const DRAFT_SCALE = 0.5;
 /** The photo's glide into and out of the tap-to-hide view. */
 const GLIDE_MS = 260;
 

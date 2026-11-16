@@ -64,6 +64,8 @@ describe("filling in a detail", () => {
     const copy: TextLayer = { ...layer, id: "copy" };
     const d = fillDetail({ ...doc, layers: [copy, layer, other] }, "Date", "FRI 9 JAN", measure);
     expect(d.layers.map((l) => (l as TextLayer).style.text)).toEqual(["FRI 9 JAN", "FRI 9 JAN", "SAT 14 DEC"]);
+    // The untouched layer is the same object (the renderer keeps what it drew of it).
+    expect(d.layers[2]).toBe(other);
     const saved = sanitizeDocument(JSON.parse(JSON.stringify(d)));
     expect(saved.layers[0]).toMatchObject({ field: "Date", fieldSize: 50 });
     const junk = sanitizeDocument(JSON.parse(JSON.stringify({ ...doc, layers: [{ ...layer, field: 7, fieldSize: "big" }, { ...layer, field: "  " }] })));

@@ -6,7 +6,7 @@ import { canvasToContent, layerBounds, layerPaths } from "@/core/document/operat
 import { tracePaths, shapePaths } from "@/core/document/shapes";
 import { drawOps } from "@/core/document/paint";
 import { tipLoads } from "@/core/document/brush-tips";
-import { DEFAULT_ANIMATION, docAnimation } from "@/core/document/animation";
+import { DEFAULT_ANIMATION, docAnimation, hasAnimatedLayers } from "@/core/document/animation";
 import type { AdjustmentLayer, BlendMode, CompositeDocument, EffectLayer, GradientLayer, Layer, LayerFx, PaintLayer, PaintOp, PathLayer, ShapeLayer, SlotLayer, TextLayer } from "@/core/document/model";
 import { EffectRunner } from "@/core/effects/runtime";
 import { canvasGradient, drawText, fontShorthand } from "@/core/text/draw";
@@ -26,6 +26,21 @@ function recipeKey(recipe: object): number {
   if (!id) recipeIds.set(recipe, (id = nextRecipeId++));
   return id;
 }
+
+/**
+ * What a live render (the view's) may reuse between frames. `focus`: the top-level layer
+ * the next edits are expected at (the selection); `detail`: content is rastered this many
+ * times finer than the render's scale asks (a draft render keeps the full-size rasters).
+ */
+export type LiveRender = { readonly focus?: number; readonly detail?: number };
+
+/**
+ * The canvas as it was below top-level layer `index`: an edit of that layer (or one above)
+ * starts from it instead of drawing everything underneath again. As darktable keeps the
+ * input of the module being edited: most edits come in runs on one layer.
+ */
+/** `env` is the render it belongs to (size, scale, window); `scene` the same without the size and scale. */
+type Checkpoint = { env: string; scene: string; index: number; layers: readonly Layer[]; deps: string; target: Target };
 
 const blendIndex = new Map<BlendMode, number>(BLEND_MODES.map((b, i) => [b.id, i]));
 /** Photoshop's "special eight": fill opacity fades the blend effect instead of the layer. */
@@ -63,6 +78,11 @@ export class Compositor {
    */
   private paints = new Map<string, { width: number; height: number; ops: readonly PaintOp[]; tips: string; base: OffscreenCanvas; out: OffscreenCanvas; scratch: OffscreenCanvas; used: number }>();
   private frame = 0;
+  /** At most two checkpoints: one per render size (the full view and its draft). */
+  private checkpoints: Checkpoint[] = [];
+  /** The layers of the last live render, to see where the next one differs. */
+  private lastLayers: readonly Layer[] | null = null;
+  private detail = 1;
   /** Document position of the render's top-left corner (a window renders part of the document). */
   private origin = { x: 0, y: 0 };
   /** Seconds into the document's animation loop for the render in progress. */
@@ -88,7 +108,7 @@ export class Compositor {
   /** A content size for `v` pixels, at most `max`: exact, or rounded up to a step of 2^¼. */
   private sized(v: number, max: number) {
     if (this.exact) return Math.max(1, Math.min(max, Math.ceil(v - 1e-6)));
-    return Math.max(8, Math.min(max, Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, v)) * 4) / 4))));
+    return Math.max(8, Math.min(max, Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, v * this.detail)) * 4) / 4))));
   }
 
   /**
@@ -96,24 +116,173 @@ export class Compositor {
    * effects at `time` seconds into the loop: all of it, or the `window` part
    * (document px; see `DevelopEngine.compositeWindow`). The caller releases the result.
    */
-  render(doc: CompositeDocument, scale: number, time = 0, window?: { x: number; y: number; width: number; height: number }): Target {
+  render(doc: CompositeDocument, scale: number, time = 0, window?: { x: number; y: number; width: number; height: number }, live?: LiveRender): Target {
+    const { width, height, env, scene } = this.begin(doc, scale, time, window, live);
+    try {
+      if (!live) return this.renderList(doc.layers, this.background(doc, width, height), scale, doc);
+      const { current, start } = this.resume(doc, scale, width, height, env, scene, live.focus);
+      this.lastLayers = doc.layers;
+      return this.renderList(start ? doc.layers.slice(start) : doc.layers, current, scale, doc);
+    } finally {
+      this.end();
+    }
+  }
+
+  /**
+   * Makes the checkpoint below layer `focus` ahead of the edit (a layer was just selected),
+   * so the first step of a drag or the first key typed is as quick as the rest.
+   */
+  warm(doc: CompositeDocument, scale: number, time: number, window: { x: number; y: number; width: number; height: number } | undefined, live: LiveRender) {
+    if (live.focus === undefined) return;
+    const { width, height, env, scene } = this.begin(doc, scale, time, window, live);
+    try {
+      this.pipeline.release(this.resume(doc, scale, width, height, env, scene, live.focus).current);
+    } finally {
+      this.end();
+    }
+  }
+
+  private begin(doc: CompositeDocument, scale: number, time: number, window: { x: number; y: number; width: number; height: number } | undefined, live: LiveRender | undefined) {
     this.frame++;
     this.loop = docAnimation(doc).duration;
     this.time = time;
+    this.detail = live?.detail ?? 1;
     const area = window ?? { x: 0, y: 0, width: doc.width, height: doc.height };
     this.origin = { x: area.x, y: area.y };
     const width = Math.max(1, Math.round(area.width * scale));
     const height = Math.max(1, Math.round(area.height * scale));
+    const scene = `${area.x},${area.y},${area.width},${area.height}:${doc.width}x${doc.height}:${doc.background}`;
+    return { width, height, scene, env: `${width}x${height}:${scale}:${scene}` };
+  }
+
+  private end() {
+    this.scissor(null);
+    this.origin = { x: 0, y: 0 };
+    this.detail = 1;
+    this.evict();
+  }
+
+  private background(doc: CompositeDocument, width: number, height: number): Target {
     const backdrop = this.pipeline.acquire(width, height);
     const bg = doc.background ? [...hexToRgb(doc.background), 1] : [0, 0, 0, 0];
     this.gpu.pass("solid", C.solid, { target: backdrop, uniforms: { uColor: bg } });
-    try {
-      return this.renderList(doc.layers, backdrop, scale, doc);
-    } finally {
-      this.scissor(null);
-      this.origin = { x: 0, y: 0 };
-      this.evict();
+    return backdrop;
+  }
+
+  /**
+   * The canvas to go on from and the first layer still to draw. A checkpoint that still
+   * holds (same render size, the same layer objects below it, the same photos, recipes and
+   * fonts under them) is copied; one is taken below the layer being edited: `focus`, or
+   * where the layers first differ from the last render's.
+   */
+  private resume(doc: CompositeDocument, scale: number, width: number, height: number, env: string, scene: string, focus: number | undefined): { current: Target; start: number } {
+    const layers = doc.layers;
+    const holds = (c: Checkpoint) => c.index <= layers.length && !layers[c.index]?.clip && c.layers.every((l, i) => layers[i] === l) && this.depsOf(layers, c.index) === c.deps;
+    let held = this.checkpoints.find((c) => c.env === env) ?? null;
+    let valid = !!held && holds(held);
+    const want = this.checkpointIndex(layers, focus);
+    if (!valid || (want !== undefined && want !== held!.index)) {
+      // The same picture at the other render size (the sharp one, when a draft starts):
+      // resample it, which is one pass, rather than draw all those layers again.
+      const other = this.checkpoints.find((c) => c !== held && c.scene === scene && (want === undefined || c.index === want) && holds(c));
+      if (other) {
+        if (held) this.drop(held);
+        const target = this.pipeline.acquire(width, height);
+        this.copy(other.target, target, true);
+        held = { env, scene, index: other.index, layers: other.layers, deps: other.deps, target };
+        this.checkpoints.push(held);
+        valid = true;
+      }
     }
+    // No hint (nothing selected, nothing changed): go on from what there is.
+    if (valid && held && (want === undefined || want === held.index)) {
+      this.touch(held.layers);
+      return { current: this.copyOf(held.target), start: held.index };
+    }
+    if (want === undefined) {
+      if (held) this.drop(held);
+      return { current: this.background(doc, width, height), start: 0 };
+    }
+    // Below the new checkpoint: from the old one when it sits lower, else from the start.
+    const from = valid && held && held.index < want ? held.index : 0;
+    let current = from ? this.copyOf(held!.target) : this.background(doc, width, height);
+    if (from) this.touch(held!.layers);
+    if (held) this.drop(held);
+    current = this.renderList(layers.slice(from, want), current, scale, doc);
+    this.scissor(null);
+    const kept = layers.slice(0, want);
+    this.checkpoints.push({ env, scene, index: want, layers: kept, deps: this.depsOf(layers, want), target: this.copyOf(current) });
+    while (this.checkpoints.length > 2) this.drop(this.checkpoints[0]);
+    return { current, start: want };
+  }
+
+  /**
+   * Where a checkpoint may sit for an edit at `focus` (or at the first layer that differs
+   * from the last render): never between a layer and those clipped to it, never above
+   * something that moves (it would be stale the next frame), and not at the very bottom.
+   */
+  private checkpointIndex(layers: readonly Layer[], focus: number | undefined): number | undefined {
+    let at = focus;
+    // An edit below the selection (undo, a field with copies further down) moves it there.
+    if (this.lastLayers && this.lastLayers !== layers) {
+      const last = this.lastLayers;
+      let differs = 0;
+      while (differs < layers.length && differs < last.length && layers[differs] === last[differs]) differs++;
+      if (differs < layers.length || differs < last.length) at = Math.min(at ?? differs, differs);
+    }
+    if (at === undefined) return undefined;
+    at = Math.min(at, layers.length);
+    for (let i = 0; i < at; i++)
+      if (hasAnimatedLayers([layers[i]])) {
+        at = i;
+        break;
+      }
+    while (at > 0 && layers[at]?.clip) at--;
+    return at > 0 ? at : undefined;
+  }
+
+  /** What the first `count` layers draw from besides themselves: photos, their recipes, fonts and brush tips. */
+  private depsOf(layers: readonly Layer[], count: number): string {
+    let out = `f${fontLoads.getState().generation}:t${tipLoads.getState().generation}`;
+    const walk = (list: readonly Layer[]) => {
+      for (const l of list) {
+        if (l.kind === "group") walk(l.children);
+        else if (l.kind === "image" || (l.kind === "slot" && l.assetId)) {
+          const source = this.sources(l.assetId!);
+          const recipe = l.kind === "image" ? this.recipeOf(l) : l.original ? originalRecipeFor(l.assetId!) : recipeFor(l.assetId!);
+          out += `|${source ? recipeKey(source.base) : 0}.${recipe ? recipeKey(recipe) : 0}`;
+        }
+      }
+    };
+    walk(layers.slice(0, count));
+    return out;
+  }
+
+  /** Keeps the rasters of layers under a checkpoint (they are not drawn while it holds). */
+  private touch(layers: readonly Layer[]) {
+    const walk = (list: readonly Layer[]) => {
+      for (const l of list) {
+        if (l.kind === "group") walk(l.children);
+        for (const id of [l.id, `${l.id}:frame`, `${l.id}:photo`, `${l.id}:fill`]) {
+          const hit = this.contents.get(id);
+          if (hit) hit.used = this.frame;
+        }
+      }
+    };
+    walk(layers);
+  }
+
+  private copyOf(target: Target): Target {
+    const out = this.pipeline.acquire(target.width, target.height);
+    this.copy(target, out);
+    return out;
+  }
+
+  private drop(c: Checkpoint) {
+    const i = this.checkpoints.indexOf(c);
+    if (i < 0) return;
+    this.checkpoints.splice(i, 1);
+    this.pipeline.release(c.target);
   }
 
   private renderList(layers: readonly Layer[], backdrop: Target, scale: number, doc: CompositeDocument): Target {
@@ -195,11 +364,11 @@ export class Compositor {
   }
 
   /** Copies `from` into `to` (same size and format). */
-  private copy(from: Target, to: Target) {
+  private copy(from: Target, to: Target, resample = false) {
     const { gl } = this.gpu;
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from.framebuffer);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to.framebuffer);
-    gl.blitFramebuffer(0, 0, from.width, from.height, 0, 0, to.width, to.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.blitFramebuffer(0, 0, from.width, from.height, 0, 0, to.width, to.height, gl.COLOR_BUFFER_BIT, resample ? gl.LINEAR : gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -627,6 +796,8 @@ export class Compositor {
 
   /** Forgets cached layer content, e.g. when a mask raster finished loading. */
   dispose() {
+    while (this.checkpoints.length) this.drop(this.checkpoints[0]);
+    this.lastLayers = null;
     for (const c of this.contents.values()) this.gpu.dispose(c.texture);
     this.contents.clear();
     this.paints.clear();

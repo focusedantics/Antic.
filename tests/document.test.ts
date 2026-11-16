@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   align,
+  arrangeLayers,
   contentToCanvas,
   createDocument,
   distribute,
   duplicateLayer,
   fillLayer,
+  groupLayer,
   groupLayers,
   hitTest,
   layerBounds,
@@ -15,6 +17,9 @@ import {
   shapeLayer,
   textLayer,
   ungroup,
+  updateLayer,
+  updateLayers,
+  removeLayers,
 } from "@/core/document/operations";
 import { apply } from "@/core/develop/geometry";
 
@@ -23,6 +28,41 @@ const a = shapeLayer(doc0, "rectangle");
 const b = fillLayer(doc0);
 const c = textLayer(doc0);
 const doc = { ...doc0, layers: [a, b, c] };
+
+describe("structural sharing", () => {
+  // The renderer keeps what it drew of unchanged layers (compositor checkpoints): an edit
+  // must leave every layer and group it does not touch the very same object.
+  const inner = shapeLayer(doc0, "ellipse");
+  const set = groupLayer(doc0, [inner, shapeLayer(doc0, "rectangle")], "Backdrop");
+  const other = groupLayer(doc0, [textLayer(doc0)], "Words");
+  const d = { ...doc0, layers: [set, a, other, c] };
+
+  it("an edit keeps untouched layers and groups identical", () => {
+    const moved = updateLayer(d, a.id, (l) => ({ ...l, opacity: 0.5 }));
+    expect(moved.layers[0]).toBe(set);
+    expect(moved.layers[2]).toBe(other);
+    expect(moved.layers[3]).toBe(c);
+    expect(moved.layers[1]).not.toBe(a);
+    // Inside a group: that group is new, its untouched child and the other group are not.
+    const deep = updateLayers(d, [inner.id], (l) => ({ ...l, opacity: 0.5 }));
+    expect(deep.layers[0]).not.toBe(set);
+    expect((deep.layers[0] as typeof set).children[1]).toBe(set.children[1]);
+    expect(deep.layers[2]).toBe(other);
+  });
+
+  it("an edit that changes nothing keeps the list", () => {
+    expect(updateLayer(d, "nobody", (l) => ({ ...l, opacity: 0 })).layers).toBe(d.layers);
+    expect(updateLayer(d, a.id, (l) => l).layers).toBe(d.layers);
+  });
+
+  it("removing and reordering keep the groups they do not reach", () => {
+    expect(removeLayers(d, [a.id]).layers[0]).toBe(set);
+    const front = arrangeLayers(d, [a.id], "front");
+    expect(front.layers.map((l) => l.id)).toEqual([set.id, other.id, c.id, a.id]);
+    expect(front.layers[0]).toBe(set);
+    expect(front.layers[1]).toBe(other);
+  });
+});
 
 describe("composite document", () => {
   it("maps content uv to canvas through the transform", () => {
