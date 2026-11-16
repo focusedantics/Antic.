@@ -13,6 +13,7 @@ import { TopbarTools, TourHost } from "@/features/tour/TourHost";
 import { importProgress, itemsFromDataTransfer } from "@/core/catalog/import";
 import { GPU_RESET_EVENT } from "@/core/gpu/events";
 import { catalog, loadCatalogIntoStore } from "@/core/catalog/store";
+import { repairThumbnailsOnce } from "@/core/catalog/repair";
 import { pulseActivity } from "@/lib/activity";
 import { Filmstrip } from "@/features/library/Filmstrip";
 import { LibraryCenter } from "@/features/library/Library";
@@ -212,8 +213,10 @@ export function App() {
   useEffect(() => {
     loadCatalogIntoStore()
       .then(() => {
-        // One-time background repair of thumbnails rendered with the old readback.
-        setTimeout(() => void import("@/core/gpu/develop-engine").then((m) => m.developEngine().repairThumbnails()).catch(() => undefined), 4000);
+        // One-time background repair of thumbnails rendered with the old readback. The
+        // render engine (a WebGL context and 280 kB of script) is loaded for it only when
+        // there is something to repair: not on every visit.
+        setTimeout(() => void repairThumbnailsOnce().catch(() => undefined), 4000);
       })
       .catch((error) => toast(`Could not open the library: ${error}`, "error"));
     window.addEventListener("keydown", handleKey);

@@ -1,5 +1,11 @@
 import { sourceBitsPerPixel } from "./model";
-import { createFile, DataStream, Endianness, MP4BoxBuffer, type Sample, type Track } from "mp4box";
+import type { createFile, DataStream, Sample, Track } from "mp4box";
+
+/**
+ * mp4box.js is a sixth of the app's start-up script and only reading a video needs it,
+ * so it loads with the first video (`demux` awaits it) instead of with the app.
+ */
+let lib: typeof import("mp4box");
 
 /**
  * Reads an MP4/MOV (ISO BMFF) file's tracks and sample tables with mp4box.js,
@@ -131,7 +137,7 @@ function colorSpaceOf(entry: Entry | undefined): VideoColorSpaceInit | undefined
 function videoDescription(entry: Entry | undefined): Uint8Array | undefined {
   const box = entry?.avcC ?? entry?.hvcC ?? entry?.vpcC ?? entry?.av1C;
   if (!box) return undefined;
-  const stream = new DataStream(undefined, 0, Endianness.BIG_ENDIAN);
+  const stream = new lib.DataStream(undefined, 0, lib.Endianness.BIG_ENDIAN);
   box.write(stream);
   return new Uint8Array(stream.buffer, 8);
 }
@@ -199,7 +205,7 @@ type Movie = Parameters<NonNullable<ReturnType<typeof createFile>["onReady"]>>[0
 
 /** Reads just the index, skipping the media data. Null for fragmented files (sample tables in `moof`s). */
 async function readIndex(file: Blob, chunk: number): Promise<{ mp4: ReturnType<typeof createFile>; movie: Movie } | null> {
-  const mp4 = createFile();
+  const mp4 = lib.createFile();
   let movie: Movie | null = null;
   let error: string | null = null;
   mp4.onError = (e: string) => {
@@ -213,7 +219,7 @@ async function readIndex(file: Blob, chunk: number): Promise<{ mp4: ReturnType<t
   for (let reads = 0; !movie && pos < file.size && reads < 4096; reads++) {
     const end = Math.min(file.size, pos + CHUNK);
     const ab = await file.slice(pos, end).arrayBuffer();
-    const next = mp4.appendBuffer(MP4BoxBuffer.fromArrayBuffer(ab, pos), end >= file.size);
+    const next = mp4.appendBuffer(lib.MP4BoxBuffer.fromArrayBuffer(ab, pos), end >= file.size);
     if (error) throw new Error(`Could not read this video: ${error}`);
     // mp4box says where it wants to read next: past a media data box, it jumps over it.
     pos = typeof next === "number" && next > pos ? next : end;
@@ -226,7 +232,7 @@ async function readIndex(file: Blob, chunk: number): Promise<{ mp4: ReturnType<t
 
 /** Whole-file parse with sample extraction (fragmented MP4s). */
 function readWhole(buffer: ArrayBuffer): { mp4: ReturnType<typeof createFile>; movie: Movie; samples: Map<number, Sample[]> } {
-  const mp4 = createFile(true);
+  const mp4 = lib.createFile(true);
   let movie: Movie | null = null;
   let error: string | null = null;
   const samples = new Map<number, Sample[]>();
@@ -244,7 +250,7 @@ function readWhole(buffer: ArrayBuffer): { mp4: ReturnType<typeof createFile>; m
   mp4.onSamples = (id, _user, list) => {
     samples.get(id)?.push(...list);
   };
-  mp4.appendBuffer(MP4BoxBuffer.fromArrayBuffer(buffer, 0), true);
+  mp4.appendBuffer(lib.MP4BoxBuffer.fromArrayBuffer(buffer, 0), true);
   mp4.flush();
   if (error) throw new Error(`Could not read this video: ${error}`);
   if (!movie) throw new Error("Could not read this video (not an MP4/MOV file, or it is damaged).");
@@ -253,6 +259,7 @@ function readWhole(buffer: ArrayBuffer): { mp4: ReturnType<typeof createFile>; m
 
 /** `readSize`: bytes per read while looking for the index (tests use small reads). */
 export async function demux(file: Blob, readSize = 1 << 20): Promise<Demuxed> {
+  lib ??= await import("mp4box");
   const indexed = await readIndex(file, readSize);
   const whole = indexed ? null : readWhole(await file.arrayBuffer());
   const mp4 = indexed?.mp4 ?? whole!.mp4;

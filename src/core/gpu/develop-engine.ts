@@ -2,10 +2,12 @@ import { prefersReducedMotion } from "@/lib/pacing";
 import { placeClear } from "@/lib/fit";
 import { device, viewDpr } from "@/lib/device";
 import { beginActivity } from "@/lib/activity";
+import { holdMotion } from "@/lib/motion";
 import { similarImages } from "./verify";
 import { composeExport, type ExportFrame } from "@/core/export/frame";
 import { type Watermark, watermarkFont } from "@/core/export/watermark";
 import { getRaster, getSetting, getThumb, putSetting, putThumb } from "@/core/catalog/db";
+import { THUMBS_REPAIRED } from "@/core/catalog/repair";
 import { catalog, getAsset, updateAsset } from "@/core/catalog/store";
 import type { AssetId } from "@/core/catalog/types";
 import { fullCrop } from "@/core/develop/defaults";
@@ -111,6 +113,8 @@ export class DevelopEngine {
    */
   private editRun = { last: 0, shown: 0, late: 0, heavy: null as string | null, timer: 0 };
   private warmTimer = 0;
+  /** While the picture is being worked on, the glow behind it holds still (see `working`). */
+  private glow = { release: null as (() => void) | null, timer: 0 };
   /** The whole design at a lower scale, shown around a windowed render while the view moves. */
   private compositeOverview: { target: Target; content: unknown[] } | null = null;
   private compositeOverviewTimer = 0;
@@ -158,6 +162,7 @@ export class DevelopEngine {
       });
     develop.subscribe((s, prev) => {
       if (s.view !== prev.view) this.motion();
+      if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.working();
       if (s.recipe !== prev.recipe || s.view !== prev.view || s.compare !== prev.compare || s.peek !== prev.peek || s.splitPosition !== prev.splitPosition || s.clipping !== prev.clipping || s.assetId !== prev.assetId || s.tool !== prev.tool || s.activeMaskId !== prev.activeMaskId || s.maskOverlay !== prev.maskOverlay || s.maskBw !== prev.maskBw)
         this.requestRender();
       if (s.recipe !== prev.recipe && s.assetId === prev.assetId) this.scheduleThumbnails();
@@ -541,6 +546,7 @@ export class DevelopEngine {
    * pass, like Lightroom's), then a sharp render replaces them.
    */
   private motion() {
+    this.working();
     this.motionUntil = performance.now() + SETTLE_MS;
     clearTimeout(this.settleTimer);
     this.settleTimer = window.setTimeout(() => this.requestRender(), SETTLE_MS + 16);
@@ -981,6 +987,19 @@ export class DevelopEngine {
   }
 
   /**
+   * An edit just happened (a slider, a drag, a key): the glow behind the picture holds
+   * still until the edits stop, so every frame the GPU has goes to the picture.
+   */
+  private working() {
+    this.glow.release ??= holdMotion();
+    clearTimeout(this.glow.timer);
+    this.glow.timer = window.setTimeout(() => {
+      this.glow.release?.();
+      this.glow.release = null;
+    }, 700);
+  }
+
+  /**
    * No edit for a while, counted from the last draft frame too: a slow one must not be
    * replaced by a sharp (slower) one while the drag it belongs to is still going.
    */
@@ -990,6 +1009,7 @@ export class DevelopEngine {
 
   /** The open design changed: note it, and come back for a sharp render once the run of edits rests. */
   private edited() {
+    this.working();
     this.editRun.last = performance.now();
     const settle = () => {
       if (!this.editRested()) this.editRun.timer = window.setTimeout(settle, EDIT_SETTLE_MS / 2);
@@ -1451,7 +1471,7 @@ export class DevelopEngine {
    * (on some GPUs those came out blank or wrong). Runs once per catalog, in the background.
    */
   async repairThumbnails() {
-    const flag = "thumbs-readback-v2";
+    const flag = THUMBS_REPAIRED;
     if (await getSetting(flag)) return;
     const { invalidateImage } = await import("@/app/thumbs");
     for (const asset of [...catalog.getState().assets.values()]) {
